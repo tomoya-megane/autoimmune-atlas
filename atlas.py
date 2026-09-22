@@ -6,20 +6,28 @@ import csv
 import io
 from collections import defaultdict
 
+DRUG_TYPE_MODALITIES = (
+    ("Small molecule", "small_molecule"),
+    ("Antibody", "antibody"),
+    ("Protein", "protein"),
+    ("Cell", "cell"),
+    ("Gene", "gene"),
+    ("Enzyme", "enzyme"),
+    ("Oligonucleotide", "oligonucleotide"),
+    ("Unknown", "unknown"),
+)
+DRUG_TYPE_TO_MODALITY = dict(DRUG_TYPE_MODALITIES)
 
-def summarize(snapshot: dict, annotations: list[dict], mode: str, modality: str, threshold: float) -> list[dict]:
+
+def summarize(snapshot: dict, modality: str, threshold: float) -> list[dict]:
     """同じ標的を一度だけ数え、未判定を下限値または欠測として残す。
 
     Parameters
     ----------
     snapshot : dict
         取得した疾患、薬剤と発現量。
-    annotations : list[dict]
-        疾患と薬剤と標的を指定した、出典付きの薬効細胞注釈。
-    mode : str
-        expression または mechanism。
     modality : str
-        all、small_molecule、antibody、other。
+        all または Open Targets の薬剤型に対応する値。
     threshold : float
         発現陽性とする中央値の下限。この値を超えると陽性。
 
@@ -35,15 +43,11 @@ def summarize(snapshot: dict, annotations: list[dict], mode: str, modality: str,
         for row in rows:
             cells[row["cell_id"]] = row["cell"]
             expression[target, row["cell_id"]] = row["median"]
-    evidence = {}
-    for row in annotations:
-        cells[row["cell_id"]] = row["cell"]
-        if "drug_id" in row:
-            evidence[row["disease_id"], row["drug_id"], row["target_id"], row["cell_id"]] = row
     records = defaultdict(list)
     for row in snapshot.get("records", []):
-        if modality == "all" or row["modality"] == modality:
-            records[row["disease_id"]].append(row)
+        row_modality = DRUG_TYPE_TO_MODALITY[row["drug_type"]]
+        if modality == "all" or row_modality == modality:
+            records[row["disease_id"]].append({**row, "modality": row_modality})
     output = []
     for disease in snapshot["diseases"]:
         drugs = records[disease["id"]]
@@ -57,26 +61,15 @@ def summarize(snapshot: dict, annotations: list[dict], mode: str, modality: str,
                 if not target:
                     continue
                 value = expression.get((target, cell_id))
-                annotation = evidence.get((disease["id"], row["drug_id"], target, cell_id))
-                if mode == "expression":
-                    state = None if value is None else value > threshold
-                    source = "https://platform.opentargets.org/target/" + target
-                    note = f"Tabula Sapiens / median {value:g} CPM" if value is not None else ""
-                else:
-                    state = None if annotation is None else annotation["status"] == "yes"
-                    source = annotation["source"] if annotation else ""
-                    note = annotation["note"] if annotation else ""
+                state = None if value is None else value > threshold
+                source = "https://platform.opentargets.org/target/" + target
+                note = f"Tabula Sapiens / median {value:g} CPM" if value is not None else ""
                 if state is True:
                     positive.add(target)
                     selected.append({**row, "cell_id": cell_id, "cell": cell, "evidence": source, "note": note})
                 elif state is False:
-                    negative.add((row["drug_id"], target))
-            # 薬効モードの陰性は、その標的を持つ全薬剤で確認できたときに限る。
-            ruled_out = {
-                target for target in targets
-                if all((r["drug_id"], target) in negative for r in drugs if r["target_id"] == target)
-            }
-            unknown = len(targets - positive - ruled_out)
+                    negative.add(target)
+            unknown = len(targets - positive - negative)
             complete = disease["status"] == "ready"
             incomplete = unknown > 0 or bool(unmapped)
             count = len(positive) if complete and (positive or not incomplete) else None

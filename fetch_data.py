@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+from atlas import DRUG_TYPE_TO_MODALITY
+
 API_HOST = "api.platform.opentargets.org"
 API_PATH = "/api/v4/graphql"
 ROOT_ID = "MONDO_0007179"
@@ -65,7 +67,10 @@ def normalize_drugs(rows: list[dict]) -> list[dict]:
         if not drug:
             raise ValueError("臨床段階を満たす行に薬剤情報がありません")
         kind = drug["drugType"]
-        modality = {"Small molecule": "small_molecule", "Antibody": "antibody", "Unknown": "unknown"}.get(kind, "other")
+        try:
+            modality = DRUG_TYPE_TO_MODALITY[kind]
+        except KeyError as error:
+            raise ValueError(f"未対応の薬剤型: {kind}") from error
         drugs.append({"drug_id": drug["id"], "drug": drug["name"].lower(), "modality": modality, "drug_type": kind, "stage": stage})
     return drugs
 

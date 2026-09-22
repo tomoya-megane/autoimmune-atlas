@@ -4,43 +4,10 @@ from __future__ import annotations
 
 import csv
 import io
-import tempfile
 import unittest
-from pathlib import Path
 
 import app
 import atlas
-
-
-class AnnotationTests(unittest.TestCase):
-    """注釈 CSV の入力境界を検証する。"""
-
-    def test_missing_annotation_file_is_empty(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            self.assertEqual(app.load_annotations(Path(directory) / "missing.csv"), [])
-
-    def test_invalid_source_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "annotations.csv"
-            path.write_text(
-                "disease_id,drug_id,target_id,cell_id,cell,status,source,note\n"
-                "D1,R1,T1,C1,B cell,yes,ftp://example.org,evidence\n",
-                encoding="utf-8",
-            )
-            with self.assertRaisesRegex(ValueError, "HTTP"):
-                app.load_annotations(path)
-
-    def test_conflicting_duplicate_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "annotations.csv"
-            path.write_text(
-                "disease_id,drug_id,target_id,cell_id,cell,status,source,note\n"
-                "D1,R1,T1,C1,B cell,yes,https://example.org,a\n"
-                "D1,R1,T1,C1,B cell,no,https://example.org,b\n",
-                encoding="utf-8",
-            )
-            with self.assertRaisesRegex(ValueError, "duplicate"):
-                app.load_annotations(path)
 
 
 class FigureTests(unittest.TestCase):
@@ -86,6 +53,14 @@ class FigureTests(unittest.TestCase):
         self.assertEqual(exported["status"], "partial")
         self.assertEqual(exported["denominator"], "5")
 
+    def test_missing_detail_does_not_claim_absence(self) -> None:
+        panel = app.detail_panel(
+            [_summary("C1", "B cell", None, None, "partial", unknown=5)],
+            ("D1", "C1"),
+        )
+
+        self.assertIn("insufficient", str(panel))
+
 
 class SelectionTests(unittest.TestCase):
     """フィルター変更後に以前のセルを参照しないことを検証する。"""
@@ -117,6 +92,71 @@ class AppTests(unittest.TestCase):
                 response = client.get(path)
                 self.assertEqual(response.status_code, 200)
         self.assertIn(b"Autoimmune", client.get("/").data)
+
+    def test_expression_callbacks_and_csv(self) -> None:
+        """実際のコールバック経由で発現表示、詳細、CSV の連携を確認する。"""
+        client = app.app.server.test_client()
+        layout = client.get("/_dash-layout").get_json()
+        components = {}
+
+        def collect(node):
+            if isinstance(node, dict):
+                props = node.get("props", {})
+                if "id" in props:
+                    components[props["id"]] = props
+                for value in node.values():
+                    collect(value)
+            elif isinstance(node, list):
+                for value in node:
+                    collect(value)
+
+        collect(layout)
+        self.assertNotIn("mode", components)
+        self.assertNotIn("annotation-note", components)
+        self.assertEqual(
+            [option["value"] for option in components["modality"]["options"]],
+            ["all", "small_molecule", "antibody", "protein", "cell", "gene", "enzyme", "oligonucleotide", "unknown"],
+        )
+        values = {
+            ("measure", "value"): "percent",
+            ("modality", "value"): "protein",
+            ("threshold", "value"): None,
+            ("diseases", "value"): ["EFO_1001466"],
+            ("cells", "value"): ["CL_0000015"],
+            ("detail-disease", "value"): "EFO_1001466",
+            ("detail-cell", "value"): "CL_0000015",
+            ("heatmap", "clickData"): None,
+            ("download-button", "n_clicks"): 1,
+        }
+        responses = {}
+        for key, callback in app.app.callback_map.items():
+            outputs = callback["output"]
+            outputs = outputs if isinstance(outputs, list) else [outputs]
+            output_data = [{"id": item.component_id, "property": item.component_property} for item in outputs]
+            for item in callback["inputs"] + callback["state"]:
+                self.assertIn(item["id"], components)
+            response = client.post("/_dash-update-component", json={
+                "output": key,
+                "outputs": output_data if isinstance(callback["output"], list) else output_data[0],
+                "inputs": [{**item, "value": values[item["id"], item["property"]]} for item in callback["inputs"]],
+                "state": [{**item, "value": values[item["id"], item["property"]]} for item in callback["state"]],
+                "changedPropIds": ["detail-cell.value"],
+            })
+            self.assertEqual(response.status_code, 200, response.data)
+            responses.update(response.get_json()["response"])
+        self.assertEqual(components["threshold"]["value"], 0.5)
+        self.assertEqual(app.effective_threshold(0), 0)
+        expected = app.visible_rows(app.SNAPSHOT, "protein", None, ["EFO_1001466"], ["CL_0000015"])[0]
+        self.assertEqual(responses["heatmap"]["figure"]["data"][0]["z"][0][0], expected["percent"])
+        self.assertIn("Median CPM > 0.5", responses["matrix-note"]["children"])
+        self.assertIn("Tabula Sapiens", str(responses["details"]))
+        exported = list(csv.DictReader(io.StringIO(responses["download"]["data"]["content"].lstrip("\ufeff"))))
+        self.assertTrue(exported)
+        self.assertEqual({row["mode"] for row in exported}, {"expression"})
+        self.assertEqual({row["modality_filter"] for row in exported}, {"protein"})
+        self.assertEqual({row["modality"] for row in exported}, {"protein"})
+        self.assertEqual({row["expression_threshold"] for row in exported}, {"0.5"})
+        self.assertTrue(all(row["data_version"] and row["retrieved_at"] for row in exported))
 
 
 def _summary(

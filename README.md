@@ -1,10 +1,10 @@
 # Autoimmune Atlas
 
-自己免疫疾患ごとに、Phase III 以降の薬剤の分子標的を細胞型に対応付けるローカルアプリ。
+自己免疫疾患ごとに、Phase III 以降の薬剤の標的遺伝子がどの細胞型で発現するかを調べるローカルアプリ。
 Python の Dash と Plotly を使う。
 
 画面構成は Open Targets の [Associations on the Fly](https://platform-docs.opentargets.org/web-interface/associations-on-the-fly) を参考にしている。
-小さな概要欄、表示モードのタブ、比較表の近くのフィルター、根拠を表示する詳細欄を採用した。
+小さな概要欄、比較表の近くのフィルター、根拠を表示する詳細欄を採用した。
 配色と余白はこのアプリ向けの調整であり、Open Targets のテーマをそのまま移植したものではない。
 
 ## 起動
@@ -46,17 +46,18 @@ Python の変更による再読み込みでは、選択したフィルターは�
 標的未判明の薬剤は分母に入れず、件数を別に表示する。
 複合体の構成遺伝子はそれぞれ数えるため、標的複合体や作用機序の個数とは一致しない。
 
-| 細胞への対応付け | 判定 | 解釈の限界 |
-| --- | --- | --- |
-| 標的発現 | Tabula Sapiens の細胞型別 pseudobulk のドナー中央値が閾値を超える | 健常時の発現であり、薬効や疾患時の発現を示さない |
-| 薬効に関わる細胞 | 疾患、薬剤、標的、細胞を指定した出典付き注釈 | 注釈は一部のみ。未調査を陰性にしない |
-| 未判定 | 発現値や薬効注釈がない | 0 と区別して NA または下限値として表示する |
+細胞への対応付けは、標的遺伝子の発現だけで判定する。
+ヒートマップの色は、発現が閾値を超えた標的数または割合を表し、発現量そのものや薬効の強さを表さない。
+疾患間の差は治療薬と標的の構成の差であり、同じ細胞型における疾患別の発現変化ではない。
+発現値がない標的は未判定として扱い、測定値が閾値以下の標的と区別する。
 
 発現データは Open Targets に統合された Tabula Sapiens のうち、細胞型のみで集約した値を使う。
 組織別や組織と細胞型の組合せの行は混ぜない。
 単位は `CPM(pseudobulk sum[counts])`、初期閾値は中央値 `> 0.5 CPM`。
 閾値は画面から変更できる。
+閾値の入力を空にすると初期値を使う。
 DICE の TPM と単位を混ぜず、単一細胞の生カウントも扱わない。
+健常時の発現なので、疾患組織での発現や薬効を担う細胞を確定するものではない。
 [発現データの作成方法](https://platform-docs.opentargets.org/target/baseline-expression)を参照。
 
 `≥` は少なくとも確認できた標的数または割合を表す。
@@ -69,18 +70,7 @@ DICE の TPM と単位を混ぜず、単一細胞の生カウントも扱わな�
 細胞型間の排他的な割合ではなく、複数の細胞型で同じ標的が数えられる。
 
 モダリティは Open Targets の薬剤型で区分する。
-`Small molecule` は低分子、`Antibody` は抗体、既知のその他の型はその他とする。
-型不明は「すべて」にのみ含める。
-
-## 薬効注釈の追加
-
-`data/cell_annotations.csv` に、疾患 ID、薬剤 ID、標的 ID、細胞 ID、細胞名、`status`、出典 URL、根拠の要約を記す。
-`status` は `yes` または `no` とし、未調査は行を作らない。
-ある薬剤や疾患の注釈を、他の薬剤や疾患へ自動で広げない。
-編集後はアプリを再起動する。
-
-初期注釈は EMA の [MabThera](https://www.ema.europa.eu/en/medicines/human/EPAR/mabthera)、[Orencia](https://www.ema.europa.eu/en/medicines/human/EPAR/orencia)、[Benlysta](https://www.ema.europa.eu/en/medicines/human/EPAR/benlysta) に基づく。
-RA の rituximab と abatacept、SLE の belimumab に限って登録してあり、薬効モードは網羅的な比較には使えない。
+`Small molecule`、`Antibody`、`Protein`、`Cell`、`Gene`、`Enzyme`、`Oligonucleotide`、`Unknown` を個別に選べる。
 
 ## データ更新と検証
 
@@ -100,4 +90,4 @@ pixi run refresh
 pixi run test
 ```
 
-テストは標的の重複除去、モダリティによる分母変更、欠測、薬効注釈の適用範囲、CSV、画面の応答を確認する。
+テストは標的の重複除去、モダリティによる分母変更、発現閾値、欠測、CSV、画面の応答を確認する。

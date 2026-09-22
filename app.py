@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from pathlib import Path
-from urllib.parse import urlparse
 
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, ctx, dcc, html
@@ -15,18 +13,8 @@ import atlas
 
 BASE_DIR = Path(__file__).parent
 SNAPSHOT_PATH = BASE_DIR / "data" / "snapshot.json"
-ANNOTATION_PATH = BASE_DIR / "data" / "cell_annotations.csv"
-ANNOTATION_FIELDS = {
-    "disease_id",
-    "drug_id",
-    "target_id",
-    "cell_id",
-    "cell",
-    "status",
-    "source",
-    "note",
-}
-FILTER_IDS = {"mode", "measure", "modality", "threshold", "diseases", "cells"}
+FILTER_IDS = {"measure", "modality", "threshold", "diseases", "cells"}
+DEFAULT_EXPRESSION_THRESHOLD = 0.5
 
 
 def load_snapshot(path: Path) -> dict | None:
@@ -65,58 +53,13 @@ def load_snapshot(path: Path) -> dict | None:
     return snapshot
 
 
-def load_annotations(path: Path) -> list[dict]:
-    """薬効細胞注釈を読み、矛盾する行を拒否する。
-
-    Parameters
-    ----------
-    path : Path
-        CSV ファイルのパス。
-
-    Returns
-    -------
-    list[dict]
-        重複を除いた注釈。
-
-    Raises
-    ------
-    ValueError
-        列、値、出典 URL、または重複するキーが不正な場合。
-
-    """
-    if not path.exists():
-        return []
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        missing = ANNOTATION_FIELDS - set(reader.fieldnames or [])
-        if missing:
-            raise ValueError("Missing required columns in cell_annotations.csv: " + ", ".join(sorted(missing)))
-        annotations: dict[tuple[str, str, str, str], dict] = {}
-        for line_number, raw in enumerate(reader, 2):
-            row = {field: (raw.get(field) or "").strip() for field in ANNOTATION_FIELDS}
-            empty = sorted(field for field in ANNOTATION_FIELDS - {"note"} if not row[field])
-            if empty:
-                raise ValueError(f"cell_annotations.csv line {line_number} has empty fields: {', '.join(empty)}")
-            if row["status"] not in {"yes", "no"}:
-                raise ValueError(f"cell_annotations.csv line {line_number}: status must be yes or no")
-            source = urlparse(row["source"])
-            if source.scheme not in {"http", "https"} or not source.netloc:
-                raise ValueError(f"cell_annotations.csv line {line_number}: source must be an HTTP(S) URL")
-            key = row["disease_id"], row["drug_id"], row["target_id"], row["cell_id"]
-            if key in annotations and annotations[key] != row:
-                raise ValueError(f"cell_annotations.csv line {line_number} contains a conflicting duplicate")
-            annotations[key] = row
-    return list(annotations.values())
-
-
-def cell_catalog(snapshot: dict, annotations: list[dict]) -> list[tuple[str, str]]:
-    """発現と注釈に現れる細胞型を名前順で返す。"""
+def cell_catalog(snapshot: dict) -> list[tuple[str, str]]:
+    """発現データに現れる細胞型を名前順で返す。"""
     cells = {
         row["cell_id"]: row["cell"]
         for rows in snapshot.get("expression", {}).values()
         for row in rows
     }
-    cells.update({row["cell_id"]: row["cell"] for row in annotations})
     return sorted(cells.items(), key=lambda item: item[1].casefold())
 
 
@@ -157,8 +100,6 @@ def format_data_version(value: object) -> str:
 
 def visible_rows(
     snapshot: dict,
-    annotations: list[dict],
-    mode: str,
     modality: str,
     threshold: float | None,
     disease_ids: list[str] | None,
@@ -167,12 +108,17 @@ def visible_rows(
     """集計結果を現在の疾患と細胞型へ絞る。"""
     selected_diseases = set(disease_ids or [])
     selected_cells = set(cell_ids or [])
-    rows = atlas.summarize(snapshot, annotations, mode, modality, max(0.0, threshold or 0.0))
+    rows = atlas.summarize(snapshot, modality, effective_threshold(threshold))
     return [
         row
         for row in rows
         if row["disease_id"] in selected_diseases and row["cell_id"] in selected_cells
     ]
+
+
+def effective_threshold(threshold: float | None) -> float:
+    """入力が空なら初期値を使い、負の値は 0 に丸める。"""
+    return DEFAULT_EXPRESSION_THRESHOLD if threshold is None else max(0.0, threshold)
 
 
 def _is_lower_bound(row: dict, measure: str) -> bool:
@@ -327,7 +273,12 @@ def detail_panel(rows: list[dict], selection: tuple[str, str] | None) -> html.Di
         ],
     )
     if not row["records"]:
-        return html.Div([summary, html.P("No drug–target evidence is available for this selection.", className="empty-note")])
+        message = (
+            "Available data are insufficient to determine an expressed-target count for this selection."
+            if row["count"] is None
+            else "No mapped drug targets have measured expression above the threshold for this selection."
+        )
+        return html.Div([summary, html.P(message, className="empty-note")])
     body = []
     for record in row["records"]:
         source = (
@@ -354,7 +305,7 @@ def detail_panel(rows: list[dict], selection: tuple[str, str] | None) -> html.Di
             html.Div(
                 html.Table(
                     [
-                        html.Thead(html.Tr([html.Th(item) for item in ("Drug", "Modality", "Stage", "Target", "Mechanism of action", "Evidence notes", "Source")])),
+                        html.Thead(html.Tr([html.Th(item) for item in ("Drug", "Modality", "Stage", "Target", "Mechanism of action", "Expression evidence", "Source")])),
                         html.Tbody(body),
                     ],
                 ),
@@ -368,7 +319,6 @@ def export_rows(
     rows: list[dict],
     measure: str,
     *,
-    mode: str = "",
     modality_filter: str = "",
     expression_threshold: float | None = None,
     snapshot: dict | None = None,
@@ -386,7 +336,7 @@ def export_rows(
                     "disease": row["disease"],
                     "cell_id": row["cell_id"],
                     "cell": row["cell"],
-                    "mode": mode,
+                    "mode": "expression",
                     "measure": measure,
                     "modality_filter": modality_filter,
                     "expression_threshold": expression_threshold,
@@ -431,10 +381,10 @@ def unavailable_layout(error: Exception | None = None) -> html.Main:
     )
 
 
-def dashboard_layout(snapshot: dict, annotations: list[dict]) -> html.Main:
+def dashboard_layout(snapshot: dict) -> html.Main:
     """読み込んだデータから dashboard の初期画面を作る。"""
     diseases = [(row["id"], row["name"]) for row in snapshot["diseases"]]
-    cells = cell_catalog(snapshot, annotations)
+    cells = cell_catalog(snapshot)
     default_diseases = choose_defaults(
         diseases,
         (
@@ -460,11 +410,6 @@ def dashboard_layout(snapshot: dict, annotations: list[dict]) -> html.Main:
     unclassified = sum(row.get("unclassified_stages", 0) for row in snapshot["diseases"])
     data_version = format_data_version(snapshot.get("data_version"))
     source = "https://platform.opentargets.org/"
-    annotation_note = (
-        f"Mechanism-based cell annotations are incomplete ({len(annotations)} entries). Combinations without annotations are unassessed."
-        if annotations
-        else "No mechanism-based cell annotations are available. Missing annotations are shown as unknown, not zero."
-    )
     return html.Main(
         [
             html.Nav(
@@ -487,8 +432,8 @@ def dashboard_layout(snapshot: dict, annotations: list[dict]) -> html.Main:
                     html.Div(
                         [
                             html.P("AUTOIMMUNE DISEASE / DRUG TARGETS", className="eyebrow"),
-                            html.H1("Autoimmune disease atlas"),
-                            html.P("Compare target expression and mechanism-based cell annotations for drugs reaching Phase III or later in each disease.", className="lede"),
+                            html.H1("Drug target expression by cell type"),
+                            html.P("Explore which cell types express the targets of drugs reaching Phase III or later in each autoimmune disease.", className="lede"),
                         ],
                     ),
                     html.Div(
@@ -511,22 +456,13 @@ def dashboard_layout(snapshot: dict, annotations: list[dict]) -> html.Main:
                 ],
                 className="source-bar",
             ),
-            dcc.Tabs(
-                id="mode",
-                value="expression",
-                className="mapping-tabs",
-                children=[
-                    dcc.Tab(label="Target expression", value="expression", className="mapping-tab", selected_className="mapping-tab--selected"),
-                    dcc.Tab(label="Mechanism-based annotations", value="mechanism", className="mapping-tab", selected_className="mapping-tab--selected"),
-                ],
-            ),
             html.Section(
                 [
                     html.Div(
                         [
                             html.Div([html.Label("Measure", htmlFor="measure"), dcc.RadioItems(id="measure", options=[{"label": "Target count", "value": "count"}, {"label": "Share of known targets within disease (%)", "value": "percent"}], value="count", inline=True)], className="control"),
-                            html.Div([html.Label("Drug modality", htmlFor="modality"), dcc.Dropdown(id="modality", options=[{"label": label, "value": value} for label, value in (("All", "all"), ("Small molecule", "small_molecule"), ("Antibody", "antibody"), ("Other", "other"))], value="all", clearable=False)], className="control"),
-                            html.Div([html.Label("Expression threshold (median CPM > value)", htmlFor="threshold"), dcc.Input(id="threshold", type="number", min=0, step=0.1, value=0.5)], className="control"),
+                            html.Div([html.Label("Drug modality", htmlFor="modality"), dcc.Dropdown(id="modality", options=[{"label": label, "value": value} for label, value in (("All", "all"),) + atlas.DRUG_TYPE_MODALITIES], value="all", clearable=False)], className="control"),
+                            html.Div([html.Label("Expression threshold (median CPM > value)", htmlFor="threshold"), dcc.Input(id="threshold", type="number", min=0, step=0.1, value=DEFAULT_EXPRESSION_THRESHOLD)], className="control"),
                         ],
                         className="control-grid compact",
                     ),
@@ -543,11 +479,11 @@ def dashboard_layout(snapshot: dict, annotations: list[dict]) -> html.Main:
                         ],
                         className="filter-details",
                     ),
-                    html.P(annotation_note, id="annotation-note", className="annotation-note"),
                     html.Details(
                         [
                             html.Summary("How to read this view"),
-                            html.P("Expression mode uses healthy-donor Tabula Sapiens pseudobulk data and selects targets whose median across donors exceeds the threshold. It does not establish expression in diseased tissue or therapeutic efficacy."),
+                            html.P("This view uses healthy-donor Tabula Sapiens pseudobulk data and selects targets whose median across donors exceeds the threshold. It does not establish expression in diseased tissue or therapeutic efficacy."),
+                            html.P("Differences between diseases reflect their drug targets, not disease-specific changes in expression."),
                             html.P("Example: ≥42 means at least 42 targets; unresolved targets may increase the count. A value of 42 is fully assessed within the selected scope. Percentages carry ≥ only when known targets in the denominator remain unassessed."),
                         ],
                         className="methods-note",
@@ -557,7 +493,8 @@ def dashboard_layout(snapshot: dict, annotations: list[dict]) -> html.Main:
             ),
             html.Section(
                 [
-                    html.Div([html.H2("Drug targets by disease and cell type"), html.Button("Download CSV", id="download-button", n_clicks=0), dcc.Download(id="download")], className="section-heading"),
+                    html.Div([html.H2("Expressed drug targets by disease and cell type"), html.Button("Download CSV", id="download-button", n_clicks=0), dcc.Download(id="download")], className="section-heading"),
+                    html.P("Color shows the number or share of targets above the expression threshold, not expression levels or drug efficacy.", className="matrix-note"),
                     html.P(id="matrix-note", className="matrix-note"),
                     html.P("≥ Lower bound · × Unknown / missing · Click a cell to inspect its evidence", className="matrix-note"),
                     html.Div(dcc.Graph(id="heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll"),
@@ -588,15 +525,13 @@ def dashboard_layout(snapshot: dict, annotations: list[dict]) -> html.Main:
 
 try:
     SNAPSHOT = load_snapshot(SNAPSHOT_PATH)
-    ANNOTATIONS = load_annotations(ANNOTATION_PATH) if SNAPSHOT is not None else []
     LOAD_ERROR: Exception | None = None
-except (OSError, csv.Error, json.JSONDecodeError, ValueError, TypeError, KeyError) as error:
+except (OSError, json.JSONDecodeError, ValueError, TypeError, KeyError) as error:
     SNAPSHOT = None
-    ANNOTATIONS = []
     LOAD_ERROR = error
 
-app = Dash(__name__, title="Autoimmune Drug–Cell Atlas")
-app.layout = unavailable_layout(LOAD_ERROR) if SNAPSHOT is None else dashboard_layout(SNAPSHOT, ANNOTATIONS)
+app = Dash(__name__, title="Autoimmune Target Expression Atlas")
+app.layout = unavailable_layout(LOAD_ERROR) if SNAPSHOT is None else dashboard_layout(SNAPSHOT)
 
 
 if SNAPSHOT is not None:
@@ -604,22 +539,19 @@ if SNAPSHOT is not None:
     @app.callback(
         Output("heatmap", "figure"),
         Output("matrix-note", "children"),
-        Input("mode", "value"),
         Input("measure", "value"),
         Input("modality", "value"),
         Input("threshold", "value"),
         Input("diseases", "value"),
         Input("cells", "value"),
     )
-    def update_figure(mode, measure, modality, threshold, disease_ids, cell_ids):
+    def update_figure(measure, modality, threshold, disease_ids, cell_ids):
         """現在の条件で heatmap と欠測の説明を更新する。"""
-        rows = visible_rows(SNAPSHOT, ANNOTATIONS, mode, modality, threshold, disease_ids, cell_ids)
+        rows = visible_rows(SNAPSHOT, modality, threshold, disease_ids, cell_ids)
         figure = build_figure(rows, disease_ids or [], cell_ids or [], measure)
         missing = sum((row["percent"] if measure == "percent" else row["count"]) is None for row in rows)
         partial = sum(_is_lower_bound(row, measure) for row in rows)
-        note = f"{len(rows)} combinations | Lower bounds {partial} | Unknown / missing {missing}"
-        if mode == "mechanism":
-            note += " | Mechanism-based annotations are incomplete; unannotated combinations are unassessed"
+        note = f"Median CPM > {effective_threshold(threshold):g} | {len(rows)} combinations | Lower bounds {partial} | Unknown / missing {missing}"
         if measure == "percent":
             unmapped = sum(
                 max((row["unmapped_drugs"] for row in rows if row["disease_id"] == disease_id), default=0)
@@ -643,7 +575,7 @@ if SNAPSHOT is not None:
         disease_ids = disease_ids or []
         cell_ids = cell_ids or []
         disease_names = {row["id"]: row["name"] for row in SNAPSHOT["diseases"]}
-        cell_names = dict(cell_catalog(SNAPSHOT, ANNOTATIONS))
+        cell_names = dict(cell_catalog(SNAPSHOT))
         return (
             [{"label": disease_names[item], "value": item} for item in disease_ids],
             current_disease if current_disease in disease_ids else next(iter(disease_ids), None),
@@ -656,16 +588,15 @@ if SNAPSHOT is not None:
         Input("heatmap", "clickData"),
         Input("detail-disease", "value"),
         Input("detail-cell", "value"),
-        Input("mode", "value"),
         Input("measure", "value"),
         Input("modality", "value"),
         Input("threshold", "value"),
         Input("diseases", "value"),
         Input("cells", "value"),
     )
-    def update_details(click_data, detail_disease, detail_cell, mode, _measure, modality, threshold, disease_ids, cell_ids):
+    def update_details(click_data, detail_disease, detail_cell, _measure, modality, threshold, disease_ids, cell_ids):
         """クリックまたは選択欄から、現在の条件に合う詳細だけを表示する。"""
-        rows = visible_rows(SNAPSHOT, ANNOTATIONS, mode, modality, threshold, disease_ids, cell_ids)
+        rows = visible_rows(SNAPSHOT, modality, threshold, disease_ids, cell_ids)
         triggered = ctx.triggered_id
         if triggered in FILTER_IDS:
             selection = None
@@ -676,7 +607,6 @@ if SNAPSHOT is not None:
     @app.callback(
         Output("download", "data"),
         Input("download-button", "n_clicks"),
-        State("mode", "value"),
         State("measure", "value"),
         State("modality", "value"),
         State("threshold", "value"),
@@ -684,16 +614,15 @@ if SNAPSHOT is not None:
         State("cells", "value"),
         prevent_initial_call=True,
     )
-    def download_csv(_clicks, mode, measure, modality, threshold, disease_ids, cell_ids):
+    def download_csv(_clicks, measure, modality, threshold, disease_ids, cell_ids):
         """表示中の matrix と対応する根拠を CSV にする。"""
-        rows = visible_rows(SNAPSHOT, ANNOTATIONS, mode, modality, threshold, disease_ids, cell_ids)
+        rows = visible_rows(SNAPSHOT, modality, threshold, disease_ids, cell_ids)
         content = "\ufeff" + atlas.to_csv(
             export_rows(
                 rows,
                 measure,
-                mode=mode,
                 modality_filter=modality,
-                expression_threshold=threshold,
+                expression_threshold=effective_threshold(threshold),
                 snapshot=SNAPSHOT,
             ),
         )
