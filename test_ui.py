@@ -231,6 +231,20 @@ class FigureTests(unittest.TestCase):
             self.assertIn("≥" + label, figure.data[0].hovertext[0][0])
             self.assertIn("≥ is a lower bound", figure.data[0].hovertext[0][0])
 
+    def test_color_ranges_follow_each_visible_measure(self) -> None:
+        rows = [
+            summary(),
+            summary(cell_id="C2", cell="T cell", percent=60, drug_percent=40),
+        ]
+        target = app.build_figure(rows, ["D1"], ["C1", "C2"], "percent", "target")
+        drug = app.build_figure(rows, ["D1"], ["C1", "C2"], "percent", "drug")
+        self.assertEqual((target.data[0].zmin, target.data[0].zmax), (20, 60))
+        self.assertEqual((drug.data[0].zmin, drug.data[0].zmax), (25, 40))
+        flat = app.build_figure([summary(percent=0)], ["D1"], ["C1"], "percent")
+        self.assertEqual((flat.data[0].zmin, flat.data[0].zmax), (0, 1))
+        missing = app.build_figure([summary(percent=None)], ["D1"], ["C1"], "percent")
+        self.assertEqual((missing.data[0].zmin, missing.data[0].zmax), (0, 1))
+
     def test_two_figures_have_aligned_axes_and_cross_for_na(self) -> None:
         rows = [
             summary(),
@@ -243,7 +257,7 @@ class FigureTests(unittest.TestCase):
                 drug_percent=None,
                 unknown=1,
                 unknown_drugs=1,
-                status="partial",
+                status="unavailable",
             ),
         ]
         target = app.build_figure(rows, ["D1"], ["C1", "C2"], "count", "target")
@@ -263,13 +277,38 @@ class FigureTests(unittest.TestCase):
         self.assertIn("Denominator: 5", missing.hovertext[0])
         self.assertIn("Unknown in denominator: 1", missing.hovertext[0])
         self.assertIn("Mapped / all canonical drugs: 4 / 4", missing.hovertext[0])
-        self.assertIn("Status: partial", missing.hovertext[0])
+        self.assertIn("Status: unavailable", missing.hovertext[0])
         self.assertFalse(
             any(
                 getattr(trace.marker, "symbol", None) == "square-open"
                 for trace in target.data
                 if trace.type == "scatter"
             )
+        )
+
+    def test_count_zero_with_unknown_evidence_has_no_cross(self) -> None:
+        row = summary(
+            count=0,
+            drug_count=0,
+            percent=None,
+            drug_percent=None,
+            unknown=1,
+            unknown_drugs=1,
+            status="partial",
+        )
+        for kind in ("target", "drug"):
+            figure = app.build_figure([row], ["D1"], ["C1"], "count", kind)
+            self.assertEqual(figure.data[0].z[0][0], 0)
+            self.assertEqual(figure.data[0].text[0][0], "0")
+            self.assertEqual(len(figure.data), 1)
+            self.assertIn("≥0", figure.data[0].hovertext[0][0])
+        percent = app.build_figure([row], ["D1"], ["C1"], "percent")
+        self.assertIsNone(percent.data[0].z[0][0])
+        self.assertIn("No value (see hover)", [trace.name for trace in percent.data])
+        exported = app.export_rows([row], "count")[0]
+        self.assertEqual((exported["target_count"], exported["drug_count"]), (0, 0))
+        self.assertEqual(
+            (exported["target_display"], exported["drug_display"]), ("≥0", "≥0")
         )
 
     def test_no_value_hover_distinguishes_unavailable_from_empty_denominator(
@@ -375,7 +414,16 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn(
             "Median CPM: 2", figure.data[0].hovertext[cell_index][target_index]
         )
-        self.assertEqual((figure.data[0].zmin, figure.data[0].zmax), (-3, 3))
+        self.assertAlmostEqual(
+            figure.data[0].zmax,
+            max(
+                abs(value)
+                for row in figure.data[0].z
+                for value in row
+                if value is not None
+            ),
+        )
+        self.assertEqual(figure.data[0].zmin, -figure.data[0].zmax)
         self.assertEqual(figure.data[0].colorbar.lenmode, "pixels")
         self.assertEqual(figure.data[0].colorbar.len, 240)
         self.assertEqual(figure.data[0].colorbar.y, 1)
@@ -405,6 +453,13 @@ class EvidenceTests(unittest.TestCase):
             i for i, label in enumerate(figure.data[0].x) if "TARGET1" in label
         )
         self.assertTrue(all(row[target_index] == 0 for row in figure.data[0].z))
+        constant_only = app.expression_figure(
+            self.snapshot,
+            [record for record in evidence if record["target_id"] == "ENSG_TARGET_1"],
+        )
+        self.assertEqual(
+            (constant_only.data[0].zmin, constant_only.data[0].zmax), (-1, 1)
+        )
 
     def test_expression_markers_follow_current_rule(self) -> None:
         records = self.snapshot["records"]
@@ -718,7 +773,7 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(
             after["target-heatmap"]["figure"]["data"][0]["y"], ["memory B cell"]
         )
-        self.assertIn("CPM > 2", json.dumps(after["matrix-note"], ensure_ascii=False))
+        self.assertIn("CPM ≥ 2", json.dumps(after["matrix-note"], ensure_ascii=False))
         panels = self._post(
             "target-heatmap-panel.hidden", values, "applied-parameters.data"
         )
@@ -1075,7 +1130,7 @@ class CallbackTests(unittest.TestCase):
             figures["drug-heatmap"]["figure"]["data"][0]["x"],
         )
         self.assertIn(
-            "CPM > 0.5",
+            "CPM ≥ 0.5",
             json.dumps(figures["matrix-note"]["children"], ensure_ascii=False),
         )
         self.assertNotIn(

@@ -306,10 +306,23 @@ class AtlasTests(unittest.TestCase):
             for r in summarize(snapshot, "all", 3.0, level="cell")
             if r["cell_id"] == "T4" and r["disease_id"] == "D1"
         )
-        self.assertIsNone(row["count"])
-        self.assertIsNone(row["drug_count"])
+        self.assertEqual(row["count"], 0)
+        self.assertEqual(row["drug_count"], 0)
         self.assertEqual(row["percent"], 0)
         self.assertEqual(row["drug_percent"], 0)
+
+    def test_unknown_expression_keeps_count_zero_and_percent_unknown(self) -> None:
+        snapshot = _snapshot()
+        snapshot["records"] = [snapshot["records"][2]]
+        row = next(
+            r
+            for r in summarize(snapshot, "all", 0.5, level="cell")
+            if r["cell_id"] == "T4" and r["disease_id"] == "D1"
+        )
+        self.assertEqual((row["count"], row["drug_count"]), (0, 0))
+        self.assertEqual((row["unknown"], row["unknown_drugs"]), (1, 1))
+        self.assertIsNone(row["percent"])
+        self.assertIsNone(row["drug_percent"])
 
     def test_relative_median_uses_all_reference_cells_and_missing_is_unknown(
         self,
@@ -367,7 +380,7 @@ class AtlasTests(unittest.TestCase):
                     wanted,
                 )
 
-    def test_specificity_boundary_is_inclusive_but_cpm_is_strict(self) -> None:
+    def test_cpm_and_specificity_boundaries_are_inclusive(self) -> None:
         row = next(
             r
             for r in summarize(
@@ -389,7 +402,11 @@ class AtlasTests(unittest.TestCase):
             for r in summarize(boundary, "all", 0.5, method="specificity", level="cell")
             if r["disease_id"] == "D1" and r["cell_id"] == "T4"
         )
-        self.assertNotIn("G1", {record["target_id"] for record in row["records"]})
+        self.assertIn("G1", {record["target_id"] for record in row["records"]})
+        at_threshold = {"median": 0.5, "target_median": 0.5, "specificity_score": 0.75}
+        for method in ("fixed", "relative", "specificity"):
+            self.assertTrue(expression_state(at_threshold, 0.5, method, 0.75))
+        self.assertFalse(expression_state({"median": 0.49}, 0.5, "fixed"))
         metadata = expression_metadata(_snapshot())["G1", "T4"]
         self.assertTrue(expression_state(metadata, 0.5, "specificity", 0.75))
         self.assertTrue(

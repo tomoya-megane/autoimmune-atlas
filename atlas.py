@@ -307,7 +307,7 @@ def _expression_state(
 ) -> bool | None:
     if metadata is None or metadata.get("median") is None:
         return None
-    if metadata["median"] <= threshold:
+    if metadata["median"] < threshold:
         return False
     if method == "fixed":
         return True
@@ -327,12 +327,6 @@ def _aggregate(states: list[bool | None]) -> bool | None:
     if states and all(state is False for state in states):
         return False
     return None
-
-
-def _value(positives: set, unknown: set, extra_unknown: bool = False) -> int | None:
-    if positives:
-        return len(positives)
-    return None if unknown or extra_unknown else 0
 
 
 def _percent(positives: set, unknown: set, denominator: int) -> float | None:
@@ -469,16 +463,8 @@ def summarize(
                         )
             complete = disease.get("status") == "ready"
             incomplete = bool(unknown_targets or unknown_drugs or unmapped_drugs)
-            target_count = (
-                _value(positive_targets, unknown_targets, bool(unmapped_drugs))
-                if complete
-                else None
-            )
-            drug_count = (
-                _value(positive_drugs, unknown_drugs, bool(unmapped_drugs))
-                if complete
-                else None
-            )
+            target_count = len(positive_targets) if complete else None
+            drug_count = len(positive_drugs) if complete else None
             output.append(
                 {
                     "disease_id": disease["id"],

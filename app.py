@@ -505,14 +505,18 @@ def build_figure(rows, disease_ids, cell_ids, measure, kind="target") -> go.Figu
         hovers.append(hover_row)
         customs.append(custom_row)
     values = [value for z_row in z for value in z_row if value is not None]
+    color_min = min(values, default=0)
+    color_max = max(values, default=1)
+    if color_min == color_max:
+        color_min, color_max = 0, max(1, color_max)
     title = "Drug" if kind == "drug" else "Target"
     figure = go.Figure(
         go.Heatmap(
             x=[disease_names.get(item, item) for item in disease_ids],
             y=[cell_names.get(item, item) for item in cell_ids],
             z=z,
-            zmin=0,
-            zmax=100 if measure == "percent" else max(values, default=1) or 1,
+            zmin=color_min,
+            zmax=color_max,
             colorscale="Greens",
             colorbar={
                 "title": f"{title} {'share (%)' if measure == 'percent' else 'count'}",
@@ -750,13 +754,20 @@ def expression_figure(
         z.append(z_row)
         hover.append(hover_row)
     target_labels = [f"{target_names[t]} ({t})" for t in targets]
+    color_limit = (
+        max(
+            (abs(value) for z_row in z for value in z_row if value is not None),
+            default=0,
+        )
+        or 1
+    )
     figure = go.Figure(
         go.Heatmap(
             x=target_labels,
             y=[member_names[m] for m in members],
             z=z,
-            zmin=-3,
-            zmax=3,
+            zmin=-color_limit,
+            zmax=color_limit,
             colorscale="RdBu_r",
             colorbar={
                 "title": "Target-wise z-score",
@@ -1012,7 +1023,7 @@ def detail_panel(
                     info_tip(
                         "expression",
                         "target expression",
-                        "For each target, color shows the z-score of log2(1 + median CPM) across all healthy reference source cell types. A white dot with a dark outline marks a target–cell pair meeting the applied expression rule. Targets with similar z-score patterns are grouped together; targets with missing expression are shown last. Colors saturate beyond ±3; hover shows the z-score and raw median CPM. This is not disease-sample expression.",
+                        "For each target, color shows the z-score of log2(1 + median CPM) across all healthy reference source cell types. A white dot with a dark outline marks a target–cell pair meeting the applied expression rule. Targets with similar z-score patterns are grouped together; targets with missing expression are shown last. The color range follows the largest absolute z-score and stays centered on zero; hover shows the z-score and raw median CPM. This is not disease-sample expression.",
                     ),
                     html.Small(
                         "○ Meets expression rule", className="expression-marker-key"
@@ -1469,13 +1480,13 @@ def dashboard_layout(snapshot) -> html.Main:
                                             html.Div(
                                                 [
                                                     html.Label(
-                                                        "Minimum CPM (strict >)",
+                                                        "Minimum CPM (≥)",
                                                         htmlFor="threshold",
                                                     ),
                                                     info_tip(
                                                         "threshold",
                                                         "minimum CPM",
-                                                        f"Every rule requires median CPM above this value. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.",
+                                                        f"Every rule requires median CPM at least this value. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.",
                                                     ),
                                                 ],
                                                 className="label-help",
@@ -1694,7 +1705,7 @@ def dashboard_layout(snapshot) -> html.Main:
                         className="heatmap-stack",
                     ),
                     html.P(
-                        "× No value · Hover for values · Click for details",
+                        "Hover for values · Click for details",
                         className="matrix-note",
                     ),
                 ],
@@ -1731,9 +1742,6 @@ def dashboard_layout(snapshot) -> html.Main:
                 ],
                 className="panel",
                 id="evidence",
-            ),
-            html.Footer(
-                "Drug records: Open Targets. Healthy reference expression: Tabula Sapiens."
             ),
         ],
         className="shell",
@@ -1881,7 +1889,7 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         drug_missing = sum(
             row[_measure_fields("drug", measure)[0]] is None for row in rows
         )
-        condition = f"median CPM > {minimum:g}"
+        condition = f"median CPM ≥ {minimum:g}"
         if method == "relative":
             condition += " and CPM ≥ the full-reference target median"
         elif method == "specificity":
