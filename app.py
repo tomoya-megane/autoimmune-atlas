@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import plotly.graph_objects as go
@@ -513,14 +514,23 @@ def dashboard_layout(snapshot) -> html.Main:
     diseases = [(row["id"], row["name"]) for row in snapshot["diseases"]]
     default_diseases = choose_defaults(diseases, ("rheumatoid arthritis", "systemic lupus erythematosus", "multiple sclerosis", "systemic sclerosis", "Sjogren syndrome", "myasthenia gravis", "psoriatic arthritis", "type 1 diabetes mellitus"), 8, {row["disease_id"] for row in snapshot["records"]})
     default_cells = _default_cells(snapshot)
+    retrieved_at = datetime.fromisoformat(snapshot["retrieved_at"]).astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M JST")
     ready = sum(row["status"] == "ready" for row in snapshot["diseases"]); data_version = format_data_version(snapshot.get("data_version")); source = "https://platform.opentargets.org/"
     modality_options = [{"label": "All", "value": "all"}] + [{"label": label, "value": value} for label, value in atlas.DRUG_TYPE_MODALITIES]
     control = lambda label, component: html.Div([html.Label(label, htmlFor=component.id), component], className="control")
     applied = dict(zip(PARAMETER_IDS, ("count", "all", "phase3", "fixed", DEFAULT_EXPRESSION_THRESHOLD, DEFAULT_SPECIFICITY_THRESHOLD, ordered_disease_ids(snapshot, default_diseases), default_cells, "target")))
     return html.Main([
         html.Nav([html.A("Autoimmune Atlas", href="#", className="app-brand"), html.Div([html.A("Comparison", href="#comparison"), html.A("Evidence", href="#evidence"), html.A("Open Targets ↗", href=source, target="_blank", rel="noreferrer")], className="app-nav")], className="app-bar", **{"aria-label": "Main navigation"}),
-        html.Header([html.Div([html.P("AUTOIMMUNE DISEASE / DRUG TARGETS", className="eyebrow"), html.H1(["Drug targets by cell type", info_tip("overview", "the atlas", "Compare which drug targets meet an expression rule in healthy reference cells across diseases. Disease differences reflect eligible drug and target sets, not disease-specific expression. This does not establish treatment efficacy; disease records may include symptom or comorbidity treatment.")])]), html.Div([html.Div([html.Strong(str(len(snapshot["diseases"]))), html.Span("Disease terms in snapshot")], className="stat"), html.Div([html.Strong(str(len(snapshot["records"]))), html.Span("Drug records in snapshot")], className="stat"), html.Div([html.Strong(str(len(snapshot["expression"]))), html.Span("Targets in snapshot")], className="stat")], className="stats")], className="hero"),
-        html.Section([html.Div([html.Span("Disease data", className="meta-label"), html.Strong(f"Loaded {ready} / unavailable {len(snapshot['diseases']) - ready}")]), html.Div([html.Span("Retrieved at", className="meta-label"), html.Strong(snapshot["retrieved_at"])]), html.Div([html.Span("Expression reference", className="meta-label"), html.Strong("Tabula Sapiens")]), html.Div([html.Span("Data source", className="meta-label"), html.A(f"Open Targets {data_version}".strip(), href=source, target="_blank", rel="noreferrer")])], className="source-bar"),
+        html.Header([html.Div([html.P("AUTOIMMUNE DISEASE / DRUG TARGETS", className="eyebrow"), html.H1(["Drug targets by cell type", info_tip("overview", "the atlas", "Compare which drug targets meet an expression rule in healthy reference cells across diseases. Disease differences reflect eligible drug and target sets, not disease-specific expression. This does not establish treatment efficacy; disease records may include symptom or comorbidity treatment.")])]),
+        html.Section([
+            html.Div([html.Span("Disease terms", className="meta-label"), html.Strong(f"{len(snapshot['diseases'])} total · {ready} loaded · {len(snapshot['diseases']) - ready} unavailable")]),
+            html.Div([html.Span("Drug records", className="meta-label"), html.Strong(str(len(snapshot["records"])))]),
+            html.Div([html.Span("Targets", className="meta-label"), html.Strong(str(len(snapshot["expression"])))]),
+            html.Div([html.Span("Retrieved at", className="meta-label"), html.Strong(retrieved_at, title=snapshot["retrieved_at"])]),
+            html.Div([html.Span("Expression reference", className="meta-label"), html.Strong("Tabula Sapiens")]),
+            html.Div([html.Span("Data source", className="meta-label"), html.A(f"Open Targets {data_version}".strip(), href=source, target="_blank", rel="noreferrer")]),
+        ], className="source-bar", **{"aria-label": "Snapshot data"}),
+        ], className="hero"),
         html.Section([
             html.Div([
                 html.Section([html.H3("Drug evidence"),
