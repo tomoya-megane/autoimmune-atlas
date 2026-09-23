@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, ctx, dcc, html
 
 import atlas
+from disease_catalog import disease_catalog, ordered_disease_ids
 
 BASE_DIR = Path(__file__).parent
 SNAPSHOT_PATH = BASE_DIR / "data" / "snapshot.json"
@@ -61,6 +62,25 @@ def cell_catalog(snapshot: dict, level: str = "group") -> list[tuple[str, str]]:
 def _ordered_cell_ids(snapshot: dict, level: str, cell_ids) -> list[str]:
     selected = set(cell_ids or [])
     return [cell_id for cell_id, _ in cell_catalog(snapshot, level) if cell_id in selected]
+
+
+def disease_selector(snapshot, selected):
+    """検索欄と、群から開けるチェック欄を同じ選択へ結び付ける。"""
+    catalog = disease_catalog(snapshot)
+    options, groups = [], []
+    for group in catalog:
+        families = []
+        for family in group["families"]:
+            choices = [{"label": d["name"], "value": d["id"]} for d in family["diseases"]]
+            options.extend(choices)
+            checklist = dcc.Checklist(id=f"disease-family-{family['id']}", options=choices, value=[d["value"] for d in choices if d["value"] in selected], className="disease-checklist")
+            families.append(html.Details([html.Summary(f"{family['label']} ({len(choices)} terms)"), checklist]) if len(choices) > 1 else checklist)
+        groups.append(html.Details([html.Summary(group["label"]), html.Div(families, className="disease-families")]))
+    return html.Div([
+        html.Div([html.Label("Diseases", htmlFor="diseases"), info_tip("diseases", "disease groups", "Browse groups to select individual diseases and related terms, or search by name. Each checkbox selects only that term; parent and child terms are never combined. Groups organize browsing, not diagnostic classification.")], className="label-help"),
+        dcc.Dropdown(id="diseases", options=options, value=ordered_disease_ids(snapshot, selected), multi=True, searchable=True),
+        html.Details([html.Summary("Browse disease groups"), html.Div(groups, className="disease-tree")], className="disease-browser"),
+    ], className="control")
 
 
 def choose_defaults(items, terms, limit, preferred_ids=None) -> list[str]:
@@ -359,18 +379,27 @@ def detail_panel(rows, selection, snapshot=None, *, modality="all", stage="phase
     positive_pairs = {}
     for record in positive:
         key = record.get("canonical_drug_id"), record.get("target_id")
-        item = positive_pairs.setdefault(key, {"drug": record.get("canonical_drug") or record.get("drug"), "target": record.get("target") or record.get("target_id"), "cells": []})
-        cell = record.get("evidence_cell") or record.get("evidence_cell_id")
-        if cell not in item["cells"]:
-            item["cells"].append(cell)
-    positive_list = html.Ul([html.Li(f"{item['drug']} → {item['target']} in {', '.join(item['cells'])}") for item in positive_pairs.values()], className="evidence-list") if positive_pairs else html.P("No drug–target pairs meet the applied rule.", className="empty-note")
+        item = positive_pairs.setdefault(key, {"drug": record.get("canonical_drug") or record.get("drug"), "target": record.get("target") or record.get("target_id"), "cells": {}})
+        item["cells"][record["evidence_cell_id"]] = record.get("evidence_cell") or record["evidence_cell_id"]
+    pair_table = html.Div(html.Table([
+        html.Thead(html.Tr([html.Th(label, scope="col") for label in ("Drug", "Target", "Source cells meeting rule")])),
+        html.Tbody([html.Tr([
+            html.Td(item["drug"]), html.Td(item["target"]),
+            html.Td(html.Details([
+                html.Summary(f"{len(item['cells'])} {'cell' if len(item['cells']) == 1 else 'cells'}"),
+                html.Ul([html.Li(cell) for cell in item["cells"].values()]),
+            ], open=False)),
+        ]) for item in positive_pairs.values()]),
+    ], **{"aria-label": "Drug–target pairs meeting the expression rule"}), className="table-scroll pair-table") if positive_pairs else html.P("No drug–target pairs meet the applied rule.", className="empty-note")
     source_context = {key: row[key] for key in ("disease_id", "cell_id", "cell", "member_cell_ids")}
     source_context.update(modality=modality, stage=stage, threshold=threshold, method=method, specificity=specificity)
     pages = max(1, math.ceil(len(records) / SOURCE_PAGE_SIZE))
     return html.Div([
         summary, html.H3(["Expression of targets in the current drug filter", info_tip("expression", "target expression", "Color is log2(1 + median CPM). Median CPM is the donor median of pseudobulk counts per million in healthy reference cells, not disease samples. Group rows show source cells separately; their CPM values are never combined.")]),
         html.Div(dcc.Graph(figure=expression_figure(snapshot, row, records, metadata), config={"displaylogo": False, "responsive": False}), className="graph-scroll expression-graph"),
-        html.H3("Drug–target pairs meeting the expression rule"), positive_list,
+        html.H3("Drug–target pairs meeting the expression rule"),
+        html.P("Targets meeting the expression rule in the selected cells, and drugs acting on those targets. Select a cell count to show cell names.", className="detail-summary"),
+        pair_table,
         html.H3(["Filtered drug records by source cell type", info_tip("source-records", "source records", "Rows repeat for each source cell type. Records that do not meet the rule, cannot be assessed, or lack a mapped target remain visible.")]),
         html.Details([
             html.Summary("Show source records", id="source-toggle", n_clicks=0),
@@ -466,7 +495,7 @@ def dashboard_layout(snapshot) -> html.Main:
             html.Div([
                 html.H3("Comparison scope"),
                 html.Div([
-                    control("Diseases", dcc.Dropdown(id="diseases", options=[{"label": name, "value": item_id} for item_id, name in diseases], value=default_diseases, multi=True, searchable=True)),
+                    disease_selector(snapshot, default_diseases),
                     html.Fieldset([html.Legend(["Cell level", info_tip("cell-level", "cell level", "Groups are unions of source cell types. Counts can rise with the number and granularity of subtypes; source-cell CPM values are never added or averaged, and a higher count is not stronger clinical evidence.")]), dcc.RadioItems(id="level", options=[{"label": "Groups", "value": "group"}, {"label": "Source cells", "value": "cell"}], value="group", inline=True)], className="control radio-control"),
                     html.Div([html.Div([html.Label("Cells", htmlFor="cells"), info_tip("cells", "cells", "Cell types follow a fixed lineage-oriented catalog order, not expression support strength.")], className="label-help"), dcc.Dropdown(id="cells", options=[{"label": name, "value": item_id} for item_id, name in group_cells], value=default_cells, multi=True, searchable=True)], className="control"),
                 ], className="control-grid scope-controls"),
@@ -495,6 +524,22 @@ def dashboard_layout(snapshot) -> html.Main:
 
 def register_callbacks(application: Dash, snapshot: dict) -> None:
     """schema 2 dashboard のコールバックを登録する。"""
+    families = [family for group in disease_catalog(snapshot) for family in group["families"]]
+    family_ids = [f"disease-family-{family['id']}" for family in families]
+
+    @application.callback(
+        Output("diseases", "value"), *[Output(item, "value") for item in family_ids],
+        Input("diseases", "value"), *[Input(item, "value") for item in family_ids],
+    )
+    def sync_disease_selection(selected, *family_values):
+        selected = set(selected or [])
+        if ctx.triggered_id in family_ids:
+            index = family_ids.index(ctx.triggered_id)
+            members = {d["id"] for d in families[index]["diseases"]}
+            selected = (selected - members) | (set(family_values[index] or []) & members)
+        ordered = ordered_disease_ids(snapshot, selected)
+        return [ordered, *[[d["id"] for d in family["diseases"] if d["id"] in ordered] for family in families]]
+
     @application.callback(Output("specificity", "disabled"), Input("method", "value"))
     def toggle_specificity(method):
         return method != "specificity"
@@ -521,6 +566,7 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
     @application.callback(Output("target-heatmap", "figure"), Output("drug-heatmap", "figure"), Output("matrix-note", "children"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("level", "value"), Input("diseases", "value"), Input("cells", "value"))
     def update_figures(measure, modality, stage, method, threshold, specificity, level, disease_ids, cell_ids):
         minimum, specificity_value, errors = effective_filters(threshold, specificity)
+        disease_ids = ordered_disease_ids(snapshot, disease_ids)
         cell_ids = _ordered_cell_ids(snapshot, level, cell_ids)
         rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level=level)
         target_figure, drug_figure = build_figure(rows, disease_ids or [], cell_ids or [], measure, "target"), build_figure(rows, disease_ids or [], cell_ids or [], measure, "drug")
@@ -538,7 +584,7 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
 
     @application.callback(Output("detail-disease", "options"), Output("detail-disease", "value"), Output("detail-cell", "options"), Output("detail-cell", "value"), Input("diseases", "value"), Input("cells", "value"), Input("level", "value"), Input("target-heatmap", "clickData"), Input("drug-heatmap", "clickData"), State("detail-disease", "value"), State("detail-cell", "value"))
     def update_detail_selectors(disease_ids, cell_ids, level, target_click, drug_click, current_disease, current_cell):
-        disease_ids, cell_ids = disease_ids or [], _ordered_cell_ids(snapshot, level, cell_ids); disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}; cell_names = dict(cell_catalog(snapshot, level))
+        disease_ids, cell_ids = ordered_disease_ids(snapshot, disease_ids), _ordered_cell_ids(snapshot, level, cell_ids); disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}; cell_names = dict(cell_catalog(snapshot, level))
         triggered = ctx.triggered_id
         click_data = target_click if triggered == "target-heatmap" else drug_click if triggered == "drug-heatmap" else None
         visible = [{"disease_id": disease, "cell_id": cell} for disease in disease_ids for cell in cell_ids]

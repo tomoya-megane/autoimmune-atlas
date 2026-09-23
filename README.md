@@ -35,6 +35,10 @@ Python の変更による再読み込みでは、選択したフィルターは�
 
 対象は Open Targets の autoimmune disease (`MONDO_0007179`) の下位語である。
 疾患の階層に従うため、親概念や疾患サブタイプが混在する。
+`Browse disease groups` から疾患群と疾患ファミリーを開き、比較する疾患を個別に選べる。
+名前で検索する選択欄とチェック欄は同期し、ヒートマップの列も同じ群の順に並ぶ。
+親疾患のチェックはその疾患だけを選び、子疾患の選択や集計値の合算は行わない。
+分類先が確認できない用語も `Other / unclassified` から選べる。
 臨床段階は Phase I 以降、Phase II 以降、Phase III 以降、承認到達から選ぶ。
 初期表示は Phase III 以降。
 各疾患の `drugAndClinicalCandidates.maxClinicalStage` を使い、薬剤全体の最高段階は使わない。

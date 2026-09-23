@@ -191,7 +191,7 @@ def main() -> None:
     ids = sorted(set(root["descendants"]))
     print(f"対象: {root['name']} の下位 {len(ids)} 疾患", flush=True)
     diseases, clinical = [], []
-    clinical_query = """query($ids:[String!]!){diseases(efoIds:$ids){id name
+    clinical_query = """query($ids:[String!]!){diseases(efoIds:$ids){id name parents{id}
       drugAndClinicalCandidates {count rows {maxClinicalStage drug{id name drugType parentMolecule{id name}}}}
     }}"""
     for start in range(0, len(ids), 5):
@@ -204,7 +204,7 @@ def main() -> None:
             rows = block.get("rows", [])
             if len(rows) != block["count"]:
                 raise ValueError(f"薬剤の取得に不足があります: {disease['id']}")
-            diseases.append({"id": disease["id"], "name": disease["name"], "status": "ready", "unclassified_stages": sum(r["maxClinicalStage"] in {"UNKNOWN", "WITHDRAWAL"} for r in rows)})
+            diseases.append({"id": disease["id"], "name": disease["name"], "parent_ids": [parent["id"] for parent in disease["parents"]], "status": "ready", "unclassified_stages": sum(r["maxClinicalStage"] in {"UNKNOWN", "WITHDRAWAL"} for r in rows)})
             for drug in normalize_drugs(rows):
                 clinical.append({"disease_id": disease["id"], "disease": disease["name"], **drug})
         print(f"疾患: {min(start + 5, len(ids))}/{len(ids)}", flush=True)

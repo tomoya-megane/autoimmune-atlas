@@ -113,6 +113,25 @@ class EvidenceTests(unittest.TestCase):
         self.snapshot = fixture()
         self.rows = app.visible_rows(self.snapshot, "all", .5, ["MONDO_RA_TEST"], ["CL_B_GROUP"])
 
+    def test_pair_table_counts_distinct_cells_and_keeps_names_collapsed(self) -> None:
+        self.snapshot["expression"]["ENSG_TARGET_1"][1]["median"] = 1
+        self.snapshot["records"].append({**self.snapshot["records"][0], "drug_id": "ANOTHER_FORM"})
+        panel = app.detail_panel(self.rows, ("MONDO_RA_TEST", "CL_B_GROUP"), self.snapshot)
+        table = next(child.children for child in panel.children if getattr(child, "className", None) == "table-scroll pair-table")
+        self.assertEqual([cell.children for cell in table.children[0].children.children], ["Drug", "Target", "Source cells meeting rule"])
+        pairs = []
+        for row in table.children[1].children:
+            drug, target, cells = row.children
+            disclosure = cells.children
+            self.assertFalse(disclosure.open)
+            summary, names = disclosure.children
+            pairs.append((drug.children, target.children, summary.children, [name.children for name in names.children]))
+        self.assertEqual(pairs, [
+            ("alpha", "TARGET1", "2 cells", ["memory B cell", "naive B cell"]),
+            ("alpha", "TARGET2", "1 cell", ["naive B cell"]),
+            ("gamma", "TARGET2", "1 cell", ["naive B cell"]),
+        ])
+
     def test_continuous_expression_uses_log2_color_and_raw_cpm_hover(self) -> None:
         evidence = app.evidence_rows(self.snapshot, self.rows[0], modality="all", stage="phase3", threshold=.5, method="fixed", specificity=.75)
         figure = app.expression_figure(self.snapshot, self.rows[0], evidence)
@@ -237,6 +256,37 @@ class CallbackTests(unittest.TestCase):
             ("download-button", "n_clicks"): 1,
         }
 
+    def test_disease_tree_and_search_sync_without_selecting_descendants(self) -> None:
+        snapshot = fixture()
+        for item_id, name, parents in (
+            ("MONDO_0007915", "systemic lupus erythematosus", []),
+            ("MONDO_0008383", "rheumatoid arthritis", []),
+            ("EFO_0009459", "ACPA-positive rheumatoid arthritis", ["MONDO_0008383"]),
+        ):
+            snapshot["diseases"].append({"id": item_id, "name": name, "status": "ready", "parent_ids": parents})
+            snapshot["records"].append({**snapshot["records"][0], "disease_id": item_id, "disease": name})
+        self.application = app.create_app(snapshot)
+        self.client = self.application.server.test_client()
+        values = self._values()
+        values[("diseases", "value")] = ["EFO_0009459", "MONDO_0008383", "MONDO_0007915", "MONDO_0008383"]
+        for family in ("MONDO_0007915", "MONDO_0008383", "other"):
+            values[(f"disease-family-{family}", "value")] = []
+        synced = self._post("diseases.value", values, "diseases.value")
+        expected = ["MONDO_0007915", "MONDO_0008383", "EFO_0009459"]
+        self.assertEqual(synced["diseases"]["value"], expected)
+        self.assertEqual(synced["disease-family-MONDO_0008383"]["value"], expected[1:])
+        values[("diseases", "value")] = synced["diseases"]["value"]
+        values[("disease-family-MONDO_0008383", "value")] = ["MONDO_0008383"]
+        synced = self._post("diseases.value", values, "disease-family-MONDO_0008383.value")
+        self.assertEqual(synced["diseases"]["value"], expected[:2])
+        values[("diseases", "value")] = list(reversed(synced["diseases"]["value"]))
+        figures = self._post("target-heatmap.figure", values, "diseases.value")
+        for graph in ("target-heatmap", "drug-heatmap"):
+            self.assertEqual(figures[graph]["figure"]["data"][0]["x"], ["systemic lupus erythematosus", "rheumatoid arthritis"])
+        values[("diseases", "value")] = []
+        cleared = self._post("diseases.value", values, "diseases.value")
+        self.assertTrue(all(result["value"] == [] for result in cleared.values()))
+
     def test_valid_details_survive_filter_changes_without_eager_table(self) -> None:
         values = self._values()
         for changed in ("threshold.value", "measure.value", "modality.value", "cells.value"):
@@ -244,7 +294,7 @@ class CallbackTests(unittest.TestCase):
                 result = self._post("details.children", values, changed)
                 rendered = json.dumps(result)
                 self.assertIn("rheumatoid arthritis × B cell", json.dumps(result, ensure_ascii=False))
-                self.assertNotIn('"type": "Table"', rendered)
+                self.assertNotIn('"children": "Original drug"', rendered)
         values[("cells", "value")] = []
         result = self._post("details.children", values, "cells.value")
         self.assertNotIn("Expression of targets", str(result))
