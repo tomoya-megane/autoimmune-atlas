@@ -1,4 +1,6 @@
 # pixi working directory
 .pixi/
+# Ruffの解析キャッシュ
+.cache/
 __pycache__/
 *.pyc
