@@ -1,5 +1,4 @@
-# pixi environments
-.pixi/*
-!.pixi/config.toml
+# pixi working directory
+.pixi/
 __pycache__/
 *.pyc
