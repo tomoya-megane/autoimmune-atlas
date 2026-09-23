@@ -101,13 +101,104 @@ def _ordered_cell_ids(snapshot: dict, level: str, cell_ids) -> list[str]:
     ]
 
 
+def _disease_tree(family):
+    """ファミリー内の親子関係を、各語が 1 つの親の下にだけ現れる木にする。
+
+    複数の親を持つ語は、より深い親の下に置き、同じ深さなら名前順で決める。
+    親子が循環して根から届かない語は、最上位に置いて失わない。
+    戻り値は (最上位の語の一覧, 語 ID → 子の一覧)。
+    """
+    members = {d["id"]: d for d in family["diseases"]}
+    parents_of = {
+        did: [p for p in d.get("parent_ids", []) if p in members and p != did]
+        for did, d in members.items()
+    }
+    depth = {}
+
+    def node_depth(did, trail=()):
+        if did not in depth:
+            parents = [p for p in parents_of[did] if p not in trail]
+            depth[did] = (
+                1 + max(node_depth(p, trail + (did,)) for p in parents)
+                if parents
+                else 0
+            )
+        return depth[did]
+
+    def by_name(did):
+        return members[did]["name"].casefold(), did
+
+    parent = {}
+    for did in sorted(members, key=by_name):
+        if parents_of[did]:
+            parent[did] = min(
+                parents_of[did], key=lambda p: (-node_depth(p), *by_name(p))
+            )
+
+    def reaches_top(did, trail=()):
+        return did not in parent or (
+            did not in trail and reaches_top(parent[did], trail + (did,))
+        )
+
+    children = {did: [] for did in members}
+    top = []
+    for did in sorted(members, key=by_name):
+        if did in parent and reaches_top(did):
+            children[parent[did]].append(did)
+        else:
+            parent.pop(did, None)
+            top.append(did)
+    top.sort(key=lambda did: (did != family["id"], *by_name(did)))
+    return top, children
+
+
 def _disease_checklist_sections(family):
-    """疾患本体と詳細の選択欄を、描画と同期で同じ範囲に分ける。"""
-    main = [d for d in family["diseases"] if d["id"] == family["id"]]
-    details = [d for d in family["diseases"] if d["id"] != family["id"]]
-    sections = [{"id": f"disease-family-{family['id']}", "diseases": main or details}]
-    if main and details:
-        sections.append({"id": f"disease-details-{family['id']}", "diseases": details})
+    """疾患本体と各階層の選択欄を、描画と同期で同じ範囲に分ける。
+
+    子を持つ語は、ファミリーと同じ形にする。
+    本体だけの section（kind が self）と、子のうち葉だけを入れた section（kind が
+    children）を持ち、子を持つ子は同じ形で入れ子になる。
+    先頭の section はファミリーの本体と、親を持たない葉である。
+    """
+    top, children = _disease_tree(family)
+    members = {d["id"]: d for d in family["diseases"]}
+    root = family["id"] if family["id"] in members else None
+
+    def section_id(prefix, node):
+        suffix = "" if node == root else f"-{node}"
+        return f"{prefix}-{family['id']}{suffix}"
+
+    sections = [
+        {
+            "id": f"disease-family-{family['id']}",
+            "diseases": [members[d] for d in top if d == root or not children[d]],
+            "node": None,
+            "kind": "self",
+        }
+    ]
+    queue = [d for d in top if children[d]]
+    while queue:
+        node = queue.pop(0)
+        if node != root:
+            sections.append(
+                {
+                    "id": section_id("disease-family", node),
+                    "diseases": [members[node]],
+                    "node": node,
+                    "kind": "self",
+                }
+            )
+        leaves = [d for d in children[node] if not children[d]]
+        if leaves:
+            sections.append(
+                {
+                    "id": section_id("disease-details", node),
+                    "diseases": [members[d] for d in leaves],
+                    "node": node,
+                    "kind": "children",
+                }
+            )
+        queue.extend(d for d in children[node] if children[d])
     return sections
 
 
@@ -123,8 +214,20 @@ def disease_selector(snapshot, selected):
             ]
             options.extend(choices)
             sections = _disease_checklist_sections(family)
-            checklists = [
-                dcc.Checklist(
+            top, children = _disease_tree(family)
+            root = (
+                family["id"]
+                if family["id"] in {d["id"] for d in family["diseases"]}
+                else None
+            )
+            by_kind = {(s["kind"], s["node"]): s for s in sections}
+            names = {d["id"]: d["name"] for d in family["diseases"]}
+
+            def descendant_count(node):
+                return sum(1 + descendant_count(c) for c in children[node])
+
+            def checklist(section):
+                return dcc.Checklist(
                     id=section["id"],
                     options=[
                         {"label": d["name"], "value": d["id"]}
@@ -133,24 +236,45 @@ def disease_selector(snapshot, selected):
                     value=[d["id"] for d in section["diseases"] if d["id"] in selected],
                     className="disease-checklist",
                 )
-                for section in sections
-            ]
-            contents = checklists[0]
-            if len(checklists) > 1:
-                contents = html.Div(
+
+            def render_details(node):
+                """子を持つ語の details。葉のチェック欄と、子を持つ子の入れ子を並べる。"""
+                inner = []
+                if ("children", node) in by_kind:
+                    inner.append(checklist(by_kind[("children", node)]))
+                inner.extend(render_node(c) for c in children[node] if children[c])
+                return html.Details(
                     [
-                        checklists[0],
-                        html.Details(
-                            [
-                                html.Summary(
-                                    f"{family['label']} details ({len(sections[1]['diseases'])} terms)"
-                                ),
-                                checklists[1],
-                            ]
+                        html.Summary(
+                            f"{names[node]} details ({descendant_count(node)} terms)"
                         ),
-                    ],
-                    className="disease-families",
+                        html.Div(inner, className="disease-families"),
+                    ]
                 )
+
+            def render_node(node):
+                """本体のチェック欄と details を、ファミリーと同じ形で包む。"""
+                return html.Details(
+                    [
+                        html.Summary(
+                            f"{names[node]} ({1 + descendant_count(node)} terms)"
+                        ),
+                        html.Div(
+                            [checklist(by_kind[("self", node)]), render_details(node)],
+                            className="disease-families",
+                        ),
+                    ]
+                )
+
+            top_items = [checklist(sections[0])]
+            if root and children[root]:
+                top_items.append(render_details(root))
+            top_items.extend(render_node(d) for d in top if children[d] and d != root)
+            contents = (
+                top_items[0]
+                if len(top_items) == 1
+                else html.Div(top_items, className="disease-families")
+            )
             families.append(
                 html.Details(
                     [
