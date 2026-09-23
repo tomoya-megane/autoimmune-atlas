@@ -513,7 +513,7 @@ def build_figure(rows, disease_ids, cell_ids, measure, kind="target") -> go.Figu
             z=z,
             zmin=0,
             zmax=100 if measure == "percent" else max(values, default=1) or 1,
-            colorscale=((0, "#f5f7fa"), (0.35, "#9fc4e0"), (1, "#1769aa")),
+            colorscale="Greens",
             colorbar={
                 "title": f"{title} {'share (%)' if measure == 'percent' else 'count'}"
             },
