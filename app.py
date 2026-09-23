@@ -21,7 +21,7 @@ DEFAULT_SPECIFICITY_THRESHOLD = 0.75
 SOURCE_PAGE_SIZE = 50
 PARAMETER_IDS = ("measure", "modality", "stage", "method", "threshold", "specificity", "diseases", "cells", "heatmap-view")
 STAGE_LABELS = {"phase1": "Phase I or later", "phase2": "Phase II or later", "phase3": "Phase III or later", "approved": "Approval reached"}
-METHOD_LABELS = {"fixed": "Fixed CPM", "relative": "Target-relative median", "specificity": "CELLEX specificity"}
+METHOD_LABELS = {"fixed": "Fixed CPM", "relative": "Fixed CPM + Target-relative median", "specificity": "Fixed CPM + CELLEX specificity"}
 
 
 def info_tip(key: str, label: str, description: str):
@@ -147,7 +147,7 @@ def choose_defaults(items, terms, limit, preferred_ids=None) -> list[str]:
 
 
 def _default_cells(snapshot: dict) -> list[str]:
-    return ["group:" + cell["id"] for cell in atlas.cell_catalog(snapshot, "group")[:16]]
+    return ["group:" + cell["id"] for cell in atlas.cell_catalog(snapshot, "group")]
 
 
 def format_data_version(value: object) -> str:
@@ -523,7 +523,7 @@ def dashboard_layout(snapshot) -> html.Main:
         html.Nav([html.A("Autoimmune Atlas", href="#", className="app-brand"), html.Div([html.A("Comparison", href="#comparison"), html.A("Evidence", href="#evidence"), html.A("Open Targets ↗", href=source, target="_blank", rel="noreferrer")], className="app-nav")], className="app-bar", **{"aria-label": "Main navigation"}),
         html.Header([html.Div([html.P("AUTOIMMUNE DISEASE / DRUG TARGETS", className="eyebrow"), html.H1(["Drug targets by cell type", info_tip("overview", "the atlas", "Compare which drug targets meet an expression rule in healthy reference cells across diseases. Disease differences reflect eligible drug and target sets, not disease-specific expression. This does not establish treatment efficacy; disease records may include symptom or comorbidity treatment.")])]),
         html.Section([
-            html.Div([html.Span("Disease terms", className="meta-label"), html.Strong(f"{len(snapshot['diseases'])} total · {ready} loaded · {len(snapshot['diseases']) - ready} unavailable")]),
+            html.Div([html.Span("Disease terms", className="meta-label"), html.Strong(f"{ready} loaded / {len(snapshot['diseases'])} total")]),
             html.Div([html.Span("Drug records", className="meta-label"), html.Strong(str(len(snapshot["records"])))]),
             html.Div([html.Span("Targets", className="meta-label"), html.Strong(str(len(snapshot["expression"])))]),
             html.Div([html.Span("Retrieved at", className="meta-label"), html.Strong(retrieved_at, title=snapshot["retrieved_at"])]),
@@ -538,10 +538,10 @@ def dashboard_layout(snapshot) -> html.Main:
                     control("Drug modality", dcc.Dropdown(id="modality", options=modality_options, value="all", clearable=False)),
                 ], className="filter-group"),
                 html.Section([html.H3("Expression criteria"),
-                    control("Expression rule", dcc.Dropdown(id="method", options=[{"label": label, "value": value} for label, value in (("Fixed CPM", "fixed"), ("Target-relative median", "relative"), ("CELLEX specificity", "specificity"))], value="fixed", clearable=False)),
+                    control("Expression rule", dcc.Dropdown(id="method", options=[{"label": label, "value": value} for value, label in METHOD_LABELS.items()], value="fixed", clearable=False)),
                     # Dash 4.4.1 は max を省略すると増減時に NaN になるため、上限なしを明示する。
                     html.Div([html.Div([html.Label("Minimum CPM (strict >)", htmlFor="threshold"), info_tip("threshold", "minimum CPM", f"Every rule requires median CPM above this value. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.")], className="label-help"), dcc.Input(id="threshold", type="number", min=0, max=None, step=.1, value=DEFAULT_EXPRESSION_THRESHOLD)], className="control"),
-                    html.Div([html.Div([html.Label("CELLEX specificity (≥)", htmlFor="specificity"), info_tip("specificity", "CELLEX specificity", f"Only used with CELLEX specificity. Blank uses {DEFAULT_SPECIFICITY_THRESHOLD:g}.")], className="label-help"), dcc.Input(id="specificity", type="number", min=0, max=1, step=.05, value=DEFAULT_SPECIFICITY_THRESHOLD, disabled=True)], className="control"),
+                    html.Div([html.Div([html.Label("CELLEX specificity (≥)", htmlFor="specificity"), info_tip("specificity", "CELLEX specificity", f"Only used with Fixed CPM + CELLEX specificity. Blank uses {DEFAULT_SPECIFICITY_THRESHOLD:g}.")], className="label-help"), dcc.Input(id="specificity", type="number", min=0, max=1, step=.05, value=DEFAULT_SPECIFICITY_THRESHOLD, disabled=True)], className="control"),
                 ], className="filter-group"),
                 html.Div([
                     html.H3("Comparison scope"),

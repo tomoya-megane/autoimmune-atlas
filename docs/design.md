@@ -92,8 +92,8 @@ Open Targets に統合された Tabula Sapiens の、組織をまとめた細胞
 | 方法 | 標的を採用する条件 |
 | --- | --- |
 | Fixed CPM | ドナー間中央値が最低 CPM を超える |
-| Target-relative median | 最低 CPM を超え、かつその標的の全参照細胞型にわたる中央値以上 |
-| CELLEX specificity | 最低 CPM を超え、かつ取得元の `specificity_score` が設定値以上 |
+| Fixed CPM + Target-relative median | 最低 CPM を超え、かつその標的の全参照細胞型にわたる中央値以上 |
+| Fixed CPM + CELLEX specificity | 最低 CPM を超え、かつ取得元の `specificity_score` が設定値以上 |
 
 最低 CPM の初期値は 0.5、CELLEX 閾値の初期値は 0.75 とし、変更できるようにする。
 空の入力欄は初期値に戻して計算し、実際に適用した値を画面と CSV に記録する。
@@ -111,7 +111,7 @@ CELLEX スコアと標的内中央値は異なる比較方法なので、方式�
 
 ## 大分類からサブタイプへ根拠をたどる
 
-初期表示は細胞の大分類とし、所属する細胞型を展開して比較できるようにする。
+初期表示はすべての細胞の大分類とし、所属する細胞型を展開して比較できるようにする。
 疾患と同じ開閉構造で、大分類の中に大分類のチェック欄と `details` を置き、細胞型は `details` の中で選ぶ。
 大分類と細胞型は独立して選択でき、同じヒートマップに並べる。
 同名の集計と元細胞型は `(group)` と `(source)` で区別し、大分類の集計には細胞型の選択状態に関係なく全所属細胞型を使う。
@@ -166,7 +166,7 @@ CSV の `row_type` は `summary`、`source_record`、`expression_evidence` に�
 | Comparison scope | 疾患、細胞の大分類と細分類 |
 | Display | 標的／薬剤、実数／割合 |
 
-最低 CPM はすべての発現基準に共通とし、CELLEX の閾値は CELLEX specificity を選んだときだけ操作できるようにする。
+最低 CPM はすべての発現基準に共通とし、CELLEX の閾値は Fixed CPM + CELLEX specificity を選んだときだけ操作できるようにする。
 基準を切り替えても入力済みの閾値は保持する。
 比較対象を選ぶ欄は折りたたまず常に表示する。
 広い画面では上段に Drug evidence と Expression criteria、下段に Comparison scope と Display を横に並べる。
