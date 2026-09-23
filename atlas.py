@@ -145,7 +145,7 @@ def _lineage_order(cells: dict[str, dict], members: list[str]) -> list[str]:
 def cell_catalog(snapshot: dict, level: str = "group") -> list[dict]:
     """細胞型または大分類と、所属する元細胞 ID を返す。"""
     _validate_snapshot(snapshot)
-    if level not in {"group", "cell"}:
+    if level not in {"group", "cell", "mixed"}:
         raise ValueError(f"未対応の細胞分類レベル: {level}")
     cells = _cell_memberships(snapshot)
     groups = {}
@@ -162,6 +162,14 @@ def cell_catalog(snapshot: dict, level: str = "group") -> list[dict]:
         group["members"] = _lineage_order(cells, group["members"])
     if level == "group":
         return ordered_groups
+    if level == "mixed":
+        mixed = []
+        for group in ordered_groups:
+            mixed.append({**group, "id": "group:" + group["id"], "name": group["name"] + " (group)", "ontology_id": group["id"], "cell_level": "group"})
+            for cell_id in group["members"]:
+                name = cells[cell_id]["name"] + (" (source)" if cell_id == group["id"] else "")
+                mixed.append({"id": cell_id, "name": name, "members": [cell_id], "ontology_id": cell_id, "cell_level": "cell"})
+        return mixed
     return [
         {"id": cell_id, "name": cells[cell_id]["name"], "members": [cell_id]}
         for group in ordered_groups for cell_id in group["members"]
@@ -237,11 +245,13 @@ def summarize(
     method: str = "fixed",
     specificity_threshold: float = 0.75,
     level: str = "group",
+    cell_ids: list[str] | None = None,
+    disease_ids: list[str] | None = None,
 ) -> list[dict]:
     """疾患・細胞ごとの標的数と有効成分数を三値判定で集計する。"""
     if method not in {"fixed", "relative", "specificity"}:
         raise ValueError(f"未対応の発現判定方法: {method}")
-    if level not in {"group", "cell"}:
+    if level not in {"group", "cell", "mixed"}:
         raise ValueError(f"未対応の細胞分類レベル: {level}")
     if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or threshold < 0:
         raise ValueError("最低 CPM は 0 以上の有限の数値にしてください")
@@ -252,8 +262,14 @@ def summarize(
         records_by_disease[row["disease_id"]].append(row)
     metadata = expression_metadata(snapshot)
     catalog = cell_catalog(snapshot, level)
+    if cell_ids is not None:
+        selected_cells = set(cell_ids)
+        catalog = [cell for cell in catalog if cell["id"] in selected_cells]
+    selected_diseases = None if disease_ids is None else set(disease_ids)
     output = []
     for disease in snapshot.get("diseases", []):
+        if selected_diseases is not None and disease["id"] not in selected_diseases:
+            continue
         records = records_by_disease[disease["id"]]
         targets = {row["target_id"] for row in records if row["target_id"]}
         drug_targets = defaultdict(set)
@@ -295,6 +311,7 @@ def summarize(
             drug_count = _value(positive_drugs, unknown_drugs, bool(unmapped_drugs)) if complete else None
             output.append({
                 "disease_id": disease["id"], "disease": disease["name"], "cell_id": cell["id"], "cell": cell["name"],
+                "ontology_id": cell.get("ontology_id", cell["id"]), "cell_level": cell.get("cell_level", level),
                 "count": target_count, "percent": _percent(positive_targets, unknown_targets, len(targets)) if complete else None,
                 "denominator": len(targets), "unknown": len(unknown_targets), "unmapped_drugs": len(unmapped_drugs),
                 "status": "unavailable" if not complete else "partial" if incomplete else "complete", "records": selected,

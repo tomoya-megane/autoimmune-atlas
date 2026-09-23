@@ -45,6 +45,22 @@ def _snapshot() -> dict:
 
 
 class AtlasTests(unittest.TestCase):
+    def test_mixed_cells_preserve_group_and_source_counts_with_distinct_ids(self) -> None:
+        snapshot = _snapshot()
+        catalog = cell_catalog(snapshot, "mixed")
+        ids = [cell["id"] for cell in catalog]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertIn("group:X", ids)
+        self.assertIn("X", ids)
+        selected = ["group:CL_0000084", "T4", "X", "group:X"]
+        rows = summarize(snapshot, "all", .5, level="mixed", cell_ids=selected, disease_ids=["D1"])
+        self.assertEqual({row["cell_id"] for row in rows}, set(selected))
+        for row in rows:
+            original = next(item for item in summarize(snapshot, "all", .5, level=row["cell_level"]) if item["disease_id"] == "D1" and item["cell_id"] == row["ontology_id"])
+            for key in ("count", "percent", "drug_count", "drug_percent", "denominator", "unknown", "member_cell_ids"):
+                self.assertEqual(row[key], original[key], key)
+        self.assertEqual(summarize(snapshot, "all", .5, level="mixed", cell_ids=[]), [])
+
     def test_stage_is_maximized_within_disease_and_canonical_drug(self) -> None:
         rows = filtered_records(_snapshot(), "antibody", "phase3")
         self.assertEqual({(r["disease_id"], r["drug_id"], r["target_id"]) for r in rows}, {("D1", "A-SALT", "G1"), ("D1", "A", "G2"), ("D1", "B", "G3"), ("D1", "U", "")})

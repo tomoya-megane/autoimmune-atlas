@@ -64,6 +64,16 @@ def _ordered_cell_ids(snapshot: dict, level: str, cell_ids) -> list[str]:
     return [cell_id for cell_id, _ in cell_catalog(snapshot, level) if cell_id in selected]
 
 
+def _disease_checklist_sections(family):
+    """疾患本体と詳細の選択欄を、描画と同期で同じ範囲に分ける。"""
+    main = [d for d in family["diseases"] if d["id"] == family["id"]]
+    details = [d for d in family["diseases"] if d["id"] != family["id"]]
+    sections = [{"id": f"disease-family-{family['id']}", "diseases": main or details}]
+    if main and details:
+        sections.append({"id": f"disease-details-{family['id']}", "diseases": details})
+    return sections
+
+
 def disease_selector(snapshot, selected):
     """検索欄と、群から開けるチェック欄を同じ選択へ結び付ける。"""
     catalog = disease_catalog(snapshot)
@@ -73,13 +83,42 @@ def disease_selector(snapshot, selected):
         for family in group["families"]:
             choices = [{"label": d["name"], "value": d["id"]} for d in family["diseases"]]
             options.extend(choices)
-            checklist = dcc.Checklist(id=f"disease-family-{family['id']}", options=choices, value=[d["value"] for d in choices if d["value"] in selected], className="disease-checklist")
-            families.append(html.Details([html.Summary(f"{family['label']} ({len(choices)} terms)"), checklist]) if len(choices) > 1 else checklist)
+            sections = _disease_checklist_sections(family)
+            checklists = [dcc.Checklist(id=section["id"], options=[{"label": d["name"], "value": d["id"]} for d in section["diseases"]], value=[d["id"] for d in section["diseases"] if d["id"] in selected], className="disease-checklist") for section in sections]
+            contents = checklists[0]
+            if len(checklists) > 1:
+                contents = html.Div([checklists[0], html.Details([html.Summary(f"{family['label']} details ({len(sections[1]['diseases'])} terms)"), checklists[1]])], className="disease-families")
+            families.append(html.Details([html.Summary(f"{family['label']} ({len(choices)} terms)"), contents]) if len(choices) > 1 else contents)
         groups.append(html.Details([html.Summary(group["label"]), html.Div(families, className="disease-families")]))
     return html.Div([
         html.Div([html.Label("Diseases", htmlFor="diseases"), info_tip("diseases", "disease groups", "Browse groups to select individual diseases and related terms, or search by name. Each checkbox selects only that term; parent and child terms are never combined. Groups organize browsing, not diagnostic classification.")], className="label-help"),
         dcc.Dropdown(id="diseases", options=options, value=ordered_disease_ids(snapshot, selected), multi=True, searchable=True),
         html.Details([html.Summary("Browse disease groups"), html.Div(groups, className="disease-tree")], className="disease-browser"),
+    ], className="control")
+
+
+def _cell_selection_catalog(snapshot):
+    """大分類と元細胞を、同じ ID の場合も別の選択肢として定義する。"""
+    catalog = {cell["id"]: cell for cell in atlas.cell_catalog(snapshot, "mixed")}
+    return [{"name": group["name"], "sections": [
+        {"id": f"cell-group-{group['id']}", "cells": [catalog["group:" + group["id"]]]},
+        {"id": f"cell-details-{group['id']}", "cells": [catalog[member] for member in group["members"]]},
+    ]} for group in atlas.cell_catalog(snapshot, "group")]
+
+
+def cell_selector(snapshot, selected):
+    """疾患と同じ開閉操作で、大分類と細分類を独立して選べるようにする。"""
+    groups = []
+    for group in _cell_selection_catalog(snapshot):
+        checklists = [dcc.Checklist(id=section["id"], options=[{"label": cell["name"], "value": cell["id"]} for cell in section["cells"]], value=[cell["id"] for cell in section["cells"] if cell["id"] in selected], className="disease-checklist") for section in group["sections"]]
+        groups.append(html.Details([
+            html.Summary(group["name"]),
+            html.Div([checklists[0], html.Details([html.Summary(f"{group['name']} details ({len(group['sections'][1]['cells'])} cells)"), checklists[1]])], className="disease-families"),
+        ]))
+    return html.Div([
+        html.Div([html.Label("Cells", htmlFor="cells"), info_tip("cells", "cells", "Select groups and source cells independently. A group counts the union of targets or drugs meeting the rule in any member; CPM values are never added or averaged. A source cell uses only its own expression. Selecting a group does not select its members. Rows follow lineage order, not support strength.")], className="label-help"),
+        dcc.Dropdown(id="cells", options=[{"label": name, "value": cell_id} for cell_id, name in cell_catalog(snapshot, "mixed")], value=selected, multi=True, searchable=True),
+        html.Details([html.Summary("Browse cell groups"), html.Div(groups, className="disease-tree")], className="disease-browser"),
     ], className="control")
 
 
@@ -105,16 +144,8 @@ def choose_defaults(items, terms, limit, preferred_ids=None) -> list[str]:
     return selected[:limit]
 
 
-def _default_cells(snapshot: dict, level: str) -> list[str]:
-    catalog = cell_catalog(snapshot, level)
-    if level == "group":
-        return [cell_id for cell_id, _ in catalog[:16]]
-    selected = choose_defaults(
-        catalog,
-        ("b cell", "t cell", "monocyte", "macrophage", "dendritic", "natural killer", "neutrophil", "fibroblast", "endothelial", "epithelial", "plasma cell"),
-        16,
-    )
-    return _ordered_cell_ids(snapshot, level, selected)
+def _default_cells(snapshot: dict) -> list[str]:
+    return ["group:" + cell["id"] for cell in atlas.cell_catalog(snapshot, "group")[:16]]
 
 
 def format_data_version(value: object) -> str:
@@ -153,12 +184,7 @@ def effective_threshold(threshold) -> float:
 def visible_rows(snapshot, modality, threshold, disease_ids, cell_ids, *, stage="phase3", method="fixed", specificity=DEFAULT_SPECIFICITY_THRESHOLD, level="group"):
     """backend の集計結果を現在の表示範囲へ絞る。"""
     minimum, specificity_value, _ = effective_filters(threshold, specificity)
-    selected_diseases, selected_cells = set(disease_ids or []), set(cell_ids or [])
-    return [
-        row
-        for row in atlas.summarize(snapshot, modality, minimum, stage=stage, method=method, specificity_threshold=specificity_value, level=level)
-        if row["disease_id"] in selected_diseases and row["cell_id"] in selected_cells
-    ]
+    return atlas.summarize(snapshot, modality, minimum, stage=stage, method=method, specificity_threshold=specificity_value, level=level, cell_ids=cell_ids or [], disease_ids=disease_ids or [])
 
 
 def _measure_fields(kind: str, measure: str):
@@ -417,7 +443,7 @@ def export_rows(rows, measure, *, modality_filter="all", stage_filter="phase3", 
     """集計、元薬剤記録、発現根拠を重複させず一つの CSV に並べる。"""
     snapshot = snapshot or {}
     base = {
-        "row_type": "", "disease_id": "", "disease": "", "group_cell_id": "", "group_cell": "", "evidence_cell_id": "", "evidence_cell": "",
+        "row_type": "", "disease_id": "", "disease": "", "group_cell_id": "", "group_cell": "", "ontology_cell_id": "", "evidence_cell_id": "", "evidence_cell": "",
         "measure": measure, "modality_filter": modality_filter, "stage_filter": stage_filter, "method": method,
         "minimum_cpm": expression_threshold, "specificity_threshold": specificity_threshold, "level": level,
         "data_version": format_data_version(snapshot.get("data_version")), "retrieved_at": snapshot.get("retrieved_at", ""), "source": snapshot.get("source", ""),
@@ -432,6 +458,7 @@ def export_rows(rows, measure, *, modality_filter="all", stage_filter="phase3", 
     for row in rows:
         output.append({
             **base, "row_type": "summary", "disease_id": row["disease_id"], "disease": row["disease"], "group_cell_id": row["cell_id"], "group_cell": row["cell"],
+            "ontology_cell_id": row.get("ontology_id", row["cell_id"]), "level": row.get("cell_level", level),
             "target_display": _display_value(row, measure), "target_count": row["count"], "target_percent": row["percent"], "target_denominator": row["denominator"], "unknown_targets": row["unknown"],
             "drug_display": _display_value(row, measure, "drug"), "drug_count": row["drug_count"], "drug_percent": row["drug_percent"], "drug_denominator": row["drug_denominator"], "unknown_drugs": row["unknown_drugs"],
             "mapped_drugs": row["mapped_drugs"], "total_drugs": row["total_drugs"], "unmapped_drugs": row["unmapped_drugs"], "status": row["status"], "support_state": "summary",
@@ -465,6 +492,7 @@ def export_rows(rows, measure, *, modality_filter="all", stage_filter="phase3", 
                 output.append({
                     **base, "row_type": "expression_evidence", "disease_id": row["disease_id"], "disease": row["disease"],
                     "group_cell_id": row["cell_id"], "group_cell": row["cell"], "evidence_cell_id": member,
+                    "ontology_cell_id": row.get("ontology_id", row["cell_id"]), "level": row.get("cell_level", level),
                     "evidence_cell": item.get("cell", cell_names.get(member, member)) if item else cell_names.get(member, member),
                     "support_state": "positive" if state is True else "negative" if state is False else "unknown", "contributing": state is True,
                     "target_id": target_id, "target": target, "raw_cpm": item.get("median", "") if item else "",
@@ -483,7 +511,7 @@ def dashboard_layout(snapshot) -> html.Main:
     """schema 2 のデータから dashboard の初期画面を作る。"""
     diseases = [(row["id"], row["name"]) for row in snapshot["diseases"]]
     default_diseases = choose_defaults(diseases, ("rheumatoid arthritis", "systemic lupus erythematosus", "multiple sclerosis", "systemic sclerosis", "Sjogren syndrome", "myasthenia gravis", "psoriatic arthritis", "type 1 diabetes mellitus"), 8, {row["disease_id"] for row in snapshot["records"]})
-    group_cells, default_cells = cell_catalog(snapshot, "group"), _default_cells(snapshot, "group")
+    default_cells = _default_cells(snapshot)
     ready = sum(row["status"] == "ready" for row in snapshot["diseases"]); data_version = format_data_version(snapshot.get("data_version")); source = "https://platform.opentargets.org/"
     modality_options = [{"label": "All", "value": "all"}] + [{"label": label, "value": value} for label, value in atlas.DRUG_TYPE_MODALITIES]
     control = lambda label, component: html.Div([html.Label(label, htmlFor=component.id), component], className="control")
@@ -496,8 +524,7 @@ def dashboard_layout(snapshot) -> html.Main:
                 html.H3("Comparison scope"),
                 html.Div([
                     disease_selector(snapshot, default_diseases),
-                    html.Fieldset([html.Legend(["Cell level", info_tip("cell-level", "cell level", "Groups are unions of source cell types. Counts can rise with the number and granularity of subtypes; source-cell CPM values are never added or averaged, and a higher count is not stronger clinical evidence.")]), dcc.RadioItems(id="level", options=[{"label": "Groups", "value": "group"}, {"label": "Source cells", "value": "cell"}], value="group", inline=True)], className="control radio-control"),
-                    html.Div([html.Div([html.Label("Cells", htmlFor="cells"), info_tip("cells", "cells", "Cell types follow a fixed lineage-oriented catalog order, not expression support strength.")], className="label-help"), dcc.Dropdown(id="cells", options=[{"label": name, "value": item_id} for item_id, name in group_cells], value=default_cells, multi=True, searchable=True)], className="control"),
+                    cell_selector(snapshot, default_cells),
                 ], className="control-grid scope-controls"),
             ], className="filter-group scope-group"),
             html.Div([
@@ -524,8 +551,8 @@ def dashboard_layout(snapshot) -> html.Main:
 
 def register_callbacks(application: Dash, snapshot: dict) -> None:
     """schema 2 dashboard のコールバックを登録する。"""
-    families = [family for group in disease_catalog(snapshot) for family in group["families"]]
-    family_ids = [f"disease-family-{family['id']}" for family in families]
+    families = [section for group in disease_catalog(snapshot) for family in group["families"] for section in _disease_checklist_sections(family)]
+    family_ids = [section["id"] for section in families]
 
     @application.callback(
         Output("diseases", "value"), *[Output(item, "value") for item in family_ids],
@@ -548,27 +575,28 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
     def select_heatmap(view):
         return view == "drug", view != "drug"
 
-    @application.callback(Output("cells", "options"), Output("cells", "value"), Input("level", "value"), State("cells", "value"))
-    def update_cell_options(level, current_cells):
-        catalog = cell_catalog(snapshot, level)
-        groups = atlas.cell_catalog(snapshot, "group")
-        group_members = {item["id"]: item["members"] for item in groups}
-        member_group = {member: item["id"] for item in groups for member in item["members"]}
-        selected = []
-        for item in current_cells or []:
-            mapped = group_members.get(item, [item]) if level == "cell" else [item if item in group_members else member_group.get(item)]
-            selected.extend(value for value in mapped if value and value not in selected)
-        available = {item_id for item_id, _ in catalog}
-        selected = [item for item in selected if item in available]
-        selected = _ordered_cell_ids(snapshot, level, selected)
-        return [{"label": name, "value": item_id} for item_id, name in catalog], selected or _default_cells(snapshot, level)
+    cell_sections = [section for group in _cell_selection_catalog(snapshot) for section in group["sections"]]
+    cell_section_ids = [section["id"] for section in cell_sections]
 
-    @application.callback(Output("target-heatmap", "figure"), Output("drug-heatmap", "figure"), Output("matrix-note", "children"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("level", "value"), Input("diseases", "value"), Input("cells", "value"))
-    def update_figures(measure, modality, stage, method, threshold, specificity, level, disease_ids, cell_ids):
+    @application.callback(
+        Output("cells", "value"), *[Output(item, "value") for item in cell_section_ids],
+        Input("cells", "value"), *[Input(item, "value") for item in cell_section_ids],
+    )
+    def sync_cell_selection(selected, *section_values):
+        selected = set(selected or [])
+        if ctx.triggered_id in cell_section_ids:
+            index = cell_section_ids.index(ctx.triggered_id)
+            members = {cell["id"] for cell in cell_sections[index]["cells"]}
+            selected = (selected - members) | (set(section_values[index] or []) & members)
+        ordered = _ordered_cell_ids(snapshot, "mixed", selected)
+        return [ordered, *[[cell["id"] for cell in section["cells"] if cell["id"] in ordered] for section in cell_sections]]
+
+    @application.callback(Output("target-heatmap", "figure"), Output("drug-heatmap", "figure"), Output("matrix-note", "children"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("diseases", "value"), Input("cells", "value"))
+    def update_figures(measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids):
         minimum, specificity_value, errors = effective_filters(threshold, specificity)
         disease_ids = ordered_disease_ids(snapshot, disease_ids)
-        cell_ids = _ordered_cell_ids(snapshot, level, cell_ids)
-        rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level=level)
+        cell_ids = _ordered_cell_ids(snapshot, "mixed", cell_ids)
+        rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level="mixed")
         target_figure, drug_figure = build_figure(rows, disease_ids or [], cell_ids or [], measure, "target"), build_figure(rows, disease_ids or [], cell_ids or [], measure, "drug")
         target_missing = sum(row[_measure_fields("target", measure)[0]] is None for row in rows); drug_missing = sum(row[_measure_fields("drug", measure)[0]] is None for row in rows)
         condition = f"median CPM > {minimum:g}"
@@ -577,14 +605,14 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         elif method == "specificity":
             condition += f" and CELLEX specificity ≥ {specificity_value:g}"
         modality_label = "All modalities" if modality == "all" else next((label for label, value in atlas.DRUG_TYPE_MODALITIES if value == modality), modality)
-        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: {'Groups' if level == 'group' else 'Source cells'}; Measure: {measure.capitalize()}. {len(rows)} disease–cell combinations. Heatmap entries without a value: targets {target_missing}, drugs {drug_missing}."
+        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: selected groups and source cells; Measure: {measure.capitalize()}. {len(rows)} disease–cell combinations. Heatmap entries without a value: targets {target_missing}, drugs {drug_missing}."
         status = html.Span(f"{len(rows)} disease–cell combinations")
         error_note = html.Span(" ".join(errors), className="filter-errors", role="alert") if errors else None
         return target_figure, drug_figure, html.Div([status, info_tip("applied", "applied filters", note), error_note], className="matrix-status")
 
-    @application.callback(Output("detail-disease", "options"), Output("detail-disease", "value"), Output("detail-cell", "options"), Output("detail-cell", "value"), Input("diseases", "value"), Input("cells", "value"), Input("level", "value"), Input("target-heatmap", "clickData"), Input("drug-heatmap", "clickData"), State("detail-disease", "value"), State("detail-cell", "value"))
-    def update_detail_selectors(disease_ids, cell_ids, level, target_click, drug_click, current_disease, current_cell):
-        disease_ids, cell_ids = ordered_disease_ids(snapshot, disease_ids), _ordered_cell_ids(snapshot, level, cell_ids); disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}; cell_names = dict(cell_catalog(snapshot, level))
+    @application.callback(Output("detail-disease", "options"), Output("detail-disease", "value"), Output("detail-cell", "options"), Output("detail-cell", "value"), Input("diseases", "value"), Input("cells", "value"), Input("target-heatmap", "clickData"), Input("drug-heatmap", "clickData"), State("detail-disease", "value"), State("detail-cell", "value"))
+    def update_detail_selectors(disease_ids, cell_ids, target_click, drug_click, current_disease, current_cell):
+        disease_ids, cell_ids = ordered_disease_ids(snapshot, disease_ids), _ordered_cell_ids(snapshot, "mixed", cell_ids); disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}; cell_names = dict(cell_catalog(snapshot, "mixed"))
         triggered = ctx.triggered_id
         click_data = target_click if triggered == "target-heatmap" else drug_click if triggered == "drug-heatmap" else None
         visible = [{"disease_id": disease, "cell_id": cell} for disease in disease_ids for cell in cell_ids]
@@ -593,10 +621,10 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             current_disease, current_cell = selected
         return ([{"label": disease_names[item], "value": item} for item in disease_ids if item in disease_names], current_disease if current_disease in disease_ids else next(iter(disease_ids), None), [{"label": cell_names[item], "value": item} for item in cell_ids if item in cell_names], current_cell if current_cell in cell_ids else next(iter(cell_ids), None))
 
-    @application.callback(Output("details", "children"), Input("detail-disease", "value"), Input("detail-cell", "value"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("level", "value"), Input("diseases", "value"), Input("cells", "value"))
-    def update_details(detail_disease, detail_cell, _measure, modality, stage, method, threshold, specificity, level, disease_ids, cell_ids):
+    @application.callback(Output("details", "children"), Input("detail-disease", "value"), Input("detail-cell", "value"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("diseases", "value"), Input("cells", "value"))
+    def update_details(detail_disease, detail_cell, _measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids):
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
-        rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level=level)
+        rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level="mixed")
         selection = resolve_selection("detail-cell", None, detail_disease, detail_cell, rows)
         return detail_panel(rows, selection, snapshot, modality=modality, stage=stage, threshold=minimum, method=method, specificity=specificity_value)
 
@@ -615,11 +643,11 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             _evidence_table(records[start:end]),
         ])
 
-    @application.callback(Output("download", "data"), Input("download-button", "n_clicks"), State("measure", "value"), State("modality", "value"), State("stage", "value"), State("method", "value"), State("threshold", "value"), State("specificity", "value"), State("level", "value"), State("diseases", "value"), State("cells", "value"), prevent_initial_call=True)
-    def download_csv(_clicks, measure, modality, stage, method, threshold, specificity, level, disease_ids, cell_ids):
+    @application.callback(Output("download", "data"), Input("download-button", "n_clicks"), State("measure", "value"), State("modality", "value"), State("stage", "value"), State("method", "value"), State("threshold", "value"), State("specificity", "value"), State("diseases", "value"), State("cells", "value"), prevent_initial_call=True)
+    def download_csv(_clicks, measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids):
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
-        rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level=level)
-        content = "\ufeff" + atlas.to_csv(export_rows(rows, measure, modality_filter=modality, stage_filter=stage, method=method, expression_threshold=minimum, specificity_threshold=specificity_value, level=level, snapshot=snapshot))
+        rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level="mixed")
+        content = "\ufeff" + atlas.to_csv(export_rows(rows, measure, modality_filter=modality, stage_filter=stage, method=method, expression_threshold=minimum, specificity_threshold=specificity_value, level="mixed", snapshot=snapshot))
         return {"content": content, "filename": "autoimmune-drug-cell-matrix.csv", "type": "text/csv;charset=utf-8"}
 
 
