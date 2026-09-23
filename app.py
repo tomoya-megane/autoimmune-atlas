@@ -19,7 +19,7 @@ BASE_DIR = Path(__file__).parent
 SNAPSHOT_PATH = BASE_DIR / "data" / "snapshot.json"
 DEFAULT_EXPRESSION_THRESHOLD = 0.5
 DEFAULT_SPECIFICITY_THRESHOLD = 0.75
-SOURCE_PAGE_SIZE = 50
+SOURCE_PAGE_SIZE = 20
 PARAMETER_IDS = (
     "measure",
     "modality",
@@ -887,7 +887,7 @@ def detail_panel(
     method="fixed",
     specificity=DEFAULT_SPECIFICITY_THRESHOLD,
 ):
-    """選択した疾患の全元細胞にわたる集計、連続発現、元記録を表示する。"""
+    """選択した疾患の連続発現と元記録を表示する。"""
     if selection is None:
         return html.Div(
             "Select a disease using the displayed heatmap or the selector above.",
@@ -899,21 +899,9 @@ def detail_panel(
             "The previous disease is outside the current filters. Select a visible disease.",
             className="empty-note",
         )
-    summary = html.Div(
-        [
-            html.H3(f"{row['disease']} · all source cell types"),
-            html.P(
-                f"Targets meeting rule in any source cell: {_display_value(row, 'count') or 'NA'}; {_display_value(row, 'percent') or 'NA'} of {row['denominator']} known targets ({row['unknown']} not assessed). "
-                f"Canonical drugs meeting rule in any source cell: {_display_value(row, 'count', 'drug') or 'NA'}; {_display_value(row, 'percent', 'drug') or 'NA'} of {row['drug_denominator']} drugs with known targets ({row['unknown_drugs']} not assessed). "
-                f"Drug mapping: {row['mapped_drugs']} of {row['total_drugs']} canonical drugs have known targets; {row['unmapped_drugs']} have none.",
-                className="detail-summary",
-            ),
-        ]
-    )
     if snapshot is None:
         return html.Div(
             [
-                summary,
                 html.P(
                     "Underlying schema 2 data are required for evidence details.",
                     className="empty-note",
@@ -934,24 +922,6 @@ def detail_panel(
     pages = max(1, math.ceil(len(filtered) / SOURCE_PAGE_SIZE))
     return html.Div(
         [
-            summary,
-            html.H3(
-                [
-                    "Relative expression of targets across all source cell types",
-                    info_tip(
-                        "expression",
-                        "target expression",
-                        "For each target, color shows the z-score of log2(1 + median CPM) across all healthy reference source cell types. Colors saturate beyond ±3; hover shows the z-score and raw median CPM. This is separate from the expression rule and is not disease-sample expression.",
-                    ),
-                ]
-            ),
-            html.Div(
-                dcc.Graph(
-                    figure=expression_figure(snapshot, filtered, metadata),
-                    config={"displaylogo": False, "responsive": False},
-                ),
-                className="graph-scroll expression-graph",
-            ),
             html.H3(
                 [
                     f"Filtered drug records for {row['disease']}",
@@ -965,6 +935,7 @@ def detail_panel(
             html.Div(
                 [
                     dcc.Store(id="source-context", data=source_context),
+                    dcc.Loading(html.Div(id="source-records-page")),
                     html.Div(
                         [
                             html.Label("Page", htmlFor="source-page"),
@@ -981,9 +952,26 @@ def detail_panel(
                         ],
                         className="source-pagination",
                     ),
-                    dcc.Loading(html.Div(id="source-records-page")),
                 ],
                 className="source-records",
+            ),
+            html.H3(
+                [
+                    "Relative expression of targets across all source cell types",
+                    info_tip(
+                        "expression",
+                        "target expression",
+                        "For each target, color shows the z-score of log2(1 + median CPM) across all healthy reference source cell types. Colors saturate beyond ±3; hover shows the z-score and raw median CPM. This is separate from the expression rule and is not disease-sample expression.",
+                    ),
+                ],
+                className="detail-expression-heading",
+            ),
+            html.Div(
+                dcc.Graph(
+                    figure=expression_figure(snapshot, filtered, metadata),
+                    config={"displaylogo": False, "responsive": False},
+                ),
+                className="graph-scroll expression-graph",
             ),
         ]
     )
@@ -1586,7 +1574,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                     info_tip(
                                         "comparison",
                                         "cell-type comparison",
-                                        "Heatmap cells show confirmed support without a ≥ mark; hover and CSV values mark lower bounds. Details summarize each disease across all source cell types. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.",
+                                        "Heatmap cells show confirmed support without a ≥ mark; hover and CSV values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.",
                                     ),
                                 ]
                             ),
@@ -1664,7 +1652,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                     info_tip(
                                         "selection",
                                         "selection details",
-                                        "Select a disease to see targets and drugs meeting the rule in any healthy reference source cell. Click a comparison heatmap column to select its disease.",
+                                        "Select a disease to see target expression across healthy reference source cells and its filtered drug records. Click a comparison heatmap column to select its disease.",
                                     ),
                                 ]
                             )

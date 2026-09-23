@@ -308,8 +308,15 @@ class EvidenceTests(unittest.TestCase):
         all_rows = atlas.summarize(self.snapshot, "all", 0.5, level="all")
         panel = app.detail_panel(all_rows, "MONDO_RA_TEST", self.snapshot)
         self.assertNotIn("Drug–target pairs", str(panel))
+        self.assertNotIn("Targets meeting rule in any source cell", str(panel))
+        self.assertNotIn("rheumatoid arthritis · all source cell types", str(panel))
         self.assertIn("Filtered drug records for rheumatoid arthritis", str(panel))
-        context = panel.children[-1].children[0].data
+        self.assertIn("Filtered drug records", str(panel.children[0]))
+        self.assertIn("Relative expression", str(panel.children[2]))
+        source_children = panel.children[1].children
+        self.assertEqual(source_children[-1].className, "source-pagination")
+        self.assertEqual(source_children[1].children.id, "source-records-page")
+        context = source_children[0].data
         records = [
             record
             for record in atlas.filtered_records(
@@ -633,7 +640,7 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(selectors["detail-disease"]["value"], "MONDO_RA_TEST")
         details = self._post("details.children", values, "detail-disease.value")
         self.assertIn(
-            "rheumatoid arthritis · all source cell types",
+            "Filtered drug records for rheumatoid arthritis",
             json.dumps(details, ensure_ascii=False),
         )
         exported = self._post("download.data", values, "download-button.n_clicks")
@@ -746,14 +753,14 @@ class CallbackTests(unittest.TestCase):
                 result = self._post_applied("details.children", values)
                 rendered = json.dumps(result)
                 self.assertIn(
-                    "rheumatoid arthritis · all source cell types",
+                    "Filtered drug records for rheumatoid arthritis",
                     json.dumps(result, ensure_ascii=False),
                 )
                 self.assertNotIn('"children": "Original drug"', rendered)
         values[("cells", "value")] = []
         result = self._post_applied("details.children", values)
         self.assertIn(
-            "rheumatoid arthritis · all source cell types",
+            "Filtered drug records for rheumatoid arthritis",
             json.dumps(result, ensure_ascii=False),
         )
 
@@ -774,7 +781,7 @@ class CallbackTests(unittest.TestCase):
                 self.assertEqual(selected["detail-disease"]["value"], "MONDO_RA_TEST")
                 result = self._post_applied("details.children", values)
                 self.assertIn(
-                    "rheumatoid arthritis · all source cell types",
+                    "Filtered drug records for rheumatoid arthritis",
                     json.dumps(result, ensure_ascii=False),
                 )
 
