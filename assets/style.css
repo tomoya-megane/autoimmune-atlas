@@ -153,6 +153,8 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 .expression-graph { max-height: 62vh; margin-bottom: 14px; }
 .source-records { margin-top: 14px; border-top: 1px solid #ddd; }
 .source-records > summary { padding: 10px 0; color: #1769aa; cursor: pointer; font-weight: 600; }
+.source-pagination { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+.source-pagination #source-page { width: 140px; }
 .evidence-list { margin: 5px 0 14px; padding-left: 22px; color: #444; font-size: 12px; }
 .details { margin-top: 14px; }
 .detail-summary { color: #555; font-size: 12px; }

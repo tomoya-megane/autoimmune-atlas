@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).parent
 SNAPSHOT_PATH = BASE_DIR / "data" / "snapshot.json"
 DEFAULT_EXPRESSION_THRESHOLD = 0.5
 DEFAULT_SPECIFICITY_THRESHOLD = 0.75
-FILTER_IDS = {"measure", "modality", "stage", "method", "threshold", "specificity", "level", "diseases", "cells"}
+SOURCE_PAGE_SIZE = 50
 STAGE_LABELS = {"phase1": "Phase I or later", "phase2": "Phase II or later", "phase3": "Phase III or later", "approved": "Approval reached"}
 METHOD_LABELS = {"fixed": "Fixed CPM", "relative": "Target-relative median", "specificity": "CELLEX specificity"}
 
@@ -362,12 +362,23 @@ def detail_panel(rows, selection, snapshot=None, *, modality="all", stage="phase
         if cell not in item["cells"]:
             item["cells"].append(cell)
     positive_list = html.Ul([html.Li(f"{item['drug']} → {item['target']} in {', '.join(item['cells'])}") for item in positive_pairs.values()], className="evidence-list") if positive_pairs else html.P("No drug–target pairs meet the applied rule.", className="empty-note")
+    source_context = {key: row[key] for key in ("disease_id", "cell_id", "cell", "member_cell_ids")}
+    source_context.update(modality=modality, stage=stage, threshold=threshold, method=method, specificity=specificity)
+    pages = max(1, math.ceil(len(records) / SOURCE_PAGE_SIZE))
     return html.Div([
         summary, html.H3(["Expression of targets in the current drug filter", info_tip("expression", "target expression", "Color is log2(1 + median CPM). Median CPM is the donor median of pseudobulk counts per million in healthy reference cells, not disease samples. Group rows show source cells separately; their CPM values are never combined.")]),
         html.Div(dcc.Graph(figure=expression_figure(snapshot, row, records, metadata), config={"displaylogo": False}), className="graph-scroll expression-graph"),
         html.H3("Drug–target pairs meeting the expression rule"), positive_list,
         html.H3(["Filtered drug records by source cell type", info_tip("source-records", "source records", "Rows repeat for each source cell type. Records that do not meet the rule, cannot be assessed, or lack a mapped target remain visible.")]),
-        html.Details([html.Summary("Show source records"), _evidence_table(records)], open=False, className="source-records"),
+        html.Details([
+            html.Summary("Show source records", id="source-toggle", n_clicks=0),
+            dcc.Store(id="source-context", data=source_context),
+            html.Div([
+                html.Label("Page", htmlFor="source-page"),
+                dcc.Dropdown(id="source-page", options=[{"label": f"{page} / {pages}", "value": page} for page in range(1, pages + 1)], value=1, clearable=False, searchable=False),
+            ], className="source-pagination"),
+            dcc.Loading(html.Div(id="source-records-page")),
+        ], open=False, className="source-records"),
     ])
 
 
@@ -523,21 +534,38 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         error_note = html.Span(" ".join(errors), className="filter-errors", role="alert") if errors else None
         return target_figure, drug_figure, html.Div([status, info_tip("applied", "applied filters", note), error_note], className="matrix-status")
 
-    @application.callback(Output("detail-disease", "options"), Output("detail-disease", "value"), Output("detail-cell", "options"), Output("detail-cell", "value"), Input("diseases", "value"), Input("cells", "value"), Input("level", "value"), State("detail-disease", "value"), State("detail-cell", "value"))
-    def update_detail_selectors(disease_ids, cell_ids, level, current_disease, current_cell):
+    @application.callback(Output("detail-disease", "options"), Output("detail-disease", "value"), Output("detail-cell", "options"), Output("detail-cell", "value"), Input("diseases", "value"), Input("cells", "value"), Input("level", "value"), Input("target-heatmap", "clickData"), Input("drug-heatmap", "clickData"), State("detail-disease", "value"), State("detail-cell", "value"))
+    def update_detail_selectors(disease_ids, cell_ids, level, target_click, drug_click, current_disease, current_cell):
         disease_ids, cell_ids = disease_ids or [], _ordered_cell_ids(snapshot, level, cell_ids); disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}; cell_names = dict(cell_catalog(snapshot, level))
+        triggered = ctx.triggered_id
+        click_data = target_click if triggered == "target-heatmap" else drug_click if triggered == "drug-heatmap" else None
+        visible = [{"disease_id": disease, "cell_id": cell} for disease in disease_ids for cell in cell_ids]
+        selected = resolve_selection(triggered, click_data, current_disease, current_cell, visible)
+        if selected:
+            current_disease, current_cell = selected
         return ([{"label": disease_names[item], "value": item} for item in disease_ids if item in disease_names], current_disease if current_disease in disease_ids else next(iter(disease_ids), None), [{"label": cell_names[item], "value": item} for item in cell_ids if item in cell_names], current_cell if current_cell in cell_ids else next(iter(cell_ids), None))
 
-    @application.callback(Output("details", "children"), Input("target-heatmap", "clickData"), Input("drug-heatmap", "clickData"), Input("detail-disease", "value"), Input("detail-cell", "value"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("level", "value"), Input("diseases", "value"), Input("cells", "value"))
-    def update_details(target_click, drug_click, detail_disease, detail_cell, _measure, modality, stage, method, threshold, specificity, level, disease_ids, cell_ids):
+    @application.callback(Output("details", "children"), Input("detail-disease", "value"), Input("detail-cell", "value"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("level", "value"), Input("diseases", "value"), Input("cells", "value"))
+    def update_details(detail_disease, detail_cell, _measure, modality, stage, method, threshold, specificity, level, disease_ids, cell_ids):
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
-        rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level=level); triggered = ctx.triggered_id
-        if triggered in FILTER_IDS:
-            selection = None
-        else:
-            click_data = target_click if triggered == "target-heatmap" else drug_click if triggered == "drug-heatmap" else None
-            selection = resolve_selection(triggered, click_data, detail_disease, detail_cell, rows)
+        rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level=level)
+        selection = resolve_selection("detail-cell", None, detail_disease, detail_cell, rows)
         return detail_panel(rows, selection, snapshot, modality=modality, stage=stage, threshold=minimum, method=method, specificity=specificity_value)
+
+    @application.callback(Output("source-records-page", "children"), Input("source-toggle", "n_clicks"), Input("source-page", "value"), Input("source-context", "data"))
+    def show_source_records(clicks, page, context):
+        # Summary のクリックは、キーボード操作でも開閉ごとに一度発生する。
+        if not clicks or clicks % 2 == 0 or not context:
+            return None
+        records = evidence_rows(snapshot, context, **{key: context[key] for key in ("modality", "stage", "threshold", "method", "specificity")})
+        pages = max(1, math.ceil(len(records) / SOURCE_PAGE_SIZE))
+        page = min(max(page, 1), pages) if isinstance(page, int) and not isinstance(page, bool) else 1
+        start = (page - 1) * SOURCE_PAGE_SIZE
+        end = min(start + SOURCE_PAGE_SIZE, len(records))
+        return html.Div([
+            html.P(f"Rows {start + 1 if records else 0}–{end} of {len(records)}", role="status", className="matrix-note"),
+            _evidence_table(records[start:end]),
+        ])
 
     @application.callback(Output("download", "data"), Input("download-button", "n_clicks"), State("measure", "value"), State("modality", "value"), State("stage", "value"), State("method", "value"), State("threshold", "value"), State("specificity", "value"), State("level", "value"), State("diseases", "value"), State("cells", "value"), prevent_initial_call=True)
     def download_csv(_clicks, measure, modality, stage, method, threshold, specificity, level, disease_ids, cell_ids):
@@ -549,7 +577,8 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
 
 def create_app(snapshot: dict | None, error: Exception | None = None) -> Dash:
     """保存済みデータまたは明示的な fixture から Dash アプリを作る。"""
-    application = Dash(__name__, title="Autoimmune Target Expression Atlas")
+    # 元記録の操作部は、選択した詳細を描画するときに追加する。
+    application = Dash(__name__, title="Autoimmune Target Expression Atlas", suppress_callback_exceptions=True)
     application.layout = unavailable_layout(error) if snapshot is None else dashboard_layout(snapshot)
     if snapshot is not None:
         register_callbacks(application, snapshot)

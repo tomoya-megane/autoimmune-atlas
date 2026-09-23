@@ -93,6 +93,11 @@ T cell には CD4・CD8 系を含める。
 詳細の連続発現図は `log2(1 + CPM)` を色に使い、ホバーで元の CPM を示す。
 条件を満たさなかった標的も確認でき、大分類の CPM を平均や合計で作ることはしない。
 
+ヒートマップをクリックすると、詳細の疾患と細胞の選択欄も更新する。
+条件を変えても、表示対象に残っている選択は維持する。
+`Show source records` を開くと、元記録を50行ずつ読み込む。
+`Page` で続きを表示でき、CSV にはページに関係なく現在の条件に合う全記録を含める。
+
 モダリティは Open Targets の薬剤型で区分する。
 `Small molecule`、`Antibody`、`Protein`、`Cell`、`Gene`、`Enzyme`、`Oligonucleotide`、`Antibody drug conjugate`、`Vaccine component`、`Oligosaccharide`、`Unknown` を個別に選べる。
 

@@ -8,6 +8,7 @@ import json
 import math
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import app
@@ -203,6 +204,7 @@ class CallbackTests(unittest.TestCase):
     def _post(self, output_id: str, values: dict, changed: str):
         key = self._callback_key(output_id)
         callback = self.application.callback_map[key]
+        self.assertIn(changed, [f"{item['id']}.{item['property']}" for item in callback["inputs"]])
         outputs = callback["output"] if isinstance(callback["output"], list) else [callback["output"]]
         response = self.client.post("/_dash-update-component", json={
             "output": key,
@@ -214,6 +216,13 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         return response.get_json()["response"]
 
+    def _click_details(self, values, graph):
+        selected = self._post("detail-cell.value", values, f"{graph}.clickData")
+        values = dict(values)
+        for component in ("detail-disease", "detail-cell"):
+            values[(component, "value")] = selected[component]["value"]
+        return self._post("details.children", values, "detail-cell.value")
+
     def _values(self) -> dict:
         return {
             ("measure", "value"): "percent", ("modality", "value"): "all", ("stage", "value"): "phase3",
@@ -223,6 +232,59 @@ class CallbackTests(unittest.TestCase):
             ("target-heatmap", "clickData"): None, ("drug-heatmap", "clickData"): None,
             ("download-button", "n_clicks"): 1,
         }
+
+    def test_valid_details_survive_filter_changes_without_eager_table(self) -> None:
+        values = self._values()
+        for changed in ("threshold.value", "measure.value", "modality.value", "cells.value"):
+            with self.subTest(changed=changed):
+                result = self._post("details.children", values, changed)
+                rendered = json.dumps(result)
+                self.assertIn("rheumatoid arthritis × B cell", json.dumps(result, ensure_ascii=False))
+                self.assertNotIn('"type": "Table"', rendered)
+        values[("cells", "value")] = []
+        result = self._post("details.children", values, "cells.value")
+        self.assertNotIn("Expression of targets", str(result))
+
+    def test_heatmap_selection_updates_selectors_and_survives_threshold_change(self) -> None:
+        values = self._values()
+        values[("cells", "value")] = [atlas.T_CELL_ID, "CL_B_GROUP"]
+        for graph in ("target-heatmap", "drug-heatmap"):
+            with self.subTest(graph=graph):
+                values[("detail-cell", "value")] = "CL_B_GROUP"
+                values[(graph, "clickData")] = {"points": [{"customdata": ["MONDO_RA_TEST", atlas.T_CELL_ID]}]}
+                selected = self._post("detail-cell.value", values, f"{graph}.clickData")
+                self.assertEqual(selected["detail-cell"]["value"], atlas.T_CELL_ID)
+                values[("detail-cell", "value")] = selected["detail-cell"]["value"]
+                result = self._post("details.children", values, "threshold.value")
+                self.assertIn("rheumatoid arthritis × T cell", json.dumps(result, ensure_ascii=False))
+
+    def test_source_records_are_loaded_on_open_and_paged_without_losing_rows(self) -> None:
+        self.assertIn("source-records-page.children", self.application.callback_map)
+        rows = app.visible_rows(self.snapshot, "all", .5, ["MONDO_RA_TEST"], ["CL_B_GROUP"])
+        context = {key: rows[0][key] for key in ("disease_id", "cell_id", "cell", "member_cell_ids")}
+        context.update(modality="all", stage="phase3", threshold=.5, method="fixed", specificity=.75)
+        values = {("source-toggle", "n_clicks"): 0, ("source-page", "value"): 1, ("source-context", "data"): context}
+        with patch.object(app, "evidence_rows", wraps=app.evidence_rows) as evidence:
+            result = self._post("source-records-page.children", values, "source-toggle.n_clicks")
+            self.assertIsNone(result["source-records-page"]["children"])
+            evidence.assert_not_called()
+        records = app.evidence_rows(self.snapshot, rows[0], modality="all", stage="phase3", threshold=.5, method="fixed", specificity=.75)
+        expected = ["positive", "negative", "unknown", "positive", "unmapped", "unknown", "positive"]
+        seen = []
+        values[("source-toggle", "n_clicks")] = 1
+        with patch.object(app, "SOURCE_PAGE_SIZE", 2):
+            for page in range(1, math.ceil(len(records) / 2) + 1):
+                values[("source-page", "value")] = page
+                result = self._post("source-records-page.children", values, "source-page.value")
+                children = result["source-records-page"]["children"]["props"]["children"]
+                table_rows = children[1]["props"]["children"]["props"]["children"][1]["props"]["children"]
+                self.assertLessEqual(len(table_rows), 2)
+                seen.extend(row["props"]["children"][0]["props"]["children"] for row in table_rows)
+        labels = {"positive": "Meets rule", "negative": "Does not meet rule", "unknown": "Not assessed", "unmapped": "No mapped target"}
+        self.assertEqual(seen, [labels[state] for state in expected])
+        values[("source-toggle", "n_clicks")] = 2
+        result = self._post("source-records-page.children", values, "source-toggle.n_clicks")
+        self.assertIsNone(result["source-records-page"]["children"])
 
     def test_layout_has_all_modalities_and_defaults(self) -> None:
         self.assertEqual(self.client.get("/").status_code, 200)
@@ -270,7 +332,7 @@ class CallbackTests(unittest.TestCase):
 
         layout = self.client.get("/_dash-layout").get_json()
         selected = self._values(); selected[("target-heatmap", "clickData")] = {"points": [{"customdata": ["MONDO_RA_TEST", "CL_B_GROUP"]}]}
-        details = self._post("details.children", selected, "target-heatmap.clickData")
+        details = self._click_details(selected, "target-heatmap")
         surfaces = [layout, figures["matrix-note"]["children"], details["details"]["children"]]
         tips = [node["props"]["id"] for node in nodes(surfaces) if node["props"].get("role") == "tooltip"]
         buttons = [node["props"] for node in nodes(surfaces) if node.get("type") == "Button" and node["props"].get("className") == "info-button"]
@@ -314,7 +376,7 @@ class CallbackTests(unittest.TestCase):
             panels = self._post("target-heatmap-panel.hidden", values, "heatmap-view.value")
             self.assertEqual((panels["target-heatmap-panel"]["hidden"], panels["drug-heatmap-panel"]["hidden"]), hidden)
             case = dict(values); case[(graph, "clickData")] = click
-            details = self._post("details.children", case, f"{graph}.clickData")
+            details = self._click_details(case, graph)
             self.assertIn("Expression of targets in the current drug filter", str(details["details"]["children"]))
 
     def test_figures_and_detail_cells_ignore_reversed_selection_order(self) -> None:
@@ -331,7 +393,7 @@ class CallbackTests(unittest.TestCase):
         click = {"points": [{"customdata": ["MONDO_RA_TEST", "CL_B_GROUP"]}]}
         for heatmap in ("target-heatmap", "drug-heatmap"):
             case = dict(values); case[(heatmap, "clickData")] = click
-            details = self._post("details.children", case, f"{heatmap}.clickData")
+            details = self._click_details(case, heatmap)
             rendered = str(details["details"]["children"])
             self.assertIn("Expression of targets in the current drug filter", rendered)
             self.assertIn("Filtered drug records by source cell type", rendered)
