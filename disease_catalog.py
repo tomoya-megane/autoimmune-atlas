@@ -1,5 +1,6 @@
-"""閲覧用の疾患群と、Open Targets の親子関係に基づく疾患ファミリー。
+"""対象疾患の起点と、閲覧用の疾患群と、Open Targets の親子関係に基づく疾患ファミリー。
 
+対象疾患は SCOPE_ROOTS の各起点とその下位語の和集合である。起点の根拠は docs/disease-roots.md にある。
 群は表示上の整理であり、医学的な分類体系や集計単位を定義しない。
 指定した疾患に最も近い親をファミリーに選び、複数の親がある場合は定義順で決める。
 乾癬性関節炎と強直性脊椎炎は独立した起点とし、関節リウマチの下に表示しない。
@@ -7,6 +8,56 @@
 """
 
 from collections import deque
+
+# 対象疾患の起点。(ID, 下位語を含めるか)。先頭が基底の autoimmune disease。
+# 下位語を含めない語は、下位語に遺伝性や感染性の疾患が混ざるので本体だけを入れる。
+SCOPE_ROOTS = (
+    ("MONDO_0007179", True),  # autoimmune disease
+    ("MONDO_0019751", True),  # autoinflammatory syndrome
+    ("MONDO_0019100", True),  # neuromyelitis optica
+    ("MONDO_0006702", True),  # CIDP
+    ("EFO_0020094", True),  # Lambert-Eaton myasthenic syndrome
+    ("MONDO_0008491", True),  # stiff-person syndrome
+    ("MONDO_0021081", True),  # anti-NMDA receptor encephalitis
+    ("MONDO_0019383", True),  # acute disseminated encephalomyelitis
+    ("MONDO_0015342", True),  # acute transverse myelitis
+    ("MONDO_0016158", True),  # narcolepsy-cataplexy syndrome
+    ("MONDO_0600023", True),  # idiopathic inflammatory myopathy
+    ("MONDO_0007827", True),  # inclusion body myositis
+    ("MONDO_0011429", True),  # juvenile idiopathic arthritis
+    ("MONDO_0019735", True),  # polymyalgia rheumatica
+    ("MONDO_0019125", True),  # relapsing polychondritis
+    ("MONDO_0015492", True),  # ANCA-associated vasculitis
+    ("MONDO_0008538", True),  # temporal arteritis (giant cell arteritis)
+    ("MONDO_0003346", False),  # central nervous system vasculitis
+    ("EFO_1001363", True),  # Lupus Vasculitis, Central Nervous System
+    ("MONDO_0007191", True),  # Behcet disease
+    ("MONDO_0017991", True),  # Takayasu arteritis
+    ("MONDO_0019170", True),  # polyarteritis nodosa
+    ("EFO_1000965", True),  # Henoch-Schoenlein purpura (IgA vasculitis)
+    ("MONDO_0012727", True),  # Kawasaki disease
+    ("MONDO_0005556", True),  # lupus nephritis
+    ("MONDO_0005342", True),  # IgA glomerulonephritis
+    ("MONDO_0005376", True),  # membranous glomerulonephritis
+    ("MONDO_0006835", True),  # lipoid nephrosis (minimal change disease)
+    ("MONDO_0018092", True),  # Vogt-Koyanagi-Harada disease
+    ("MONDO_0011599", True),  # birdshot chorioretinopathy
+    ("MONDO_0019198", True),  # sympathetic ophthalmia
+    ("MONDO_0015129", False),  # chronic primary adrenal insufficiency (Addison disease)
+    ("MONDO_0005388", True),  # primary biliary cholangitis
+    ("MONDO_0018646", False),  # sclerosing cholangitis
+    ("MONDO_0005011", True),  # Crohn disease
+    ("MONDO_0005101", True),  # ulcerative colitis
+    ("MONDO_0000702", True),  # microscopic colitis
+    ("MONDO_0008228", True),  # pernicious anemia
+    ("MONDO_0019740", True),  # acquired thrombotic thrombocytopenic purpura
+    ("MONDO_0005083", True),  # psoriasis
+    ("MONDO_0005340", True),  # alopecia areata
+    ("MONDO_0006572", True),  # lichen planus
+    ("MONDO_0007899", True),  # lichen sclerosus et atrophicus
+    ("MONDO_0044212", True),  # chronic idiopathic urticaria
+    ("MONDO_0006559", True),  # hidradenitis suppurativa
+)
 
 # 各 ID の名称は snapshot から取得する。ここで決めるのは閲覧用の群と起点だけ。
 DISEASE_GROUPS = (
@@ -40,7 +91,15 @@ DISEASE_GROUPS = (
             "MONDO_0011849",
             "MONDO_0005306",
             "MONDO_0000589",
+            "MONDO_0011429",
+            "MONDO_0019735",
+            "MONDO_0019125",
         ),
+    ),
+    (
+        "muscle",
+        "Muscle",
+        ("MONDO_0600023", "MONDO_0007827"),
     ),
     (
         "nervous",
@@ -56,6 +115,14 @@ DISEASE_GROUPS = (
             "MONDO_0006704",
             "EFO_0803379",
             "MONDO_0019390",
+            "MONDO_0019100",
+            "MONDO_0006702",
+            "EFO_0020094",
+            "MONDO_0008491",
+            "MONDO_0021081",
+            "MONDO_0019383",
+            "MONDO_0015342",
+            "MONDO_0016158",
         ),
     ),
     (
@@ -69,6 +136,7 @@ DISEASE_GROUPS = (
             "MONDO_0017278",
             "MONDO_0019835",
             "MONDO_0000569",
+            "MONDO_0015129",
         ),
     ),
     (
@@ -84,6 +152,12 @@ DISEASE_GROUPS = (
             "MONDO_0019337",
             "MONDO_0008661",
             "MONDO_0025513",
+            "MONDO_0005083",
+            "MONDO_0005340",
+            "MONDO_0006572",
+            "MONDO_0007899",
+            "MONDO_0044212",
+            "MONDO_0006559",
         ),
     ),
     (
@@ -96,6 +170,11 @@ DISEASE_GROUPS = (
             "MONDO_0015175",
             "MONDO_0031014",
             "MONDO_0000588",
+            "MONDO_0005011",
+            "MONDO_0005101",
+            "MONDO_0000702",
+            "MONDO_0005388",
+            "MONDO_0018646",
         ),
     ),
     (
@@ -106,6 +185,8 @@ DISEASE_GROUPS = (
             "MONDO_0019098",
             "MONDO_0016030",
             "MONDO_0000602",
+            "MONDO_0008228",
+            "MONDO_0019740",
         ),
     ),
     (
@@ -113,7 +194,33 @@ DISEASE_GROUPS = (
         "Cardiovascular system",
         ("MONDO_0030701", "MONDO_0022519", "MONDO_0000603"),
     ),
-    ("kidney", "Kidney", ("MONDO_0030700", "MONDO_0009303")),
+    (
+        "vasculitis",
+        "Vasculitis",
+        (
+            "MONDO_0015492",
+            "MONDO_0008538",
+            "MONDO_0003346",
+            "EFO_1001363",
+            "MONDO_0007191",
+            "MONDO_0017991",
+            "MONDO_0019170",
+            "EFO_1000965",
+            "MONDO_0012727",
+        ),
+    ),
+    (
+        "kidney",
+        "Kidney",
+        (
+            "MONDO_0030700",
+            "MONDO_0009303",
+            "MONDO_0005556",
+            "MONDO_0005342",
+            "MONDO_0005376",
+            "MONDO_0006835",
+        ),
+    ),
     ("lung", "Lung", ("MONDO_0012579",)),
     (
         "eye-ear-exocrine",
@@ -123,8 +230,12 @@ DISEASE_GROUPS = (
             "MONDO_0000586",
             "MONDO_0100014",
             "MONDO_0031012",
+            "MONDO_0018092",
+            "MONDO_0011599",
+            "MONDO_0019198",
         ),
     ),
+    ("autoinflammatory", "Autoinflammatory syndromes", ("MONDO_0019751",)),
     (
         "immune-dysregulation",
         "Immune dysregulation syndromes",

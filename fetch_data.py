@@ -15,10 +15,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from atlas import DRUG_TYPE_TO_MODALITY, STAGE_FILTERS, cell_catalog
+from disease_catalog import SCOPE_ROOTS
 
 API_HOST = "api.platform.opentargets.org"
 API_PATH = "/api/v4/graphql"
-ROOT_ID = "MONDO_0007179"
+ROOT_ID = SCOPE_ROOTS[0][0]
 KNOWN_STAGES = STAGE_FILTERS["phase1"] | {
     "UNKNOWN",
     "WITHDRAWAL",
@@ -71,6 +72,31 @@ def query_api(query: str, variables: dict | None = None) -> dict:
         finally:
             connection.close()
     raise RuntimeError("Open Targets の照会が失敗しました")
+
+
+def resolve_disease_ids(query=query_api) -> tuple[list[dict], list[str]]:
+    """起点ごとに下位語を取り、和集合を返す。起点が 1 つでも無ければ止める。"""
+    roots, ids = [], set()
+    for root_id, include_descendants in SCOPE_ROOTS:
+        disease = query(
+            "query($id:String!){disease(efoId:$id){id name descendants}}",
+            {"id": root_id},
+        )["disease"]
+        if disease is None:
+            raise ValueError(f"起点の疾患が見つかりません: {root_id}")
+        members = {root_id}
+        if include_descendants:
+            members |= set(disease["descendants"])
+        roots.append(
+            {
+                "id": root_id,
+                "name": disease["name"],
+                "include_descendants": include_descendants,
+                "count": len(members),
+            }
+        )
+        ids |= members
+    return roots, sorted(ids)
 
 
 def normalize_drugs(rows: list[dict]) -> list[dict]:
@@ -247,11 +273,10 @@ def main() -> None:
     """疾患、薬剤の標的、発現量を順番に取得する。"""
     version_query = "query{meta{dataVersion{year month iteration}}}"
     version = query_api(version_query)["meta"]["dataVersion"]
-    root = query_api(
-        "query($id:String!){disease(efoId:$id){id name descendants}}", {"id": ROOT_ID}
-    )["disease"]
-    ids = sorted(set(root["descendants"]))
-    print(f"対象: {root['name']} の下位 {len(ids)} 疾患", flush=True)
+    roots, ids = resolve_disease_ids()
+    for root in roots:
+        print(f"起点: {root['name']} {root['count']} 疾患", flush=True)
+    print(f"対象: {len(roots)} 起点の和集合 {len(ids)} 疾患", flush=True)
     diseases, clinical = [], []
     clinical_query = """query($ids:[String!]!){diseases(efoIds:$ids){id name parents{id}
       drugAndClinicalCandidates {count rows {maxClinicalStage drug{id name drugType parentMolecule{id name}}}}
@@ -327,6 +352,7 @@ def main() -> None:
     snapshot = {
         "schema": 2,
         "root": ROOT_ID,
+        "roots": roots,
         "data_version": version,
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
         "source": f"https://{API_HOST}{API_PATH}",

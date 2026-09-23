@@ -7,7 +7,12 @@
 
 ## 比較の対象を同じ条件で絞る
 
-対象疾患は Open Targets の autoimmune disease (`MONDO_0007179`) の下位語とする。
+対象疾患は、Open Targets の autoimmune disease (`MONDO_0007179`) と、追加の起点の下位語の和集合とする。
+MONDO は idiopathic inflammatory myopathy や lupus nephritis を自己免疫疾患の枝の外に置くので、1 語の下位語では拾えない。
+起点の一覧と、1 件ごとの根拠、起点にしなかった候補は[対象疾患の起点](disease-roots.md)にある。
+自己炎症性疾患は `autoinflammatory syndrome` を起点にして含め、アレルギー性疾患は含めない。
+下位語に遺伝性や感染性の疾患が混ざる起点は、本体だけを入れる。
+起点の一覧は `disease_catalog.py` の `SCOPE_ROOTS` にあり、`fetch_data.py` が起点ごとの下位語を取って和集合を作る。
 親概念とサブタイプは混在するため、表示する疾患を選択できるようにする。
 症状や併存症に対する治療も含め、初期版では治療目的の分類を行わない。
 

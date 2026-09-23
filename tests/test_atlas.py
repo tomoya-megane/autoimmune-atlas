@@ -6,6 +6,7 @@ import math
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from atlas import (
     cell_catalog,
@@ -19,6 +20,7 @@ from fetch_data import (
     _extract_mechanisms,
     extract_expression,
     normalize_drugs,
+    resolve_disease_ids,
     save_snapshot,
 )
 
@@ -543,6 +545,46 @@ class AtlasTests(unittest.TestCase):
 
 
 class ImportTests(unittest.TestCase):
+    def test_scope_is_the_union_of_roots_and_body_only_roots_add_no_descendants(
+        self,
+    ) -> None:
+        tree = {
+            "MONDO_0007179": ["A", "B"],
+            "MONDO_0003346": ["AIDS_ARTERITIS", "B"],
+        }
+
+        def fake_query(query: str, variables: dict) -> dict:
+            root_id = variables["id"]
+            if root_id not in tree:
+                return (
+                    {"disease": None}
+                    if root_id == "MISSING"
+                    else {
+                        "disease": {"id": root_id, "name": root_id, "descendants": []}
+                    }
+                )
+            return {
+                "disease": {
+                    "id": root_id,
+                    "name": root_id,
+                    "descendants": tree[root_id],
+                }
+            }
+
+        roots, ids = resolve_disease_ids(fake_query)
+        self.assertEqual(roots[0]["id"], "MONDO_0007179")
+        self.assertEqual(roots[0]["count"], 3)
+        body_only = next(r for r in roots if r["id"] == "MONDO_0003346")
+        self.assertFalse(body_only["include_descendants"])
+        self.assertEqual(body_only["count"], 1)
+        self.assertIn("A", ids)
+        self.assertIn("MONDO_0003346", ids)
+        self.assertNotIn("AIDS_ARTERITIS", ids)
+        self.assertEqual(ids.count("B"), 1)
+        with patch("fetch_data.SCOPE_ROOTS", (("MISSING", True),)):
+            with self.assertRaises(ValueError):
+                resolve_disease_ids(fake_query)
+
     def test_phase_one_drugs_and_parent_molecule_are_preserved(self) -> None:
         kinds = (
             "Small molecule",

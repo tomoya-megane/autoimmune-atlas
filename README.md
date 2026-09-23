@@ -33,7 +33,8 @@ Python の変更による再読み込みでは、選択したフィルターは�
 
 ## 集計の意味
 
-対象は Open Targets の autoimmune disease (`MONDO_0007179`) の下位語である。
+対象は Open Targets の autoimmune disease (`MONDO_0007179`) と、[起点の一覧](docs/disease-roots.md)に挙げた疾患の下位語である。
+MONDO が自己免疫疾患の枝の外に置く疾患（筋炎、血管炎、腎炎、炎症性腸疾患など）と、自己炎症性疾患を起点として足している。
 疾患の階層に従うため、親概念や疾患サブタイプが混在する。
 `Browse disease groups` から疾患群と疾患ファミリーを開き、比較する疾患を個別に選べる。
 疾患本体のチェック欄の下にある `details` を開くと、病型や関連用語を個別に選べる。

@@ -2,7 +2,26 @@
 
 import unittest
 
-from disease_catalog import disease_catalog, ordered_disease_ids
+from disease_catalog import (
+    DISEASE_GROUPS,
+    SCOPE_ROOTS,
+    disease_catalog,
+    ordered_disease_ids,
+)
+
+
+class ScopeRootTests(unittest.TestCase):
+    def test_roots_are_unique_and_start_with_autoimmune_disease(self):
+        ids = [root_id for root_id, _ in SCOPE_ROOTS]
+        self.assertEqual(ids[0], "MONDO_0007179")
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_every_added_root_has_a_browsing_family(self):
+        family_ids = {root for _, _, ids in DISEASE_GROUPS for root in ids}
+        missing = [
+            root_id for root_id, _ in SCOPE_ROOTS[1:] if root_id not in family_ids
+        ]
+        self.assertEqual(missing, [])
 
 
 class DiseaseCatalogTests(unittest.TestCase):
