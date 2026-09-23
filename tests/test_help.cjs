@@ -1,4 +1,4 @@
-// node test_help.cjs で、ブラウザーや追加ライブラリなしにイベント処理を確認する。
+// node tests/test_help.cjs で、ブラウザーや追加ライブラリなしにイベント処理を確認する。
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -19,7 +19,7 @@ const context = {
     document: {addEventListener: (name, handler) => handlers[name] = handler, querySelectorAll: () => [tip]},
     window: {innerWidth: 1000, innerHeight: 600, addEventListener: (name, handler) => handlers[name] = handler},
 };
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, "assets/help.js"), "utf8"), context);
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, "..", "assets", "help.js"), "utf8"), context);
 
 // 右端かつ下端のボタンでは、説明を左へ寄せて上側に置く。
 handlers.pointerenter({type: "pointerenter", target: tip});

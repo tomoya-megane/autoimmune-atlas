@@ -1,5 +1,8 @@
 # 細胞への支持を比較する機能の実装計画
 
+> 実装当時の計画であり、その後の変更（閾値の初期値と境界の等号、テストの置き場）は反映していない。
+> 現行の仕様は [設計ノート](../design.md) を参照する。
+
 > For agentic workers: Use superpowers:subagent-driven-development. 実装は Sol に分担し、各担当の変更範囲を分けてレビューする。
 
 **Goal:** 合意済みの集計規則で標的数と有効成分数を比較し、発現と元記録を追える画面を作る。
@@ -8,7 +11,7 @@
 
 **Tech Stack:** Python、標準ライブラリ、Dash、Plotly、pixi。
 
-**Spec:** [設計ノート](../../design.md)。
+**Spec:** [設計ノート](../design.md)。
 
 ## Global Constraints
 

@@ -234,7 +234,7 @@ Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケー�
 - [Open Targets: drugs and clinical candidates](https://platform-docs.opentargets.org/disease-or-phenotype/drugs)：疾患内の最高段階と撤回歴の承認到達への集約。
 - `fetch_data.py`：実際の取得項目と検証、`atlas.py`：集計規則、`app.py`：表示と CSV。
 
-設計の変更理由と検証結果は、[作業計画](superpowers/plans/2026-09-22-cell-support.md)にも記録する。
+設計の変更理由と検証結果は、[作業計画](plans/2026-09-22-cell-support.md)にも記録する。
 
 ## 検証と残る確認範囲
 

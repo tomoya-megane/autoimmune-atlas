@@ -148,5 +148,5 @@ pixi run test
 ツールチップの位置調整と Escape キーの処理は、Node.js がある環境で次のコマンドから検証できる。
 
 ```bash
-node test_help.cjs
+node tests/test_help.cjs
 ```
