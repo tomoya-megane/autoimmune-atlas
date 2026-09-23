@@ -362,13 +362,17 @@ class EvidenceTests(unittest.TestCase):
             "Median CPM: 2", figure.data[0].hovertext[cell_index][target_index]
         )
         self.assertEqual((figure.data[0].zmin, figure.data[0].zmax), (-3, 3))
+        self.assertEqual(figure.data[0].colorbar.lenmode, "pixels")
+        self.assertEqual(figure.data[0].colorbar.len, 240)
+        self.assertEqual(figure.data[0].colorbar.y, 1)
+        self.assertEqual(figure.data[0].colorbar.yanchor, "top")
         missing = next(
             trace for trace in figure.data if trace.name == "Missing expression"
         )
         self.assertEqual(list(missing.x), ["TARGET2 (ENSG_TARGET_2)"])
         self.assertEqual(list(missing.y), ["memory B cell"])
         self.assertEqual(figure.layout.xaxis.side, "top")
-        self.assertEqual(figure.layout.yaxis.autorange, "reversed")
+        self.assertEqual(list(figure.layout.yaxis.range), [len(cells) - 0.5, -0.5])
 
     def test_constant_target_expression_has_zero_z_score(self) -> None:
         for item in self.snapshot["expression"]["ENSG_TARGET_1"]:
@@ -387,6 +391,73 @@ class EvidenceTests(unittest.TestCase):
             i for i, label in enumerate(figure.data[0].x) if "TARGET1" in label
         )
         self.assertTrue(all(row[target_index] == 0 for row in figure.data[0].z))
+
+    def test_expression_markers_follow_current_rule(self) -> None:
+        records = self.snapshot["records"]
+        fixed = app.expression_figure(
+            self.snapshot, records, threshold=0.5, method="fixed"
+        )
+        specific = app.expression_figure(
+            self.snapshot, records, threshold=0.5, method="specificity"
+        )
+
+        def marked_cells(figure):
+            marks = next(
+                trace for trace in figure.data if trace.name == "Meets expression rule"
+            )
+            return set(zip(marks.x, marks.y))
+
+        self.assertEqual(
+            marked_cells(fixed),
+            {
+                ("TARGET1 (ENSG_TARGET_1)", "memory B cell"),
+                ("TARGET2 (ENSG_TARGET_2)", "naive B cell"),
+                ("TARGET2 (ENSG_TARGET_2)", "CD8-positive T cell"),
+            },
+        )
+        self.assertEqual(
+            marked_cells(specific),
+            {
+                ("TARGET1 (ENSG_TARGET_1)", "memory B cell"),
+                ("TARGET2 (ENSG_TARGET_2)", "naive B cell"),
+            },
+        )
+
+    def test_detail_expression_markers_use_applied_rule(self) -> None:
+        panel = app.detail_panel(
+            self.rows, "MONDO_RA_TEST", self.snapshot, method="specificity"
+        )
+        self.assertIn("○ Meets expression rule", str(panel.children[2]))
+        figure = panel.children[3].children.figure
+        marks = next(
+            trace for trace in figure.data if trace.name == "Meets expression rule"
+        )
+        self.assertEqual(len(marks.x), 2)
+
+    def test_expression_columns_group_similar_profiles_and_put_missing_last(
+        self,
+    ) -> None:
+        snapshot = fixture()
+        cells = ["CL_B_ONE", "CL_B_TWO", "CL_T_ONE"]
+        profiles = {
+            "A": [10, 1, 1],
+            "B": [1, 10, 10],
+            "C": [10, 1, 1],
+            "D": [1, 10, 10],
+        }
+        metadata = {
+            (target, cell): {"median": value}
+            for target, values in profiles.items()
+            for cell, value in zip(cells, values)
+        }
+        records = [
+            {"target_id": target, "target": target}
+            for target in ["A", "B", "C", "D", "E"]
+        ]
+        labels = list(app.expression_figure(snapshot, records, metadata).data[0].x)
+        self.assertEqual(labels[-1], "E (E)")
+        self.assertEqual(abs(labels.index("A (A)") - labels.index("C (C)")), 1)
+        self.assertEqual(abs(labels.index("B (B)") - labels.index("D (D)")), 1)
 
     def test_continuous_expression_shows_all_cells_and_csv_keeps_member_order(
         self,

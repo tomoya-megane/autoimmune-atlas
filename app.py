@@ -11,6 +11,7 @@ from statistics import mean, pstdev
 
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, ctx, dcc, html
+from scipy.cluster.hierarchy import leaves_list, linkage
 
 import atlas
 from disease_catalog import disease_catalog, ordered_disease_ids
@@ -648,7 +649,29 @@ def evidence_rows(
     return output
 
 
-def expression_figure(snapshot, records, metadata=None) -> go.Figure:
+def _clustered_targets(targets, profiles):
+    """全細胞の発現パターンが近い標的を隣接させ、欠測を末尾に置く。"""
+    complete = [target for target in targets if target in profiles]
+    if len(complete) > 1:
+        tree = linkage(
+            [profiles[target] for target in complete],
+            method="average",
+            metric="euclidean",
+            optimal_ordering=True,
+        )
+        complete = [complete[index] for index in leaves_list(tree)]
+    return complete + [target for target in targets if target not in profiles]
+
+
+def expression_figure(
+    snapshot,
+    records,
+    metadata=None,
+    *,
+    threshold=DEFAULT_EXPRESSION_THRESHOLD,
+    method="fixed",
+    specificity=DEFAULT_SPECIFICITY_THRESHOLD,
+) -> go.Figure:
     """全元細胞について、現在の薬剤条件に含まれる標的の連続発現量を示す。"""
     metadata = metadata if metadata is not None else atlas.expression_metadata(snapshot)
     target_names = {}
@@ -664,6 +687,7 @@ def expression_figure(snapshot, records, metadata=None) -> go.Figure:
         target_names, key=lambda item: (target_names[item].casefold(), item)
     )
     target_stats = {}
+    profiles = {}
     for target_id in targets:
         values = [
             math.log2(1 + metadata[target_id, member]["median"])
@@ -672,7 +696,14 @@ def expression_figure(snapshot, records, metadata=None) -> go.Figure:
             and metadata[target_id, member].get("median") is not None
         ]
         target_stats[target_id] = (mean(values), pstdev(values)) if values else (0, 0)
+        if members and len(values) == len(members):
+            center, spread = target_stats[target_id]
+            profiles[target_id] = tuple(
+                (value - center) / spread if spread else 0 for value in values
+            )
+    targets = _clustered_targets(targets, profiles)
     z, hover, missing_x, missing_y = [], [], [], []
+    positive_x, positive_y, positive_hover = [], [], []
     for member in members:
         z_row, hover_row = [], []
         for target_id in targets:
@@ -709,6 +740,10 @@ def expression_figure(snapshot, records, metadata=None) -> go.Figure:
             if cpm is None:
                 missing_x.append(label)
                 missing_y.append(member_names[member])
+            elif atlas.expression_state(item, threshold, method, specificity) is True:
+                positive_x.append(label)
+                positive_y.append(member_names[member])
+                positive_hover.append(hover_row[-1] + "<br>Expression rule: met")
         z.append(z_row)
         hover.append(hover_row)
     target_labels = [f"{target_names[t]} ({t})" for t in targets]
@@ -720,7 +755,13 @@ def expression_figure(snapshot, records, metadata=None) -> go.Figure:
             zmin=-3,
             zmax=3,
             colorscale="RdBu_r",
-            colorbar={"title": "Target-wise z-score"},
+            colorbar={
+                "title": "Target-wise z-score",
+                "lenmode": "pixels",
+                "len": 240,
+                "y": 1,
+                "yanchor": "top",
+            },
             hovertext=hover,
             hovertemplate="%{hovertext}<extra></extra>",
             xgap=2,
@@ -736,6 +777,24 @@ def expression_figure(snapshot, records, metadata=None) -> go.Figure:
                 marker={"symbol": "x", "size": 9, "color": "#8a99a6"},
                 name="Missing expression",
                 hovertemplate="Expression missing<extra></extra>",
+            )
+        )
+    if positive_x:
+        figure.add_trace(
+            go.Scattergl(
+                x=positive_x,
+                y=positive_y,
+                mode="markers",
+                marker={
+                    "symbol": "circle",
+                    "size": 7,
+                    "color": "white",
+                    "line": {"color": "#263238", "width": 1},
+                },
+                name="Meets expression rule",
+                showlegend=False,
+                hovertext=positive_hover,
+                hovertemplate="%{hovertext}<extra></extra>",
             )
         )
     if not targets:
@@ -759,6 +818,8 @@ def expression_figure(snapshot, records, metadata=None) -> go.Figure:
         automargin=True,
     )
     figure.update_yaxes(autorange="reversed", title="Source cell type", automargin=True)
+    if members:
+        figure.update_yaxes(range=[len(members) - 0.5, -0.5], autorange=False)
     return figure
 
 
@@ -961,14 +1022,24 @@ def detail_panel(
                     info_tip(
                         "expression",
                         "target expression",
-                        "For each target, color shows the z-score of log2(1 + median CPM) across all healthy reference source cell types. Colors saturate beyond ±3; hover shows the z-score and raw median CPM. This is separate from the expression rule and is not disease-sample expression.",
+                        "For each target, color shows the z-score of log2(1 + median CPM) across all healthy reference source cell types. A white dot with a dark outline marks a target–cell pair meeting the applied expression rule. Targets with similar z-score patterns are grouped together; targets with missing expression are shown last. Colors saturate beyond ±3; hover shows the z-score and raw median CPM. This is not disease-sample expression.",
+                    ),
+                    html.Small(
+                        "○ Meets expression rule", className="expression-marker-key"
                     ),
                 ],
                 className="detail-expression-heading",
             ),
             html.Div(
                 dcc.Graph(
-                    figure=expression_figure(snapshot, filtered, metadata),
+                    figure=expression_figure(
+                        snapshot,
+                        filtered,
+                        metadata,
+                        threshold=threshold,
+                        method=method,
+                        specificity=specificity,
+                    ),
                     config={"displaylogo": False, "responsive": False},
                 ),
                 className="graph-scroll expression-graph",
