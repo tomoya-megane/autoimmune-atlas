@@ -152,6 +152,8 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 .expression-marker-key { margin-left: 14px; color: #444; font-size: 12px; font-weight: normal; white-space: nowrap; }
 .expression-graph .dash-graph { margin-inline: auto; }
 .source-records { margin-top: 10px; }
+.source-records table { min-width: 980px; table-layout: fixed; }
+.source-records th, .source-records td { overflow-wrap: anywhere; }
 .source-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .source-pagination #source-page { width: 140px; }
 .details { margin-top: 14px; }
