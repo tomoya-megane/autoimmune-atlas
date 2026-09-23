@@ -76,7 +76,7 @@ CSV も最後に適用した条件を使い、表示中の結果と一致させ�
 | --- | --- |
 | Fixed CPM | 最低 CPM を超える。初期値は 0.5 |
 | Fixed CPM + Target-relative median | 最低 CPM を超え、かつその標的の全参照細胞型にわたる中央値以上 |
-| Fixed CPM + CELLEX specificity | 最低 CPM を超え、かつ CELLEX スコアが設定値以上。初期値は 0.75 |
+| Fixed CPM + CELLEX specificity | 最低 CPM を超え、かつ CELLEX スコアが設定値以上。初期値は 0.5 |
 
 閾値は画面から変更でき、入力を空にすると初期値を使う。
 標的内中央値の参照細胞型は、表示する疾患や細胞を絞っても変えない。

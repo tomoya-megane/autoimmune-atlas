@@ -19,7 +19,7 @@ from disease_catalog import disease_catalog, ordered_disease_ids
 BASE_DIR = Path(__file__).parent
 SNAPSHOT_PATH = BASE_DIR / "data" / "snapshot.json"
 DEFAULT_EXPRESSION_THRESHOLD = 0.5
-DEFAULT_SPECIFICITY_THRESHOLD = 0.75
+DEFAULT_SPECIFICITY_THRESHOLD = 0.5
 SOURCE_PAGE_SIZE = 20
 PARAMETER_IDS = (
     "measure",
@@ -515,7 +515,11 @@ def build_figure(rows, disease_ids, cell_ids, measure, kind="target") -> go.Figu
             zmax=100 if measure == "percent" else max(values, default=1) or 1,
             colorscale="Greens",
             colorbar={
-                "title": f"{title} {'share (%)' if measure == 'percent' else 'count'}"
+                "title": f"{title} {'share (%)' if measure == 'percent' else 'count'}",
+                "lenmode": "pixels",
+                "len": 240,
+                "y": 1,
+                "yanchor": "top",
             },
             text=texts,
             texttemplate="%{text}",
@@ -544,7 +548,6 @@ def build_figure(rows, disease_ids, cell_ids, measure, kind="target") -> go.Figu
     figure.update_layout(
         template="plotly_white",
         font={"family": "Arial, sans-serif", "size": 12, "color": "#263238"},
-        width=max(760, min(2800, 260 + 125 * len(disease_ids))),
         height=max(420, min(1400, 180 + 28 * len(cell_ids))),
         margin={"l": 180, "r": 40, "t": 130, "b": 70},
         legend={"orientation": "h", "y": -0.08, "yanchor": "top", "x": 0},
@@ -803,7 +806,6 @@ def expression_figure(
         )
     figure.update_layout(
         template="plotly_white",
-        width=max(900, 420 + 32 * len(targets)),
         height=max(360, 170 + 25 * len(members)),
         margin={"l": 280, "r": 40, "t": 110, "b": 60},
         font={"family": "Arial, sans-serif", "size": 11, "color": "#263238"},
@@ -961,6 +963,14 @@ def detail_panel(
         "stage": stage,
     }
     pages = max(1, math.ceil(len(filtered) / SOURCE_PAGE_SIZE))
+    expression = expression_figure(
+        snapshot,
+        filtered,
+        metadata,
+        threshold=threshold,
+        method=method,
+        specificity=specificity,
+    )
     return html.Div(
         [
             html.H3(
@@ -1012,15 +1022,11 @@ def detail_panel(
             ),
             html.Div(
                 dcc.Graph(
-                    figure=expression_figure(
-                        snapshot,
-                        filtered,
-                        metadata,
-                        threshold=threshold,
-                        method=method,
-                        specificity=specificity,
-                    ),
-                    config={"displaylogo": False, "responsive": False},
+                    figure=expression,
+                    style={
+                        "minWidth": f"{max(640, 320 + 28 * len(expression.data[0].x))}px"
+                    },
+                    config={"displaylogo": False, "responsive": True},
                 ),
                 className="graph-scroll expression-graph",
             ),
@@ -1275,10 +1281,10 @@ def dashboard_layout(snapshot) -> html.Main:
         zip(
             PARAMETER_IDS,
             (
-                "count",
+                "percent",
                 "all",
                 "phase3",
-                "fixed",
+                "specificity",
                 DEFAULT_EXPRESSION_THRESHOLD,
                 DEFAULT_SPECIFICITY_THRESHOLD,
                 ordered_disease_ids(snapshot, default_diseases),
@@ -1453,7 +1459,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                                 {"label": label, "value": value}
                                                 for value, label in METHOD_LABELS.items()
                                             ],
-                                            value="fixed",
+                                            value="specificity",
                                             clearable=False,
                                         ),
                                     ),
@@ -1508,7 +1514,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                                 max=1,
                                                 step=0.05,
                                                 value=DEFAULT_SPECIFICITY_THRESHOLD,
-                                                disabled=True,
+                                                disabled=False,
                                             ),
                                         ],
                                         className="control",
@@ -1580,15 +1586,15 @@ def dashboard_layout(snapshot) -> html.Main:
                                                 id="measure",
                                                 options=[
                                                     {
-                                                        "label": "Count",
-                                                        "value": "count",
-                                                    },
-                                                    {
                                                         "label": "Percent",
                                                         "value": "percent",
                                                     },
+                                                    {
+                                                        "label": "Count",
+                                                        "value": "count",
+                                                    },
                                                 ],
-                                                value="count",
+                                                value="percent",
                                                 inline=True,
                                             ),
                                         ],
@@ -1655,9 +1661,10 @@ def dashboard_layout(snapshot) -> html.Main:
                                     html.Div(
                                         dcc.Graph(
                                             id="target-heatmap",
+                                            style={"minWidth": "600px"},
                                             config={
                                                 "displaylogo": False,
-                                                "responsive": False,
+                                                "responsive": True,
                                             },
                                         ),
                                         className="graph-scroll",
@@ -1671,9 +1678,10 @@ def dashboard_layout(snapshot) -> html.Main:
                                     html.Div(
                                         dcc.Graph(
                                             id="drug-heatmap",
+                                            style={"minWidth": "600px"},
                                             config={
                                                 "displaylogo": False,
-                                                "responsive": False,
+                                                "responsive": True,
                                             },
                                         ),
                                         className="graph-scroll",
@@ -1833,6 +1841,8 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
     @application.callback(
         Output("target-heatmap", "figure"),
         Output("drug-heatmap", "figure"),
+        Output("target-heatmap", "style"),
+        Output("drug-heatmap", "style"),
         Output("matrix-note", "children"),
         Input("applied-parameters", "data"),
     )
@@ -1895,9 +1905,12 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             if errors
             else None
         )
+        graph_style = {"minWidth": f"{max(600, 220 + 50 * len(disease_ids))}px"}
         return (
             target_figure,
             drug_figure,
+            graph_style,
+            graph_style,
             html.Div(
                 [status, info_tip("applied", "applied filters", note), error_note],
                 className="matrix-status",

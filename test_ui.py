@@ -248,6 +248,12 @@ class FigureTests(unittest.TestCase):
         ]
         target = app.build_figure(rows, ["D1"], ["C1", "C2"], "count", "target")
         drug = app.build_figure(rows, ["D1"], ["C1", "C2"], "count", "drug")
+        for figure in (target, drug):
+            self.assertIsNone(figure.layout.width)
+            self.assertEqual(figure.data[0].colorbar.lenmode, "pixels")
+            self.assertEqual(figure.data[0].colorbar.len, 240)
+            self.assertEqual(figure.data[0].colorbar.y, 1)
+            self.assertEqual(figure.data[0].colorbar.yanchor, "top")
         self.assertEqual(list(target.data[0].x), list(drug.data[0].x))
         self.assertEqual(list(target.data[0].y), list(drug.data[0].y))
         self.assertIn("No value (see hover)", [trace.name for trace in target.data])
@@ -428,6 +434,7 @@ class EvidenceTests(unittest.TestCase):
             {
                 ("TARGET1 (ENSG_TARGET_1)", "memory B cell"),
                 ("TARGET2 (ENSG_TARGET_2)", "naive B cell"),
+                ("TARGET2 (ENSG_TARGET_2)", "CD8-positive T cell"),
             },
         )
 
@@ -437,10 +444,13 @@ class EvidenceTests(unittest.TestCase):
         )
         self.assertIn("○ Meets expression rule", str(panel.children[2]))
         figure = panel.children[3].children.figure
+        self.assertIsNone(figure.layout.width)
+        self.assertEqual(panel.children[3].children.style["minWidth"], "640px")
+        self.assertTrue(panel.children[3].children.config["responsive"])
         marks = next(
             trace for trace in figure.data if trace.name == "Meets expression rule"
         )
-        self.assertEqual(len(marks.x), 2)
+        self.assertEqual(len(marks.x), 3)
 
     def test_expression_columns_group_similar_profiles_and_put_missing_last(
         self,
@@ -556,9 +566,9 @@ class InputTests(unittest.TestCase):
     """空欄と不正値で表示値と計算値がずれない。"""
 
     def test_empty_and_invalid_thresholds_use_visible_defaults(self) -> None:
-        self.assertEqual(app.effective_filters(None, ""), (0.5, 0.75, []))
+        self.assertEqual(app.effective_filters(None, ""), (0.5, 0.5, []))
         minimum, specificity, errors = app.effective_filters("NaN", 1.5)
-        self.assertEqual((minimum, specificity), (0.5, 0.75))
+        self.assertEqual((minimum, specificity), (0.5, 0.5))
         self.assertEqual(len(errors), 2)
 
     def test_schema1_requires_refresh(self) -> None:
@@ -910,7 +920,24 @@ class CallbackTests(unittest.TestCase):
     def test_layout_has_all_modalities_and_defaults(self) -> None:
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(self.components["stage"]["value"], "phase3")
-        self.assertEqual(self.components["method"]["value"], "fixed")
+        self.assertEqual(self.components["measure"]["value"], "percent")
+        self.assertEqual(
+            [option["value"] for option in self.components["measure"]["options"]],
+            ["percent", "count"],
+        )
+        self.assertEqual(
+            self.components["applied-parameters"]["data"]["measure"],
+            "percent",
+        )
+        self.assertEqual(self.components["method"]["value"], "specificity")
+        self.assertEqual(
+            self.components["applied-parameters"]["data"]["method"],
+            "specificity",
+        )
+        self.assertEqual(self.components["specificity"]["value"], 0.5)
+        self.assertEqual(
+            self.components["applied-parameters"]["data"]["specificity"], 0.5
+        )
         self.assertNotIn("level", self.components)
         self.assertNotIn("detail-cell", self.components)
         self.assertTrue(
@@ -947,7 +974,7 @@ class CallbackTests(unittest.TestCase):
             ],
             ["Drug evidence", "Expression criteria", "Comparison scope", "Display"],
         )
-        self.assertTrue(self.components["specificity"]["disabled"])
+        self.assertFalse(self.components["specificity"]["disabled"])
 
     def test_specificity_input_follows_rule_and_keeps_value(self) -> None:
         values = self._values()
@@ -1041,6 +1068,8 @@ class CallbackTests(unittest.TestCase):
     def test_both_heatmaps_callbacks(self) -> None:
         values = self._values()
         figures = self._post_applied("target-heatmap.figure", values)
+        for graph in ("target-heatmap", "drug-heatmap"):
+            self.assertEqual(figures[graph]["style"]["minWidth"], "600px")
         self.assertEqual(
             figures["target-heatmap"]["figure"]["data"][0]["x"],
             figures["drug-heatmap"]["figure"]["data"][0]["x"],
@@ -1173,7 +1202,7 @@ class CallbackTests(unittest.TestCase):
         )
         self.assertTrue(exported)
         self.assertEqual({row["minimum_cpm"] for row in exported}, {"0.5"})
-        self.assertEqual({row["specificity_threshold"] for row in exported}, {"0.75"})
+        self.assertEqual({row["specificity_threshold"] for row in exported}, {"0.5"})
         self.assertEqual({row["stage_filter"] for row in exported}, {"phase3"})
         self.assertTrue(
             {"positive", "negative", "unknown", "unmapped"}.issubset(

@@ -280,7 +280,7 @@ def expression_state(
     metadata: dict | None,
     threshold: float,
     method: str,
-    specificity_threshold: float = 0.75,
+    specificity_threshold: float = 0.5,
 ) -> bool | None:
     """一つの標的・細胞について陽性、陰性、未知を返す。"""
     if method not in {"fixed", "relative", "specificity"}:
@@ -350,7 +350,7 @@ def summarize(
     *,
     stage: str = "phase3",
     method: str = "fixed",
-    specificity_threshold: float = 0.75,
+    specificity_threshold: float = 0.5,
     level: str = "group",
     cell_ids: list[str] | None = None,
     disease_ids: list[str] | None = None,

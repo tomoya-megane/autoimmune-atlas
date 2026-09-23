@@ -392,6 +392,11 @@ class AtlasTests(unittest.TestCase):
         self.assertNotIn("G1", {record["target_id"] for record in row["records"]})
         metadata = expression_metadata(_snapshot())["G1", "T4"]
         self.assertTrue(expression_state(metadata, 0.5, "specificity", 0.75))
+        self.assertTrue(
+            expression_state(
+                {"median": 1, "specificity_score": 0.5}, 0.5, "specificity"
+            )
+        )
         with self.assertRaises(ValueError):
             expression_state(metadata, 0.5, "guess")
 
