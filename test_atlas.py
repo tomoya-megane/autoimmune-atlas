@@ -121,6 +121,29 @@ class AtlasTests(unittest.TestCase):
         self.assertIn({"id": "X", "name": "Novel cell", "members": ["X"]}, groups)
         self.assertIn({"id": "T4", "name": "CD4 T cell", "members": ["T4"]}, cell_catalog(_snapshot(), "cell"))
 
+    def test_catalog_uses_lineage_group_priority_and_keeps_every_cell(self) -> None:
+        rows = [
+            {"cell_id": "CD8_EFFECTOR", "cell": "A CD8 effector", "median": 1, "parent_id": "OTHER", "parent": "Other", "ancestor_ids": ["CL_0000084", "CD8"]},
+            {"cell_id": "UNKNOWN_Z", "cell": "Zeta cell", "median": 1, "parent_id": "UNKNOWN_Z", "parent": "Zeta group", "ancestor_ids": []},
+            {"cell_id": "CD4_MEMORY", "cell": "A CD4 memory", "median": 1, "parent_id": "OTHER", "parent": "Other", "ancestor_ids": ["CL_0000084", "CD4"]},
+            {"cell_id": "B", "cell": "B cell", "median": 1, "parent_id": "CL_0000945", "parent": "B lineage", "ancestor_ids": ["CL_0000945"]},
+            {"cell_id": "CD8", "cell": "CD8 T cell", "median": 1, "parent_id": "OTHER", "parent": "Other", "ancestor_ids": ["CL_0000084"]},
+            {"cell_id": "UNKNOWN_A", "cell": "Alpha cell", "median": 1, "parent_id": "UNKNOWN_A", "parent": "Alpha group", "ancestor_ids": []},
+            {"cell_id": "CD4", "cell": "CD4 T cell", "median": 1, "parent_id": "OTHER", "parent": "Other", "ancestor_ids": ["CL_0000084"]},
+        ]
+        snapshot = {"schema": 2, "expression": {"G": rows}}
+
+        groups = cell_catalog(snapshot, "group")
+        cells = cell_catalog(snapshot, "cell")
+        self.assertEqual([group["id"] for group in groups], ["CL_0000084", "CL_0000945", "UNKNOWN_A", "UNKNOWN_Z"])
+        self.assertEqual(groups[0]["members"], ["CD4", "CD4_MEMORY", "CD8", "CD8_EFFECTOR"])
+        self.assertEqual([cell["id"] for cell in cells], ["CD4", "CD4_MEMORY", "CD8", "CD8_EFFECTOR", "B", "UNKNOWN_A", "UNKNOWN_Z"])
+        self.assertEqual({cell["id"] for cell in cells}, {row["cell_id"] for row in rows})
+
+        snapshot["expression"]["G"] = list(reversed(rows))
+        self.assertEqual(cell_catalog(snapshot, "group"), groups)
+        self.assertEqual(cell_catalog(snapshot, "cell"), cells)
+
     def test_group_membership_must_be_consistent_across_targets(self) -> None:
         snapshot = _snapshot()
         snapshot["expression"]["G2"][0]["ancestor_ids"] = []

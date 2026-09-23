@@ -74,19 +74,35 @@ class FigureTests(unittest.TestCase):
         self.assertEqual(app._display_value(row, "count", "drug"), "≥1")
         self.assertEqual(app._display_value(row, "percent", "drug"), "25.0%")
 
+    def test_heatmap_cells_omit_lower_bound_mark_but_keep_hover_and_values(self) -> None:
+        row = summary(count=2, percent=40.0, drug_count=1, drug_percent=25.0, unknown=1, unknown_drugs=1)
+        for kind, measure, label, value in (("target", "count", "2", 2), ("target", "percent", "40.0%", 40.0), ("drug", "count", "1", 1), ("drug", "percent", "25.0%", 25.0)):
+            figure = app.build_figure([row], ["D1"], ["C1"], measure, kind)
+            self.assertEqual(figure.data[0].text[0][0], label)
+            self.assertEqual(figure.data[0].z[0][0], value)
+            self.assertIn("≥" + label, figure.data[0].hovertext[0][0])
+            self.assertIn("≥ is a lower bound", figure.data[0].hovertext[0][0])
+
     def test_two_figures_have_aligned_axes_and_cross_for_na(self) -> None:
         rows = [summary(), summary(cell_id="C2", cell="T cell", count=None, percent=None, drug_count=None, drug_percent=None, unknown=1, unknown_drugs=1, status="partial")]
         target = app.build_figure(rows, ["D1"], ["C1", "C2"], "count", "target")
         drug = app.build_figure(rows, ["D1"], ["C1", "C2"], "count", "drug")
         self.assertEqual(list(target.data[0].x), list(drug.data[0].x))
         self.assertEqual(list(target.data[0].y), list(drug.data[0].y))
-        self.assertIn("Unknown / missing", [trace.name for trace in target.data])
-        missing = next(trace for trace in target.data if trace.name == "Unknown / missing")
+        self.assertIn("No value (see hover)", [trace.name for trace in target.data])
+        missing = next(trace for trace in target.data if trace.name == "No value (see hover)")
         self.assertIn("Denominator: 5", missing.hovertext[0])
         self.assertIn("Unknown in denominator: 1", missing.hovertext[0])
         self.assertIn("Mapped / all canonical drugs: 4 / 4", missing.hovertext[0])
         self.assertIn("Status: partial", missing.hovertext[0])
         self.assertFalse(any(getattr(trace.marker, "symbol", None) == "square-open" for trace in target.data if trace.type == "scatter"))
+
+    def test_no_value_hover_distinguishes_unavailable_from_empty_denominator(self) -> None:
+        unavailable = summary(status="unavailable", count=None, percent=None, denominator=0)
+        empty = summary(percent=None, denominator=0)
+        self.assertIn("Disease data unavailable", app._hover_text(unavailable, "percent", "target"))
+        self.assertNotIn("No eligible items", app._hover_text(unavailable, "percent", "target"))
+        self.assertIn("No eligible items in the percentage denominator", app._hover_text(empty, "percent", "target"))
 
 
 class EvidenceTests(unittest.TestCase):
@@ -104,8 +120,19 @@ class EvidenceTests(unittest.TestCase):
         target_index = next(i for i, label in enumerate(targets) if "TARGET1" in label)
         cell_index = cells.index("memory B cell")
         self.assertAlmostEqual(figure.data[0].z[target_index][cell_index], math.log2(3))
-        self.assertIn("Raw CPM: 2", figure.data[0].hovertext[target_index][cell_index])
+        self.assertIn("Median CPM: 2", figure.data[0].hovertext[target_index][cell_index])
         self.assertIn("Missing expression", [trace.name for trace in figure.data])
+
+    def test_continuous_expression_and_csv_use_catalog_member_order(self) -> None:
+        row = {**self.rows[0], "member_cell_ids": list(reversed(self.rows[0]["member_cell_ids"]))}
+        evidence = app.evidence_rows(self.snapshot, row, modality="all", stage="phase3", threshold=.5, method="fixed", specificity=.75)
+        figure = app.expression_figure(self.snapshot, row, evidence)
+        self.assertEqual(list(figure.data[0].x), ["memory B cell", "naive B cell"])
+        exported = app.export_rows([row], "count", snapshot=self.snapshot)
+        self.assertEqual(
+            [item["evidence_cell_id"] for item in exported if item["row_type"] == "expression_evidence"][:2],
+            ["CL_B_ONE", "CL_B_TWO"],
+        )
 
     def test_all_states_and_source_cells_are_exported(self) -> None:
         exported = app.export_rows(self.rows, "count", snapshot=self.snapshot)
@@ -203,6 +230,53 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(self.components["method"]["value"], "fixed")
         self.assertEqual(self.components["level"]["value"], "group")
         self.assertEqual([option["value"] for option in self.components["modality"]["options"]], ["all", *[value for _, value in atlas.DRUG_TYPE_MODALITIES]])
+        layout = self.client.get("/_dash-layout").get_json()
+        controls = next(node for node in layout["props"]["children"] if node.get("props", {}).get("className") == "panel controls")
+        scope, groups = controls["props"]["children"]
+        scope_controls = scope["props"]["children"][1]
+        self.assertEqual(scope_controls["type"], "Div")
+        self.assertEqual([node["props"]["children"][1]["props"]["id"] for node in scope_controls["props"]["children"]], ["diseases", "level", "cells"])
+        self.assertEqual([group["props"]["children"][0]["props"]["children"] for group in groups["props"]["children"]], ["Drug evidence", "Expression criteria", "Display"])
+        self.assertTrue(self.components["specificity"]["disabled"])
+
+    def test_specificity_input_follows_rule_and_keeps_value(self) -> None:
+        values = self._values()
+        values[("specificity", "value")] = .8
+        for method, disabled in (("fixed", True), ("specificity", False), ("relative", True), ("specificity", False)):
+            values[("method", "value")] = method
+            response = self._post("specificity.disabled", values, "method.value")
+            self.assertEqual(response["specificity"], {"disabled": disabled})
+        figures = self._post("target-heatmap.figure", values, "method.value")
+        self.assertIn("specificity ≥ 0.8", json.dumps(figures["matrix-note"]["children"], ensure_ascii=False))
+
+    def test_help_buttons_describe_unique_tooltips_and_errors_stay_visible(self) -> None:
+        values = self._values()
+        values[("threshold", "value")] = -1
+        figures = self._post("target-heatmap.figure", values, "threshold.value")
+        note = figures["matrix-note"]["children"]["props"]["children"]
+        self.assertEqual(note[0]["props"]["children"], "1 disease–cell combinations")
+        self.assertEqual(note[2]["props"]["role"], "alert")
+        self.assertIn("must be finite", note[2]["props"]["children"])
+
+        def nodes(item):
+            if isinstance(item, dict):
+                if "props" in item:
+                    yield item
+                for value in item.values():
+                    yield from nodes(value)
+            elif isinstance(item, list):
+                for value in item:
+                    yield from nodes(value)
+
+        layout = self.client.get("/_dash-layout").get_json()
+        selected = self._values(); selected[("target-heatmap", "clickData")] = {"points": [{"customdata": ["MONDO_RA_TEST", "CL_B_GROUP"]}]}
+        details = self._post("details.children", selected, "target-heatmap.clickData")
+        surfaces = [layout, figures["matrix-note"]["children"], details["details"]["children"]]
+        tips = [node["props"]["id"] for node in nodes(surfaces) if node["props"].get("role") == "tooltip"]
+        buttons = [node["props"] for node in nodes(surfaces) if node.get("type") == "Button" and node["props"].get("className") == "info-button"]
+        self.assertEqual(len(tips), len(set(tips)))
+        self.assertEqual(set(tips), {button["aria-describedby"] for button in buttons})
+        self.assertTrue(all(button["type"] == "button" and button["aria-label"] for button in buttons))
 
     def test_level_and_both_heatmaps_callbacks(self) -> None:
         values = self._values()
@@ -219,12 +293,38 @@ class CallbackTests(unittest.TestCase):
         values = self._values()
         figures = self._post("target-heatmap.figure", values, "measure.value")
         self.assertEqual(figures["target-heatmap"]["figure"]["data"][0]["x"], figures["drug-heatmap"]["figure"]["data"][0]["x"])
-        self.assertIn("CPM > 0.5", figures["matrix-note"]["children"])
-        self.assertNotIn("specificity ≥", figures["matrix-note"]["children"])
+        self.assertIn("CPM > 0.5", json.dumps(figures["matrix-note"]["children"], ensure_ascii=False))
+        self.assertNotIn("specificity ≥", json.dumps(figures["matrix-note"]["children"], ensure_ascii=False))
 
         values[("method", "value")] = "relative"
         relative = self._post("target-heatmap.figure", values, "method.value")
-        self.assertIn("full-reference target median", relative["matrix-note"]["children"])
+        self.assertIn("full-reference target median", json.dumps(relative["matrix-note"]["children"], ensure_ascii=False))
+
+    def test_heatmap_view_switch_keeps_both_graphs_and_details(self) -> None:
+        self.assertEqual(self.components["heatmap-view"]["value"], "target")
+        self.assertFalse(self.components["target-heatmap-panel"].get("hidden", False))
+        self.assertTrue(self.components["drug-heatmap-panel"]["hidden"])
+        values = self._values()
+        figures = self._post("target-heatmap.figure", values, "measure.value")
+        self.assertIn("figure", figures["target-heatmap"])
+        self.assertIn("figure", figures["drug-heatmap"])
+        click = {"points": [{"customdata": ["MONDO_RA_TEST", "CL_B_GROUP"]}]}
+        for view, hidden, graph in (("target", (False, True), "target-heatmap"), ("drug", (True, False), "drug-heatmap")):
+            values[("heatmap-view", "value")] = view
+            panels = self._post("target-heatmap-panel.hidden", values, "heatmap-view.value")
+            self.assertEqual((panels["target-heatmap-panel"]["hidden"], panels["drug-heatmap-panel"]["hidden"]), hidden)
+            case = dict(values); case[(graph, "clickData")] = click
+            details = self._post("details.children", case, f"{graph}.clickData")
+            self.assertIn("Expression of targets in the current drug filter", str(details["details"]["children"]))
+
+    def test_figures_and_detail_cells_ignore_reversed_selection_order(self) -> None:
+        values = self._values()
+        values[("cells", "value")] = ["CL_B_GROUP", atlas.T_CELL_ID]
+        figures = self._post("target-heatmap.figure", values, "cells.value")
+        self.assertEqual(figures["target-heatmap"]["figure"]["data"][0]["y"], ["T cell", "B cell"])
+        self.assertEqual(figures["drug-heatmap"]["figure"]["data"][0]["y"], ["T cell", "B cell"])
+        selectors = self._post("detail-cell.options", values, "cells.value")
+        self.assertEqual([item["value"] for item in selectors["detail-cell"]["options"]], [atlas.T_CELL_ID, "CL_B_GROUP"])
 
     def test_details_from_both_clicks_and_csv(self) -> None:
         values = self._values()
@@ -233,8 +333,8 @@ class CallbackTests(unittest.TestCase):
             case = dict(values); case[(heatmap, "clickData")] = click
             details = self._post("details.children", case, f"{heatmap}.clickData")
             rendered = str(details["details"]["children"])
-            self.assertIn("Continuous expression", rendered)
-            self.assertIn("All filtered source records", rendered)
+            self.assertIn("Expression of targets in the current drug filter", rendered)
+            self.assertIn("Filtered drug records by source cell type", rendered)
 
         downloaded = self._post("download.data", values, "download-button.n_clicks")
         exported = list(csv.DictReader(io.StringIO(downloaded["download"]["data"]["content"].lstrip("\ufeff"))))

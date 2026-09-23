@@ -33,6 +33,17 @@ STAGE_ORDER = {stage: rank for rank, stages in enumerate((
     ("PHASE_3",), ("PREAPPROVAL",), ("APPROVAL", "PHASE_4"),
 )) for stage in stages}
 T_CELL_ID = "CL_0000084"
+CELL_GROUP_ORDER = (
+    # 免疫・造血・幹細胞：T、B、自然リンパ球、骨髄系、樹状、顆粒球、造血、赤血球、幹細胞
+    "CL_0000084", "CL_0000945", "CL_0001065", "CL_0000766", "CL_0000451",
+    "CL_0000094", "CL_0000988", "CL_0000764", "CL_0000034",
+    # 間質・血管・上皮系：間質、線維芽、結合組織、収縮、内皮、上皮、分泌
+    "CL_0000499", "CL_0000057", "CL_0002320", "CL_0000183", "CL_0000115",
+    "CL_0000066", "CL_0000151",
+    # 神経・色素・生殖系：神経、グリア、メラノサイト、雌性生殖、雄性生殖
+    "CL_0000540", "CL_0000125", "CL_0000148", "CL_0000021", "CL_0000015",
+)
+CELL_GROUP_RANK = {cell_id: rank for rank, cell_id in enumerate(CELL_GROUP_ORDER)}
 
 
 def _validate_snapshot(snapshot: dict) -> None:
@@ -88,11 +99,47 @@ def _cell_memberships(snapshot: dict) -> dict[str, dict]:
             else:
                 group_id = row.get("parent_id") or cell_id
                 group_name = row.get("parent") or row["cell"]
-            definition = {"id": cell_id, "name": row["cell"], "group_id": group_id, "group_name": group_name}
+            definition = {
+                "id": cell_id, "name": row["cell"], "group_id": group_id, "group_name": group_name,
+                "ancestor_ids": tuple(sorted(set(ancestors))),
+            }
             if cell_id in cells and cells[cell_id] != definition:
                 raise ValueError(f"細胞型の親分類が標的間で一貫しません: {cell_id}")
             cells[cell_id] = definition
     return cells
+
+
+def _lineage_order(cells: dict[str, dict], members: list[str]) -> list[str]:
+    """観測された祖先だけを使い、親を子より先に一度ずつ並べる。"""
+    member_set = set(members)
+    key = lambda cell_id: (cells[cell_id]["name"].casefold(), cell_id)
+    parents = {}
+    for cell_id in members:
+        candidates = member_set.intersection(cells[cell_id]["ancestor_ids"])
+        closest = [
+            candidate for candidate in candidates
+            if not any(candidate in cells[other]["ancestor_ids"] for other in candidates if other != candidate)
+        ]
+        if closest:
+            parents[cell_id] = min(closest, key=key)
+    children = defaultdict(list)
+    for child, parent in parents.items():
+        children[parent].append(child)
+    ordered, seen = [], set()
+
+    def visit(cell_id):
+        if cell_id in seen:
+            return
+        seen.add(cell_id)
+        ordered.append(cell_id)
+        for child in sorted(children[cell_id], key=key):
+            visit(child)
+
+    for cell_id in sorted((cell_id for cell_id in members if cell_id not in parents), key=key):
+        visit(cell_id)
+    for cell_id in sorted(members, key=key):
+        visit(cell_id)
+    return ordered
 
 
 def cell_catalog(snapshot: dict, level: str = "group") -> list[dict]:
@@ -101,17 +148,24 @@ def cell_catalog(snapshot: dict, level: str = "group") -> list[dict]:
     if level not in {"group", "cell"}:
         raise ValueError(f"未対応の細胞分類レベル: {level}")
     cells = _cell_memberships(snapshot)
-    if level == "cell":
-        result = ({"id": item["id"], "name": item["name"], "members": [item["id"]]} for item in cells.values())
-    else:
-        groups = {}
-        for item in cells.values():
-            group = groups.setdefault(item["group_id"], {"id": item["group_id"], "name": item["group_name"], "members": []})
-            if group["name"] != item["group_name"]:
-                raise ValueError(f"親分類の名称が一貫しません: {item['group_id']}")
-            group["members"].append(item["id"])
-        result = groups.values()
-    return sorted(({**item, "members": sorted(item["members"])} for item in result), key=lambda item: (item["name"].casefold(), item["id"]))
+    groups = {}
+    for item in cells.values():
+        group = groups.setdefault(item["group_id"], {"id": item["group_id"], "name": item["group_name"], "members": []})
+        if group["name"] != item["group_name"]:
+            raise ValueError(f"親分類の名称が一貫しません: {item['group_id']}")
+        group["members"].append(item["id"])
+    ordered_groups = sorted(
+        groups.values(),
+        key=lambda item: (CELL_GROUP_RANK.get(item["id"], len(CELL_GROUP_RANK)), item["name"].casefold(), item["id"]),
+    )
+    for group in ordered_groups:
+        group["members"] = _lineage_order(cells, group["members"])
+    if level == "group":
+        return ordered_groups
+    return [
+        {"id": cell_id, "name": cells[cell_id]["name"], "members": [cell_id]}
+        for group in ordered_groups for cell_id in group["members"]
+    ]
 
 
 def expression_metadata(snapshot: dict) -> dict[tuple[str, str], dict]:

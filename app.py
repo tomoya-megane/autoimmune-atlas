@@ -21,6 +21,15 @@ STAGE_LABELS = {"phase1": "Phase I or later", "phase2": "Phase II or later", "ph
 METHOD_LABELS = {"fixed": "Fixed CPM", "relative": "Target-relative median", "specificity": "CELLEX specificity"}
 
 
+def info_tip(key: str, label: str, description: str):
+    """操作対象の近くに、キーボードでも読める説明を置く。"""
+    tip_id = f"{key}-tip"
+    return html.Span([
+        html.Button("ⓘ", type="button", className="info-button", **{"aria-label": f"About {label}", "aria-describedby": tip_id}),
+        html.Span(description, id=tip_id, role="tooltip", className="info-content"),
+    ], className="info-tip")
+
+
 def load_snapshot(path: Path) -> dict | None:
     """schema 2 の保存済みスナップショットを読む。"""
     if not path.exists():
@@ -31,8 +40,7 @@ def load_snapshot(path: Path) -> dict | None:
         raise ValueError("snapshot.json must contain a JSON object")
     if snapshot.get("schema") != 2:
         raise ValueError(
-            "This snapshot uses schema 1 and cannot support clinical-stage or specificity filters. "
-            "Refresh it with: pixi run --as-is python fetch_data.py"
+            "Unsupported snapshot format. Refresh it with: pixi run refresh"
         )
     required = {"root", "retrieved_at", "source", "diseases", "records", "expression"}
     missing = required - snapshot.keys()
@@ -48,6 +56,11 @@ def load_snapshot(path: Path) -> dict | None:
 def cell_catalog(snapshot: dict, level: str = "group") -> list[tuple[str, str]]:
     """公開関数が返す細胞カタログを選択欄向けに整える。"""
     return [(row["id"], row["name"]) for row in atlas.cell_catalog(snapshot, level)]
+
+
+def _ordered_cell_ids(snapshot: dict, level: str, cell_ids) -> list[str]:
+    selected = set(cell_ids or [])
+    return [cell_id for cell_id, _ in cell_catalog(snapshot, level) if cell_id in selected]
 
 
 def choose_defaults(items, terms, limit, preferred_ids=None) -> list[str]:
@@ -73,11 +86,15 @@ def choose_defaults(items, terms, limit, preferred_ids=None) -> list[str]:
 
 
 def _default_cells(snapshot: dict, level: str) -> list[str]:
-    return choose_defaults(
-        cell_catalog(snapshot, level),
+    catalog = cell_catalog(snapshot, level)
+    if level == "group":
+        return [cell_id for cell_id, _ in catalog[:16]]
+    selected = choose_defaults(
+        catalog,
         ("b cell", "t cell", "monocyte", "macrophage", "dendritic", "natural killer", "neutrophil", "fibroblast", "endothelial", "epithelial", "plasma cell"),
         16,
     )
+    return _ordered_cell_ids(snapshot, level, selected)
 
 
 def format_data_version(value: object) -> str:
@@ -146,9 +163,20 @@ def _display_value(row: dict, measure: str, kind: str = "target") -> str:
 
 def _hover_text(row: dict, measure: str, kind: str) -> str:
     value_key, unknown_key, denominator_key = _measure_fields(kind, measure)
-    value = _display_value(row, measure, kind) or "Unknown / missing"
+    value = _display_value(row, measure, kind) or "No value"
     label = "Drugs" if kind == "drug" else "Targets"
-    assessment = "≥ is a lower bound; unresolved evidence may increase this value" if _is_lower_bound(row, measure, kind) else "Insufficient data to determine a value" if row.get(value_key) is None else f"All {label.lower()} in this denominator are assessed"
+    if row["status"] == "unavailable":
+        assessment = "Disease data unavailable"
+    elif measure == "percent" and row.get(denominator_key, 0) == 0:
+        assessment = "No eligible items in the percentage denominator"
+    elif _is_lower_bound(row, measure, kind):
+        assessment = "≥ is a lower bound; unresolved evidence may increase this value"
+    elif row.get(value_key) is None:
+        assessment = "Support cannot be determined from available target and expression data."
+    elif row[value_key] == 0:
+        assessment = f"No qualifying {label.lower()} under this rule"
+    else:
+        assessment = f"{label} meeting the expression rule"
     return "<br>".join((
         f"<b>{row['disease']} × {row['cell']}</b>", f"{label}: {value}", assessment,
         f"Denominator: {row.get(denominator_key, 0)}", f"Unknown in denominator: {row.get(unknown_key, 0)}",
@@ -171,11 +199,11 @@ def build_figure(rows, disease_ids, cell_ids, measure, kind="target") -> go.Figu
             row = lookup.get((disease_id, cell_id))
             value = None if row is None else row.get(value_key)
             z_row.append(value)
-            text_row.append("" if row is None else _display_value(row, measure, kind))
-            hover_row.append("No data" if row is None else _hover_text(row, measure, kind))
+            text_row.append("" if row is None else _display_value(row, measure, kind).removeprefix("≥"))
+            hover_row.append("No summary for this combination" if row is None else _hover_text(row, measure, kind))
             custom_row.append([disease_id, cell_id])
             if value is None:
-                missing_x.append(disease_names.get(disease_id, disease_id)); missing_y.append(cell_names.get(cell_id, cell_id)); missing_custom.append([disease_id, cell_id]); missing_hover.append("No data" if row is None else _hover_text(row, measure, kind))
+                missing_x.append(disease_names.get(disease_id, disease_id)); missing_y.append(cell_names.get(cell_id, cell_id)); missing_custom.append([disease_id, cell_id]); missing_hover.append("No summary for this combination" if row is None else _hover_text(row, measure, kind))
         z.append(z_row); texts.append(text_row); hovers.append(hover_row); customs.append(custom_row)
     values = [value for z_row in z for value in z_row if value is not None]
     title = "Drug" if kind == "drug" else "Target"
@@ -186,11 +214,11 @@ def build_figure(rows, disease_ids, cell_ids, measure, kind="target") -> go.Figu
         text=texts, texttemplate="%{text}", hovertext=hovers, hovertemplate="%{hovertext}<extra></extra>", customdata=customs, xgap=2, ygap=2,
     ))
     if missing_x:
-        figure.add_trace(go.Scatter(x=missing_x, y=missing_y, customdata=missing_custom, hovertext=missing_hover, mode="markers", marker={"symbol": "x", "size": 10, "color": "#8a99a6"}, name="Unknown / missing", hovertemplate="%{hovertext}<extra></extra>"))
+        figure.add_trace(go.Scatter(x=missing_x, y=missing_y, customdata=missing_custom, hovertext=missing_hover, mode="markers", marker={"symbol": "x", "size": 10, "color": "#8a99a6"}, name="No value (see hover)", hovertemplate="%{hovertext}<extra></extra>"))
     if not disease_ids or not cell_ids:
         figure.add_annotation(text="Select diseases and cell types", showarrow=False)
-    figure.update_layout(template="plotly_white", font={"family": "Arial, sans-serif", "size": 12, "color": "#263238"}, width=max(760, min(2800, 260 + 125 * len(disease_ids))), height=max(420, min(1400, 180 + 28 * len(cell_ids))), margin={"l": 180, "r": 40, "t": 20, "b": 150}, legend={"orientation": "h", "y": 1.08, "x": 0}, hoverlabel={"align": "left"})
-    figure.update_xaxes(tickangle=-35, side="bottom", title="Disease")
+    figure.update_layout(template="plotly_white", font={"family": "Arial, sans-serif", "size": 12, "color": "#263238"}, width=max(760, min(2800, 260 + 125 * len(disease_ids))), height=max(420, min(1400, 180 + 28 * len(cell_ids))), margin={"l": 180, "r": 40, "t": 130, "b": 70}, legend={"orientation": "h", "y": -.08, "yanchor": "top", "x": 0}, hoverlabel={"align": "left"})
+    figure.update_xaxes(tickangle=-45, side="top", title="Disease", automargin=True)
     figure.update_yaxes(autorange="reversed", title="Cell type")
     return figure
 
@@ -213,13 +241,14 @@ def evidence_rows(snapshot, row, *, modality, stage, threshold, method, specific
     metadata = metadata if metadata is not None else atlas.expression_metadata(snapshot)
     records = records if records is not None else [record for record in atlas.filtered_records(snapshot, modality, stage) if record["disease_id"] == row["disease_id"]]
     cell_names = cell_names if cell_names is not None else {item["id"]: item["name"] for item in atlas.cell_catalog(snapshot, "cell")}
+    members = _ordered_cell_ids(snapshot, "cell", row["member_cell_ids"])
     output = []
     for record in records:
         base = {**record, "group_cell_id": row["cell_id"], "group_cell": row["cell"], "references_json": json.dumps(record.get("references") or [], ensure_ascii=False, sort_keys=True)}
         if not record.get("target_id"):
             output.append({**base, "evidence_cell_id": "", "evidence_cell": "", "cpm": None, "specificity_score": None, "target_median": None, "support_state": "unmapped", "contributing": False})
             continue
-        for member in row["member_cell_ids"]:
+        for member in members:
             item = metadata.get((record["target_id"], member))
             state = atlas.expression_state(item, threshold, method, specificity)
             output.append({
@@ -238,7 +267,7 @@ def expression_figure(snapshot, row, records, metadata=None) -> go.Figure:
     for record in records:
         if record.get("target_id"):
             target_names.setdefault(record["target_id"], record.get("target") or record["target_id"])
-    members = list(row["member_cell_ids"])
+    members = _ordered_cell_ids(snapshot, "cell", row["member_cell_ids"])
     member_names = {member: next((metadata[target, member]["cell"] for target in target_names if (target, member) in metadata), member) for member in members}
     targets = sorted(target_names, key=lambda item: (target_names[item].casefold(), item))
     z, hover, missing_x, missing_y = [], [], [], []
@@ -249,7 +278,7 @@ def expression_figure(snapshot, row, records, metadata=None) -> go.Figure:
             item = metadata.get((target_id, member)); cpm = item.get("median") if item else None
             z_row.append(math.log2(1 + cpm) if cpm is not None else None)
             hover_row.append("<br>".join((
-                f"<b>{label}</b>", f"Cell: {member_names[member]} ({member})", f"Raw CPM: {cpm:g}" if cpm is not None else "Raw CPM: missing",
+                f"<b>{label}</b>", f"Cell: {member_names[member]} ({member})", f"Median CPM: {cpm:g}" if cpm is not None else "Median CPM: missing",
                 f"CELLEX specificity: {item.get('specificity_score'):g}" if item and item.get("specificity_score") is not None else "CELLEX specificity: missing",
                 f"Target-relative median: {item.get('target_median'):g}" if item and item.get("target_median") is not None else "Target-relative median: missing",
             )))
@@ -291,12 +320,13 @@ def _reference_links(record):
 
 
 def _evidence_table(records):
-    headers = ("State", "Canonical drug", "Original drug", "Modality", "Original / canonical stage", "Target", "Action / mechanism", "Source cell", "CPM", "Specificity", "Target median", "Sources")
+    headers = ("Expression result", "Canonical drug", "Original drug", "Modality", "Record stage / highest disease-specific drug stage", "Target", "Action / mechanism", "Source cell", "Median CPM", "CELLEX specificity", "Reference-cell median CPM", "Sources")
+    state_labels = {"positive": "Meets rule", "negative": "Does not meet rule", "unknown": "Not assessed", "unmapped": "No mapped target"}
     body = []
     for record in records:
         actions, mechanism = ", ".join(record.get("action_types") or []), record.get("mechanism") or "—"
         body.append(html.Tr([
-            html.Td(record["support_state"]), html.Td(f"{record.get('canonical_drug') or '—'} ({record.get('canonical_drug_id') or '—'})"),
+            html.Td(state_labels[record["support_state"]]), html.Td(f"{record.get('canonical_drug') or '—'} ({record.get('canonical_drug_id') or '—'})"),
             html.Td(f"{record.get('drug') or '—'} ({record.get('drug_id') or '—'})"), html.Td(record.get("drug_type") or "—"),
             html.Td(f"{record.get('stage') or '—'} / {record.get('canonical_stage') or '—'}"), html.Td(f"{record.get('target') or '—'} ({record.get('target_id') or '—'})"),
             html.Td(f"{actions or '—'} / {mechanism}"), html.Td(f"{record.get('evidence_cell') or '—'} ({record.get('evidence_cell_id') or '—'})"),
@@ -309,14 +339,14 @@ def _evidence_table(records):
 def detail_panel(rows, selection, snapshot=None, *, modality="all", stage="phase3", threshold=DEFAULT_EXPRESSION_THRESHOLD, method="fixed", specificity=DEFAULT_SPECIFICITY_THRESHOLD):
     """選択した組合せの集計、連続発現、全元記録を表示する。"""
     if selection is None:
-        return html.Div("Select a disease and cell type using either heatmap or the selectors above.", className="empty-note")
+        return html.Div("Select a disease and cell type using the displayed heatmap or the selectors above.", className="empty-note")
     row = next((item for item in rows if (item["disease_id"], item["cell_id"]) == selection), None)
     if row is None:
         return html.Div("The previous selection is outside the current filters. Select a visible cell.", className="empty-note")
     summary = html.Div([html.H3(f"{row['disease']} × {row['cell']}"), html.P(
-        f"Targets: {_display_value(row, 'count') or 'NA'}; {_display_value(row, 'percent') or 'NA'} of {row['denominator']} known targets ({row['unknown']} unknown). "
-        f"Drugs: {_display_value(row, 'count', 'drug') or 'NA'}; {_display_value(row, 'percent', 'drug') or 'NA'} of {row['drug_denominator']} mapped canonical drugs ({row['unknown_drugs']} unknown). "
-        f"Coverage: {row['mapped_drugs']} mapped / {row['total_drugs']} all canonical drugs; {row['unmapped_drugs']} without mapped targets.", className="detail-summary")])
+        f"Targets meeting rule: {_display_value(row, 'count') or 'NA'}; {_display_value(row, 'percent') or 'NA'} of {row['denominator']} known targets ({row['unknown']} not assessed). "
+        f"Canonical drugs meeting rule: {_display_value(row, 'count', 'drug') or 'NA'}; {_display_value(row, 'percent', 'drug') or 'NA'} of {row['drug_denominator']} drugs with known targets ({row['unknown_drugs']} not assessed). "
+        f"Drug mapping: {row['mapped_drugs']} of {row['total_drugs']} canonical drugs have known targets; {row['unmapped_drugs']} have none.", className="detail-summary")])
     if snapshot is None:
         return html.Div([summary, html.P("Underlying schema 2 data are required for evidence details.", className="empty-note")])
     metadata = atlas.expression_metadata(snapshot)
@@ -331,12 +361,13 @@ def detail_panel(rows, selection, snapshot=None, *, modality="all", stage="phase
         cell = record.get("evidence_cell") or record.get("evidence_cell_id")
         if cell not in item["cells"]:
             item["cells"].append(cell)
-    positive_list = html.Ul([html.Li(f"{item['drug']} → {item['target']} in {', '.join(item['cells'])}") for item in positive_pairs.values()], className="evidence-list") if positive_pairs else html.P("No positive evidence under the applied rule.", className="empty-note")
+    positive_list = html.Ul([html.Li(f"{item['drug']} → {item['target']} in {', '.join(item['cells'])}") for item in positive_pairs.values()], className="evidence-list") if positive_pairs else html.P("No drug–target pairs meet the applied rule.", className="empty-note")
     return html.Div([
-        summary, html.H3("Continuous expression for all known targets"),
-        html.P("Color is log2(1 + CPM); hover shows raw CPM. Group rows display member cell types separately and never combine their CPM values.", className="matrix-note"),
+        summary, html.H3(["Expression of targets in the current drug filter", info_tip("expression", "target expression", "Color is log2(1 + median CPM). Median CPM is the donor median of pseudobulk counts per million in healthy reference cells, not disease samples. Group rows show source cells separately; their CPM values are never combined.")]),
         html.Div(dcc.Graph(figure=expression_figure(snapshot, row, records, metadata), config={"displaylogo": False}), className="graph-scroll expression-graph"),
-        html.H3("Positive evidence"), positive_list, html.Details([html.Summary("All filtered source records"), html.P("Negative, unknown, and unmapped records remain here so the aggregate can be traced.", className="matrix-note"), _evidence_table(records)], open=False, className="source-records"),
+        html.H3("Drug–target pairs meeting the expression rule"), positive_list,
+        html.H3(["Filtered drug records by source cell type", info_tip("source-records", "source records", "Rows repeat for each source cell type. Records that do not meet the rule, cannot be assessed, or lack a mapped target remain visible.")]),
+        html.Details([html.Summary("Show source records"), _evidence_table(records)], open=False, className="source-records"),
     ])
 
 
@@ -379,13 +410,14 @@ def export_rows(rows, measure, *, modality_filter="all", stage_filter="phase3", 
         })
     metadata = atlas.expression_metadata(snapshot)
     cell_names = {item["id"]: item["name"] for item in atlas.cell_catalog(snapshot, "cell")}
+    cell_rank = {cell_id: rank for rank, cell_id in enumerate(cell_names)}
     targets_by_disease = {}
     for record in records:
         if record.get("target_id"):
             targets_by_disease.setdefault(record["disease_id"], {})[record["target_id"]] = record.get("target") or record["target_id"]
     for row in rows:
         for target_id, target in targets_by_disease.get(row["disease_id"], {}).items():
-            for member in row["member_cell_ids"]:
+            for member in sorted(row["member_cell_ids"], key=cell_rank.__getitem__):
                 item = metadata.get((target_id, member))
                 state = atlas.expression_state(item, expression_threshold, method, specificity_threshold)
                 output.append({
@@ -402,8 +434,7 @@ def export_rows(rows, measure, *, modality_filter="all", stage_filter="phase3", 
 def unavailable_layout(error=None) -> html.Main:
     """データ未取得または再取得が必要な状態を説明する。"""
     title = "No data loaded yet" if error is None else "Data refresh required"
-    detail = "pixi run --as-is python fetch_data.py" if error is None else str(error)
-    return html.Main([html.Section([html.P("AUTOIMMUNE DRUG–CELL ATLAS", className="eyebrow"), html.H1(title), html.P("Create the schema 2 snapshot to display stage, specificity, and cell-level results."), html.Code(detail)], className="unavailable-card")], className="shell unavailable")
+    return html.Main([html.Section([html.P("AUTOIMMUNE DRUG–CELL ATLAS", className="eyebrow"), html.H1(title), html.P("Refresh the snapshot to load the comparison."), html.Code("pixi run refresh"), *([html.P(str(error), className="empty-note")] if error else [])], className="unavailable-card")], className="shell unavailable")
 
 
 def dashboard_layout(snapshot) -> html.Main:
@@ -416,29 +447,49 @@ def dashboard_layout(snapshot) -> html.Main:
     control = lambda label, component: html.Div([html.Label(label, htmlFor=component.id), component], className="control")
     return html.Main([
         html.Nav([html.A("Autoimmune Atlas", href="#", className="app-brand"), html.Div([html.A("Comparison", href="#comparison"), html.A("Evidence", href="#evidence"), html.A("Open Targets ↗", href=source, target="_blank", rel="noreferrer")], className="app-nav")], className="app-bar", **{"aria-label": "Main navigation"}),
-        html.Header([html.Div([html.P("AUTOIMMUNE DISEASE / DRUG TARGETS", className="eyebrow"), html.H1("Drug target support by cell type"), html.P("Compare target breadth and canonical-drug coverage under one shared expression rule.", className="lede")]), html.Div([html.Div([html.Strong(str(len(snapshot["diseases"]))), html.Span("Disease terms")], className="stat"), html.Div([html.Strong(str(len(snapshot["records"]))), html.Span("Source records")], className="stat"), html.Div([html.Strong(str(len(snapshot["expression"]))), html.Span("Targets queried")], className="stat")], className="stats")], className="hero"),
-        html.Section([html.Div([html.Span("Data status", className="meta-label"), html.Strong(f"Ready {ready} / unavailable {len(snapshot['diseases']) - ready}")]), html.Div([html.Span("Retrieved at", className="meta-label"), html.Strong(snapshot["retrieved_at"])]), html.Div([html.Span("Expression reference", className="meta-label"), html.Strong("Tabula Sapiens")]), html.Div([html.Span("Data source", className="meta-label"), html.A(f"Open Targets {data_version}".strip(), href=source, target="_blank", rel="noreferrer")])], className="source-bar"),
+        html.Header([html.Div([html.P("AUTOIMMUNE DISEASE / DRUG TARGETS", className="eyebrow"), html.H1(["Drug targets by cell type", info_tip("overview", "the atlas", "Compare which drug targets meet an expression rule in healthy reference cells across diseases. Disease differences reflect eligible drug and target sets, not disease-specific expression. This does not establish treatment efficacy; disease records may include symptom or comorbidity treatment.")])]), html.Div([html.Div([html.Strong(str(len(snapshot["diseases"]))), html.Span("Disease terms in snapshot")], className="stat"), html.Div([html.Strong(str(len(snapshot["records"]))), html.Span("Drug records in snapshot")], className="stat"), html.Div([html.Strong(str(len(snapshot["expression"]))), html.Span("Targets in snapshot")], className="stat")], className="stats")], className="hero"),
+        html.Section([html.Div([html.Span("Disease data", className="meta-label"), html.Strong(f"Loaded {ready} / unavailable {len(snapshot['diseases']) - ready}")]), html.Div([html.Span("Retrieved at", className="meta-label"), html.Strong(snapshot["retrieved_at"])]), html.Div([html.Span("Expression reference", className="meta-label"), html.Strong("Tabula Sapiens")]), html.Div([html.Span("Data source", className="meta-label"), html.A(f"Open Targets {data_version}".strip(), href=source, target="_blank", rel="noreferrer")])], className="source-bar"),
         html.Section([
             html.Div([
-                control("Measure", dcc.RadioItems(id="measure", options=[{"label": "Count", "value": "count"}, {"label": "Percent", "value": "percent"}], value="count", inline=True)),
-                control("Clinical stage", dcc.Dropdown(id="stage", options=[{"label": label, "value": value} for label, value in (("Phase I or later", "phase1"), ("Phase II or later", "phase2"), ("Phase III or later", "phase3"), ("Approval reached", "approved"))], value="phase3", clearable=False)),
-                control("Expression rule", dcc.Dropdown(id="method", options=[{"label": label, "value": value} for label, value in (("Fixed CPM", "fixed"), ("Target-relative median", "relative"), ("CELLEX specificity", "specificity"))], value="fixed", clearable=False)),
-                control("Minimum CPM (strict >)", dcc.Input(id="threshold", type="number", min=0, step=.1, value=DEFAULT_EXPRESSION_THRESHOLD)),
-                control("Specificity (≥)", dcc.Input(id="specificity", type="number", min=0, max=1, step=.05, value=DEFAULT_SPECIFICITY_THRESHOLD)),
-                control("Cell level", dcc.RadioItems(id="level", options=[{"label": "Groups", "value": "group"}, {"label": "Source cells", "value": "cell"}], value="group", inline=True)),
-                control("Drug modality", dcc.Dropdown(id="modality", options=modality_options, value="all", clearable=False)),
-            ], className="control-grid compact"),
-            html.Details([html.Summary("Select diseases and cells"), html.Div([control("Diseases", dcc.Dropdown(id="diseases", options=[{"label": name, "value": item_id} for item_id, name in diseases], value=default_diseases, multi=True, searchable=True)), control("Cells", dcc.Dropdown(id="cells", options=[{"label": name, "value": item_id} for item_id, name in group_cells], value=default_cells, multi=True, searchable=True))], className="control-grid selectors")], className="filter-details"),
-            html.Details([html.Summary("How to read this view"), html.P("Healthy-atlas expression is not disease-specific expression or evidence of efficacy. Historical approvals may be withdrawn, and disease records can include symptom or comorbidity treatment."), html.P("Groups are unions of source cell types. Their values can increase with the number and granularity of member subtypes; member CPM values are never added or averaged."), html.P("≥ marks a lower bound. × marks an unknown value. Percentages use their own known-item denominator and can be 0 even when a count remains unknown because of an unmapped drug.")], className="methods-note"),
+                html.H3("Comparison scope"),
+                html.Div([
+                    control("Diseases", dcc.Dropdown(id="diseases", options=[{"label": name, "value": item_id} for item_id, name in diseases], value=default_diseases, multi=True, searchable=True)),
+                    html.Fieldset([html.Legend(["Cell level", info_tip("cell-level", "cell level", "Groups are unions of source cell types. Counts can rise with the number and granularity of subtypes; source-cell CPM values are never added or averaged, and a higher count is not stronger clinical evidence.")]), dcc.RadioItems(id="level", options=[{"label": "Groups", "value": "group"}, {"label": "Source cells", "value": "cell"}], value="group", inline=True)], className="control radio-control"),
+                    html.Div([html.Div([html.Label("Cells", htmlFor="cells"), info_tip("cells", "cells", "Cell types follow a fixed lineage-oriented catalog order, not expression support strength.")], className="label-help"), dcc.Dropdown(id="cells", options=[{"label": name, "value": item_id} for item_id, name in group_cells], value=default_cells, multi=True, searchable=True)], className="control"),
+                ], className="control-grid scope-controls"),
+            ], className="filter-group scope-group"),
+            html.Div([
+                html.Section([html.H3("Drug evidence"),
+                    html.Div([html.Div([html.Label("Clinical stage", htmlFor="stage"), info_tip("stage", "clinical stage", "Highest recorded stage of a canonical drug in this disease. Approval reached may include withdrawn drugs.")], className="label-help"), dcc.Dropdown(id="stage", options=[{"label": label, "value": value} for label, value in (("Phase I or later", "phase1"), ("Phase II or later", "phase2"), ("Phase III or later", "phase3"), ("Approval reached", "approved"))], value="phase3", clearable=False)], className="control"),
+                    control("Drug modality", dcc.Dropdown(id="modality", options=modality_options, value="all", clearable=False)),
+                ], className="filter-group"),
+                html.Section([html.H3("Expression criteria"),
+                    control("Expression rule", dcc.Dropdown(id="method", options=[{"label": label, "value": value} for label, value in (("Fixed CPM", "fixed"), ("Target-relative median", "relative"), ("CELLEX specificity", "specificity"))], value="fixed", clearable=False)),
+                    html.Div([html.Div([html.Label("Minimum CPM (strict >)", htmlFor="threshold"), info_tip("threshold", "minimum CPM", f"Every rule requires median CPM above this value. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.")], className="label-help"), dcc.Input(id="threshold", type="number", min=0, step=.1, value=DEFAULT_EXPRESSION_THRESHOLD)], className="control"),
+                    html.Div([html.Div([html.Label("CELLEX specificity (≥)", htmlFor="specificity"), info_tip("specificity", "CELLEX specificity", f"Only used with CELLEX specificity. Blank uses {DEFAULT_SPECIFICITY_THRESHOLD:g}.")], className="label-help"), dcc.Input(id="specificity", type="number", min=0, max=1, step=.05, value=DEFAULT_SPECIFICITY_THRESHOLD, disabled=True)], className="control"),
+                ], className="filter-group"),
+                html.Section([html.H3("Display"),
+                    html.Fieldset([html.Legend(["View", info_tip("view", "heatmap view", "Targets are distinct genes meeting the rule. Drug forms mapped to the same active ingredient count once if any known target meets the rule.")]), dcc.RadioItems(id="heatmap-view", options=[{"label": "Distinct targets", "value": "target"}, {"label": "Canonical drugs", "value": "drug"}], value="target", inline=True)], className="control radio-control"),
+                    html.Fieldset([html.Legend(["Measure", info_tip("measure", "measure", "Percent divides by known targets or canonical drugs with known targets for the current disease and drug filters. Each denominator stays fixed across cells; percent is not a share of cells.")]), dcc.RadioItems(id="measure", options=[{"label": "Count", "value": "count"}, {"label": "Percent", "value": "percent"}], value="count", inline=True)], className="control radio-control"),
+                ], className="filter-group"),
+            ], className="filter-groups"),
         ], className="panel controls"),
-        html.Section([html.Div([html.H2("Shared-condition comparison"), html.Button("Download CSV", id="download-button", n_clicks=0), dcc.Download(id="download")], className="section-heading"), html.P("CSV rows are labeled summary, source_record, or expression_evidence. Join source and expression rows by disease_id + target_id; group_cell_id and evidence_cell_id identify the displayed group and measured source cell.", className="matrix-note"), html.P(id="matrix-note", className="matrix-note", role="status"), html.Div([html.Article([html.H3("Distinct targets"), html.Div(dcc.Graph(id="target-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")]), html.Article([html.H3("Canonical drugs"), html.Div(dcc.Graph(id="drug-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")])], className="heatmap-stack"), html.P("≥ Lower bound · × Unknown / missing · Click either heatmap to inspect evidence", className="matrix-note")], className="panel matrix-panel", id="comparison"),
-        html.Section([html.Div([html.H2("Selection details"), html.P("The selectors resolve the same disease–cell evidence as a heatmap click.")], className="section-heading detail-heading"), html.Div([control("Disease", dcc.Dropdown(id="detail-disease", clearable=False)), control("Cell", dcc.Dropdown(id="detail-cell", clearable=False))], className="control-grid selectors"), html.Div(id="details", className="details")], className="panel", id="evidence"),
-        html.Footer("Target and canonical-drug summaries use separate denominators and unknown counts."),
+        html.Section([html.Div([html.H2(["Cell-type comparison", info_tip("comparison", "cell-type comparison", "Heatmap cells show confirmed support without a ≥ mark; hover, details, and CSV values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.")]), html.Div([html.Button("Download CSV", id="download-button", n_clicks=0), info_tip("csv", "CSV download", "CSV includes both target and drug summaries and expression values for selected disease–cell pairs, plus drug records for the selected diseases and drug filters."), dcc.Download(id="download")], className="download-actions")], className="section-heading"), html.Div(id="matrix-note", className="matrix-note", role="status"), html.Div([html.Article([html.H3("Distinct targets"), html.Div(dcc.Graph(id="target-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")], id="target-heatmap-panel"), html.Article([html.H3("Canonical drugs"), html.Div(dcc.Graph(id="drug-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")], id="drug-heatmap-panel", hidden=True)], className="heatmap-stack"), html.P("× No value · Hover for values · Click for details", className="matrix-note")], className="panel matrix-panel", id="comparison"),
+        html.Section([html.Div([html.H2(["Selection details", info_tip("selection", "selection details", "The selectors resolve the same disease–cell evidence as a click on the displayed heatmap.")])], className="section-heading detail-heading"), html.Div([control("Disease", dcc.Dropdown(id="detail-disease", clearable=False)), control("Cell", dcc.Dropdown(id="detail-cell", clearable=False))], className="control-grid selectors"), html.Div(id="details", className="details")], className="panel", id="evidence"),
+        html.Footer("Drug records: Open Targets. Healthy reference expression: Tabula Sapiens."),
     ], className="shell")
 
 
 def register_callbacks(application: Dash, snapshot: dict) -> None:
     """schema 2 dashboard のコールバックを登録する。"""
+    @application.callback(Output("specificity", "disabled"), Input("method", "value"))
+    def toggle_specificity(method):
+        return method != "specificity"
+
+    @application.callback(Output("target-heatmap-panel", "hidden"), Output("drug-heatmap-panel", "hidden"), Input("heatmap-view", "value"))
+    def select_heatmap(view):
+        return view == "drug", view != "drug"
+
     @application.callback(Output("cells", "options"), Output("cells", "value"), Input("level", "value"), State("cells", "value"))
     def update_cell_options(level, current_cells):
         catalog = cell_catalog(snapshot, level)
@@ -451,11 +502,13 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             selected.extend(value for value in mapped if value and value not in selected)
         available = {item_id for item_id, _ in catalog}
         selected = [item for item in selected if item in available]
+        selected = _ordered_cell_ids(snapshot, level, selected)
         return [{"label": name, "value": item_id} for item_id, name in catalog], selected or _default_cells(snapshot, level)
 
     @application.callback(Output("target-heatmap", "figure"), Output("drug-heatmap", "figure"), Output("matrix-note", "children"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("level", "value"), Input("diseases", "value"), Input("cells", "value"))
     def update_figures(measure, modality, stage, method, threshold, specificity, level, disease_ids, cell_ids):
         minimum, specificity_value, errors = effective_filters(threshold, specificity)
+        cell_ids = _ordered_cell_ids(snapshot, level, cell_ids)
         rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level=level)
         target_figure, drug_figure = build_figure(rows, disease_ids or [], cell_ids or [], measure, "target"), build_figure(rows, disease_ids or [], cell_ids or [], measure, "drug")
         target_missing = sum(row[_measure_fields("target", measure)[0]] is None for row in rows); drug_missing = sum(row[_measure_fields("drug", measure)[0]] is None for row in rows)
@@ -464,12 +517,15 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             condition += " and CPM ≥ the full-reference target median"
         elif method == "specificity":
             condition += f" and CELLEX specificity ≥ {specificity_value:g}"
-        note = f"Applied: {STAGE_LABELS[stage]}; {METHOD_LABELS[method]} ({condition}); {level}; {measure}; {modality}. {len(rows)} combinations; target NA {target_missing}; drug NA {drug_missing}."
-        return target_figure, drug_figure, note + ((" " + " ".join(errors)) if errors else "")
+        modality_label = "All modalities" if modality == "all" else next((label for label, value in atlas.DRUG_TYPE_MODALITIES if value == modality), modality)
+        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: {'Groups' if level == 'group' else 'Source cells'}; Measure: {measure.capitalize()}. {len(rows)} disease–cell combinations. Heatmap entries without a value: targets {target_missing}, drugs {drug_missing}."
+        status = html.Span(f"{len(rows)} disease–cell combinations")
+        error_note = html.Span(" ".join(errors), className="filter-errors", role="alert") if errors else None
+        return target_figure, drug_figure, html.Div([status, info_tip("applied", "applied filters", note), error_note], className="matrix-status")
 
     @application.callback(Output("detail-disease", "options"), Output("detail-disease", "value"), Output("detail-cell", "options"), Output("detail-cell", "value"), Input("diseases", "value"), Input("cells", "value"), Input("level", "value"), State("detail-disease", "value"), State("detail-cell", "value"))
     def update_detail_selectors(disease_ids, cell_ids, level, current_disease, current_cell):
-        disease_ids, cell_ids = disease_ids or [], cell_ids or []; disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}; cell_names = dict(cell_catalog(snapshot, level))
+        disease_ids, cell_ids = disease_ids or [], _ordered_cell_ids(snapshot, level, cell_ids); disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}; cell_names = dict(cell_catalog(snapshot, level))
         return ([{"label": disease_names[item], "value": item} for item in disease_ids if item in disease_names], current_disease if current_disease in disease_ids else next(iter(disease_ids), None), [{"label": cell_names[item], "value": item} for item in cell_ids if item in cell_names], current_cell if current_cell in cell_ids else next(iter(cell_ids), None))
 
     @application.callback(Output("details", "children"), Input("target-heatmap", "clickData"), Input("drug-heatmap", "clickData"), Input("detail-disease", "value"), Input("detail-cell", "value"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("level", "value"), Input("diseases", "value"), Input("cells", "value"))
