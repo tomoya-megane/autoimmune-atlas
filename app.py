@@ -308,15 +308,16 @@ def evidence_rows(snapshot, row, *, modality, stage, threshold, method, specific
     return output
 
 
-def expression_figure(snapshot, row, records, metadata=None) -> go.Figure:
-    """選択した元細胞について、全既知標的の連続発現量を示す。"""
+def expression_figure(snapshot, records, metadata=None) -> go.Figure:
+    """全元細胞について、現在の薬剤条件に含まれる標的の連続発現量を示す。"""
     metadata = metadata if metadata is not None else atlas.expression_metadata(snapshot)
     target_names = {}
     for record in records:
         if record.get("target_id"):
             target_names.setdefault(record["target_id"], record.get("target") or record["target_id"])
-    members = _ordered_cell_ids(snapshot, "cell", row["member_cell_ids"])
-    member_names = {member: next((metadata[target, member]["cell"] for target in target_names if (target, member) in metadata), member) for member in members}
+    cells = atlas.cell_catalog(snapshot, "cell")
+    members = [cell["id"] for cell in cells]
+    member_names = {cell["id"]: cell["name"] for cell in cells}
     targets = sorted(target_names, key=lambda item: (target_names[item].casefold(), item))
     z, hover, missing_x, missing_y = [], [], [], []
     for member in members:
@@ -339,7 +340,7 @@ def expression_figure(snapshot, row, records, metadata=None) -> go.Figure:
         figure.add_trace(go.Scatter(x=missing_x, y=missing_y, mode="markers", marker={"symbol": "x", "size": 9, "color": "#8a99a6"}, name="Missing expression", hovertemplate="Expression missing<extra></extra>"))
     if not targets:
         figure.add_annotation(text="No known targets in the selected scope", showarrow=False)
-    figure.update_layout(template="plotly_white", width=max(900, 420 + 32 * len(targets)), height=max(360, min(1200, 170 + 25 * len(members))), margin={"l": 280, "r": 40, "t": 110, "b": 60}, font={"family": "Arial, sans-serif", "size": 11, "color": "#263238"}, hoverlabel={"align": "left"})
+    figure.update_layout(template="plotly_white", width=max(900, 420 + 32 * len(targets)), height=max(360, 170 + 25 * len(members)), margin={"l": 280, "r": 40, "t": 110, "b": 60}, font={"family": "Arial, sans-serif", "size": 11, "color": "#263238"}, hoverlabel={"align": "left"})
     figure.update_xaxes(tickangle=-45, side="top", title="Known target", tickvals=target_labels, ticktext=[target_names[t] for t in targets], automargin=True)
     figure.update_yaxes(autorange="reversed", title="Source cell type", automargin=True)
     return figure
@@ -423,8 +424,8 @@ def detail_panel(rows, selection, snapshot=None, *, modality="all", stage="phase
     source_context.update(modality=modality, stage=stage, threshold=threshold, method=method, specificity=specificity)
     pages = max(1, math.ceil(len(records) / SOURCE_PAGE_SIZE))
     return html.Div([
-        summary, html.H3(["Expression of targets in the current drug filter", info_tip("expression", "target expression", "Color is log2(1 + median CPM). Median CPM is the donor median of pseudobulk counts per million in healthy reference cells, not disease samples. Group rows show source cells separately; their CPM values are never combined.")]),
-        html.Div(dcc.Graph(figure=expression_figure(snapshot, row, records, metadata), config={"displaylogo": False, "responsive": False}), className="graph-scroll expression-graph"),
+        summary, html.H3(["Expression of targets across all source cell types", info_tip("expression", "target expression", "Targets come from the selected disease and drug filters. All healthy reference source cell types are shown, regardless of the selected cell above. Color is log2(1 + median CPM); values are not from disease samples.")]),
+        html.Div(dcc.Graph(figure=expression_figure(snapshot, records, metadata), config={"displaylogo": False, "responsive": False}), className="graph-scroll expression-graph"),
         html.H3("Drug–target pairs meeting the expression rule"),
         html.P("Targets meeting the expression rule in the selected cells, and drugs acting on those targets. Select a cell count to show cell names.", className="detail-summary"),
         pair_table,
@@ -512,7 +513,11 @@ def unavailable_layout(error=None) -> html.Main:
 def dashboard_layout(snapshot) -> html.Main:
     """schema 2 のデータから dashboard の初期画面を作る。"""
     diseases = [(row["id"], row["name"]) for row in snapshot["diseases"]]
-    default_diseases = choose_defaults(diseases, ("rheumatoid arthritis", "systemic lupus erythematosus", "multiple sclerosis", "systemic sclerosis", "Sjogren syndrome", "myasthenia gravis", "psoriatic arthritis", "type 1 diabetes mellitus"), 8, {row["disease_id"] for row in snapshot["records"]})
+    default_diseases = choose_defaults(diseases, (
+        "systemic lupus erythematosus", "systemic sclerosis", "Sjogren syndrome",
+        "rheumatoid arthritis", "multiple sclerosis", "myasthenia gravis",
+        "type 1 diabetes mellitus", "Graves disease", "pemphigus", "autoimmune hepatitis",
+    ), 10, {row["disease_id"] for row in snapshot["records"]})
     default_cells = _default_cells(snapshot)
     retrieved_at = datetime.fromisoformat(snapshot["retrieved_at"]).astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M JST")
     ready = sum(row["status"] == "ready" for row in snapshot["diseases"]); data_version = format_data_version(snapshot.get("data_version")); source = "https://platform.opentargets.org/"
@@ -562,7 +567,7 @@ def dashboard_layout(snapshot) -> html.Main:
             dcc.Store(id="applied-parameters", data=applied),
         ], className="panel controls"),
         html.Section([html.Div([html.H2(["Cell-type comparison", info_tip("comparison", "cell-type comparison", "Heatmap cells show confirmed support without a ≥ mark; hover, details, and CSV values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.")]), html.Div([html.Button("Download CSV", id="download-button", n_clicks=0), info_tip("csv", "CSV download", "CSV uses the settings last applied with Update, matching the displayed results. It includes summaries, expression values and source drug records."), dcc.Download(id="download")], className="download-actions")], className="section-heading"), html.Div(id="matrix-note", className="matrix-note", role="status"), html.Div([html.Article([html.H3("Distinct targets"), html.Div(dcc.Graph(id="target-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")], id="target-heatmap-panel"), html.Article([html.H3("Canonical drugs"), html.Div(dcc.Graph(id="drug-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")], id="drug-heatmap-panel", hidden=True)], className="heatmap-stack"), html.P("× No value · Hover for values · Click for details", className="matrix-note")], className="panel matrix-panel", id="comparison"),
-        html.Section([html.Div([html.H2(["Selection details", info_tip("selection", "selection details", "The selectors resolve the same disease–cell evidence as a click on the displayed heatmap.")])], className="section-heading detail-heading"), html.Div([control("Disease", dcc.Dropdown(id="detail-disease", clearable=False)), control("Cell", dcc.Dropdown(id="detail-cell", clearable=False))], className="control-grid selectors"), html.Div(id="details", className="details")], className="panel", id="evidence"),
+        html.Section([html.Div([html.H2(["Selection details", info_tip("selection", "selection details", "The selectors resolve the disease–cell summary and evidence tables. The expression heatmap shows all healthy reference source cell types for targets in the selected disease and drug filters.")])], className="section-heading detail-heading"), html.Div([control("Disease", dcc.Dropdown(id="detail-disease", clearable=False)), control("Cell", dcc.Dropdown(id="detail-cell", clearable=False))], className="control-grid selectors"), html.Div(id="details", className="details")], className="panel", id="evidence"),
         html.Footer("Drug records: Open Targets. Healthy reference expression: Tabula Sapiens."),
     ], className="shell")
 

@@ -144,11 +144,11 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 #comparison, #evidence { scroll-margin-top: 16px; }
 
 .graph-scroll, .table-scroll { overflow: auto; }
-.graph-scroll { max-height: 78vh; border-top: 1px solid #eee; scrollbar-color: #aaa #eee; }
+.graph-scroll { border-top: 1px solid #eee; scrollbar-color: #aaa #eee; }
 .heatmap-stack { display: grid; gap: 18px; }
 .heatmap-stack article { min-width: 0; }
 .heatmap-stack h3 { margin: 10px 0 4px; color: #444; }
-.expression-graph { max-height: 62vh; margin-bottom: 14px; }
+.expression-graph { margin-bottom: 14px; }
 .source-records { margin-top: 14px; border-top: 1px solid #ddd; }
 .source-records > summary { padding: 10px 0; color: #1769aa; cursor: pointer; font-weight: 600; }
 .source-pagination { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
@@ -179,10 +179,11 @@ footer { padding: 2px 0 12px; color: #777; font-size: 11px; }
 }
 
 @media (min-width: 901px) {
-    .filter-groups { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-    .filter-groups > .filter-group { grid-column: span 3; }
-    .filter-groups > .filter-group:first-child, .filter-groups > .filter-group:last-child { grid-column: span 2; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .filter-groups > .filter-group:nth-child(2) { grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr)); }
+    .filter-groups { grid-template-columns: repeat(15, minmax(0, 1fr)); }
+    .filter-groups > .filter-group:first-child { grid-column: span 6; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .filter-groups > .filter-group:nth-child(2) { grid-column: span 9; grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr)); }
+    .filter-groups > .filter-group:nth-child(3) { grid-column: span 10; }
+    .filter-groups > .filter-group:last-child { grid-column: span 5; grid-template-columns: minmax(0, 1fr); }
 }
 
 

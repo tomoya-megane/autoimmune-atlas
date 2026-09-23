@@ -6,6 +6,20 @@ from disease_catalog import disease_catalog, ordered_disease_ids
 
 
 class DiseaseCatalogTests(unittest.TestCase):
+    def test_groups_and_families_follow_names_with_other_last(self):
+        diseases = [
+            {"id": "MONDO_0007915", "name": "systemic lupus erythematosus", "parent_ids": []},
+            {"id": "MONDO_0008383", "name": "rheumatoid arthritis", "parent_ids": []},
+            {"id": "MONDO_0011849", "name": "psoriatic arthritis", "parent_ids": []},
+            {"id": "MONDO_0005147", "name": "type 1 diabetes mellitus", "parent_ids": []},
+            {"id": "OTHER", "name": "unclassified term", "parent_ids": []},
+        ]
+        snapshot = {"diseases": diseases}
+        catalog = disease_catalog(snapshot)
+        self.assertEqual([group["id"] for group in catalog], ["endocrine", "joints", "systemic", "other"])
+        self.assertEqual([family["label"] for family in catalog[1]["families"]], ["psoriatic arthritis", "rheumatoid arthritis"])
+        self.assertEqual(ordered_disease_ids(snapshot, [d["id"] for d in diseases]), ["MONDO_0005147", "MONDO_0011849", "MONDO_0008383", "MONDO_0007915", "OTHER"])
+
     def test_nearest_family_keeps_psoriatic_arthritis_separate_and_all_terms_available(self):
         diseases = [
             {"id": "EFO_0009459", "name": "ACPA-positive rheumatoid arthritis", "parent_ids": ["MONDO_0008383"]},

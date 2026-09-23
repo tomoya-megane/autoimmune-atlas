@@ -80,7 +80,8 @@ def disease_catalog(snapshot):
     for group_id, label, ids in DISEASE_GROUPS:
         entries = [{"id": root, "label": diseases[root]["name"], "diseases": sorted(families[root], key=lambda d: (d["id"] != root, d["name"].casefold(), d["id"]))} for root in ids if families.get(root)]
         if entries:
-            groups.append({"id": group_id, "label": label, "families": entries})
+            groups.append({"id": group_id, "label": label, "families": sorted(entries, key=lambda f: (f["label"].casefold(), f["id"]))})
+    groups.sort(key=lambda group: (group["label"].casefold(), group["id"]))
     if other:
         groups.append({"id": "other", "label": "Other / unclassified", "families": [{"id": "other", "label": "Other terms", "diseases": sorted(other, key=lambda d: (d["name"].casefold(), d["id"]))}]})
     return groups

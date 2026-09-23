@@ -134,7 +134,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_continuous_expression_uses_log2_color_and_raw_cpm_hover(self) -> None:
         evidence = app.evidence_rows(self.snapshot, self.rows[0], modality="all", stage="phase3", threshold=.5, method="fixed", specificity=.75)
-        figure = app.expression_figure(self.snapshot, self.rows[0], evidence)
+        figure = app.expression_figure(self.snapshot, evidence)
         targets = list(figure.data[0].x)
         cells = list(figure.data[0].y)
         target_index = next(i for i, label in enumerate(targets) if "TARGET1" in label)
@@ -147,11 +147,11 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(figure.layout.xaxis.side, "top")
         self.assertEqual(figure.layout.yaxis.autorange, "reversed")
 
-    def test_continuous_expression_and_csv_use_catalog_member_order(self) -> None:
+    def test_continuous_expression_shows_all_cells_and_csv_keeps_member_order(self) -> None:
         row = {**self.rows[0], "member_cell_ids": list(reversed(self.rows[0]["member_cell_ids"]))}
         evidence = app.evidence_rows(self.snapshot, row, modality="all", stage="phase3", threshold=.5, method="fixed", specificity=.75)
-        figure = app.expression_figure(self.snapshot, row, evidence)
-        self.assertEqual(list(figure.data[0].y), ["memory B cell", "naive B cell"])
+        figure = app.expression_figure(self.snapshot, evidence)
+        self.assertEqual(list(figure.data[0].y), ["CD8-positive T cell", "memory B cell", "naive B cell"])
         exported = app.export_rows([row], "count", snapshot=self.snapshot)
         self.assertEqual(
             [item["evidence_cell_id"] for item in exported if item["row_type"] == "expression_evidence"][:2],
@@ -325,25 +325,25 @@ class CallbackTests(unittest.TestCase):
             values[(f"disease-family-{family}", "value")] = []
         values[("disease-details-MONDO_0008383", "value")] = []
         synced = self._post("diseases.value", values, "diseases.value")
-        expected = ["MONDO_0007915", "MONDO_0008383", "EFO_0009459"]
+        expected = ["MONDO_0008383", "EFO_0009459", "MONDO_0007915"]
         self.assertEqual(synced["diseases"]["value"], expected)
         self.assertEqual(synced["disease-family-MONDO_0008383"]["value"], ["MONDO_0008383"])
         self.assertEqual(synced["disease-details-MONDO_0008383"]["value"], ["EFO_0009459"])
         values[("diseases", "value")] = synced["diseases"]["value"]
         values[("disease-family-MONDO_0008383", "value")] = []
         synced = self._post("diseases.value", values, "disease-family-MONDO_0008383.value")
-        self.assertEqual(synced["diseases"]["value"], ["MONDO_0007915", "EFO_0009459"])
+        self.assertEqual(synced["diseases"]["value"], ["EFO_0009459", "MONDO_0007915"])
         values[("diseases", "value")] = synced["diseases"]["value"]
         values[("disease-family-MONDO_0008383", "value")] = ["MONDO_0008383"]
         synced = self._post("diseases.value", values, "disease-family-MONDO_0008383.value")
         self.assertEqual(synced["diseases"]["value"], expected)
         values[("diseases", "value")] = synced["diseases"]["value"]
         synced = self._post("diseases.value", values, "disease-details-MONDO_0008383.value")
-        self.assertEqual(synced["diseases"]["value"], expected[:2])
+        self.assertEqual(synced["diseases"]["value"], ["MONDO_0008383", "MONDO_0007915"])
         values[("diseases", "value")] = list(reversed(synced["diseases"]["value"]))
         figures = self._post_applied("target-heatmap.figure", values)
         for graph in ("target-heatmap", "drug-heatmap"):
-            self.assertEqual(figures[graph]["figure"]["data"][0]["x"], ["systemic lupus erythematosus", "rheumatoid arthritis"])
+            self.assertEqual(figures[graph]["figure"]["data"][0]["x"], ["rheumatoid arthritis", "systemic lupus erythematosus"])
         values[("diseases", "value")] = []
         cleared = self._post("diseases.value", values, "diseases.value")
         self.assertTrue(all(result["value"] == [] for result in cleared.values()))
@@ -501,7 +501,7 @@ class CallbackTests(unittest.TestCase):
             self.assertEqual((panels["target-heatmap-panel"]["hidden"], panels["drug-heatmap-panel"]["hidden"]), hidden)
             case = dict(values); case[(graph, "clickData")] = click
             details = self._click_details(case, graph)
-            self.assertIn("Expression of targets in the current drug filter", str(details["details"]["children"]))
+            self.assertIn("Expression of targets across all source cell types", str(details["details"]["children"]))
 
     def test_figures_and_detail_cells_ignore_reversed_selection_order(self) -> None:
         values = self._values()
@@ -536,7 +536,7 @@ class CallbackTests(unittest.TestCase):
             case = dict(values); case[(heatmap, "clickData")] = click
             details = self._click_details(case, heatmap)
             rendered = str(details["details"]["children"])
-            self.assertIn("Expression of targets in the current drug filter", rendered)
+            self.assertIn("Expression of targets across all source cell types", rendered)
             self.assertIn("Filtered drug records by source cell type", rendered)
 
         downloaded = self._post("download.data", values, "download-button.n_clicks")
