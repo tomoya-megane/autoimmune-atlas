@@ -271,10 +271,10 @@ def expression_figure(snapshot, row, records, metadata=None) -> go.Figure:
     member_names = {member: next((metadata[target, member]["cell"] for target in target_names if (target, member) in metadata), member) for member in members}
     targets = sorted(target_names, key=lambda item: (target_names[item].casefold(), item))
     z, hover, missing_x, missing_y = [], [], [], []
-    for target_id in targets:
+    for member in members:
         z_row, hover_row = [], []
-        label = f"{target_names[target_id]} ({target_id})"
-        for member in members:
+        for target_id in targets:
+            label = f"{target_names[target_id]} ({target_id})"
             item = metadata.get((target_id, member)); cpm = item.get("median") if item else None
             z_row.append(math.log2(1 + cpm) if cpm is not None else None)
             hover_row.append("<br>".join((
@@ -283,15 +283,17 @@ def expression_figure(snapshot, row, records, metadata=None) -> go.Figure:
                 f"Target-relative median: {item.get('target_median'):g}" if item and item.get("target_median") is not None else "Target-relative median: missing",
             )))
             if cpm is None:
-                missing_x.append(member_names[member]); missing_y.append(label)
+                missing_x.append(label); missing_y.append(member_names[member])
         z.append(z_row); hover.append(hover_row)
-    figure = go.Figure(go.Heatmap(x=[member_names[m] for m in members], y=[f"{target_names[t]} ({t})" for t in targets], z=z, zmin=0, colorscale="Blues", colorbar={"title": "log2(1 + CPM)"}, hovertext=hover, hovertemplate="%{hovertext}<extra></extra>", xgap=2, ygap=2))
+    target_labels = [f"{target_names[t]} ({t})" for t in targets]
+    figure = go.Figure(go.Heatmap(x=target_labels, y=[member_names[m] for m in members], z=z, zmin=0, colorscale="Blues", colorbar={"title": "log2(1 + CPM)"}, hovertext=hover, hovertemplate="%{hovertext}<extra></extra>", xgap=2, ygap=2))
     if missing_x:
         figure.add_trace(go.Scatter(x=missing_x, y=missing_y, mode="markers", marker={"symbol": "x", "size": 9, "color": "#8a99a6"}, name="Missing expression", hovertemplate="Expression missing<extra></extra>"))
     if not targets:
         figure.add_annotation(text="No known targets in the selected scope", showarrow=False)
-    figure.update_layout(template="plotly_white", height=max(360, min(1200, 170 + 25 * len(targets))), margin={"l": 190, "r": 40, "t": 20, "b": 110}, font={"family": "Arial, sans-serif", "size": 11, "color": "#263238"}, hoverlabel={"align": "left"})
-    figure.update_xaxes(tickangle=-30, title="Source cell type"); figure.update_yaxes(autorange="reversed", title="Known target")
+    figure.update_layout(template="plotly_white", width=max(900, 420 + 32 * len(targets)), height=max(360, min(1200, 170 + 25 * len(members))), margin={"l": 280, "r": 40, "t": 110, "b": 60}, font={"family": "Arial, sans-serif", "size": 11, "color": "#263238"}, hoverlabel={"align": "left"})
+    figure.update_xaxes(tickangle=-45, side="top", title="Known target", tickvals=target_labels, ticktext=[target_names[t] for t in targets], automargin=True)
+    figure.update_yaxes(autorange="reversed", title="Source cell type", automargin=True)
     return figure
 
 
@@ -367,7 +369,7 @@ def detail_panel(rows, selection, snapshot=None, *, modality="all", stage="phase
     pages = max(1, math.ceil(len(records) / SOURCE_PAGE_SIZE))
     return html.Div([
         summary, html.H3(["Expression of targets in the current drug filter", info_tip("expression", "target expression", "Color is log2(1 + median CPM). Median CPM is the donor median of pseudobulk counts per million in healthy reference cells, not disease samples. Group rows show source cells separately; their CPM values are never combined.")]),
-        html.Div(dcc.Graph(figure=expression_figure(snapshot, row, records, metadata), config={"displaylogo": False}), className="graph-scroll expression-graph"),
+        html.Div(dcc.Graph(figure=expression_figure(snapshot, row, records, metadata), config={"displaylogo": False, "responsive": False}), className="graph-scroll expression-graph"),
         html.H3("Drug–target pairs meeting the expression rule"), positive_list,
         html.H3(["Filtered drug records by source cell type", info_tip("source-records", "source records", "Rows repeat for each source cell type. Records that do not meet the rule, cannot be assessed, or lack a mapped target remain visible.")]),
         html.Details([

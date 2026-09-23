@@ -116,19 +116,23 @@ class EvidenceTests(unittest.TestCase):
     def test_continuous_expression_uses_log2_color_and_raw_cpm_hover(self) -> None:
         evidence = app.evidence_rows(self.snapshot, self.rows[0], modality="all", stage="phase3", threshold=.5, method="fixed", specificity=.75)
         figure = app.expression_figure(self.snapshot, self.rows[0], evidence)
-        targets = list(figure.data[0].y)
-        cells = list(figure.data[0].x)
+        targets = list(figure.data[0].x)
+        cells = list(figure.data[0].y)
         target_index = next(i for i, label in enumerate(targets) if "TARGET1" in label)
         cell_index = cells.index("memory B cell")
-        self.assertAlmostEqual(figure.data[0].z[target_index][cell_index], math.log2(3))
-        self.assertIn("Median CPM: 2", figure.data[0].hovertext[target_index][cell_index])
-        self.assertIn("Missing expression", [trace.name for trace in figure.data])
+        self.assertAlmostEqual(figure.data[0].z[cell_index][target_index], math.log2(3))
+        self.assertIn("Median CPM: 2", figure.data[0].hovertext[cell_index][target_index])
+        missing = next(trace for trace in figure.data if trace.name == "Missing expression")
+        self.assertEqual(list(missing.x), ["TARGET2 (ENSG_TARGET_2)"])
+        self.assertEqual(list(missing.y), ["memory B cell"])
+        self.assertEqual(figure.layout.xaxis.side, "top")
+        self.assertEqual(figure.layout.yaxis.autorange, "reversed")
 
     def test_continuous_expression_and_csv_use_catalog_member_order(self) -> None:
         row = {**self.rows[0], "member_cell_ids": list(reversed(self.rows[0]["member_cell_ids"]))}
         evidence = app.evidence_rows(self.snapshot, row, modality="all", stage="phase3", threshold=.5, method="fixed", specificity=.75)
         figure = app.expression_figure(self.snapshot, row, evidence)
-        self.assertEqual(list(figure.data[0].x), ["memory B cell", "naive B cell"])
+        self.assertEqual(list(figure.data[0].y), ["memory B cell", "naive B cell"])
         exported = app.export_rows([row], "count", snapshot=self.snapshot)
         self.assertEqual(
             [item["evidence_cell_id"] for item in exported if item["row_type"] == "expression_evidence"][:2],
