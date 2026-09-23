@@ -48,7 +48,11 @@ Phase I/II は Phase II 以降に、Phase II/III は Phase III 以降に含め�
 症状や併存症に対する治療も含め、治療目的での分類は行わない。
 [臨床段階の定義](https://platform-docs.opentargets.org/drug/clinical-report)を参照。
 
-ヒートマップは `Distinct targets`（標的数）と `Canonical drugs`（薬剤数）を選んで切り替える。
+上部パネルで条件を変更し、`Update` を押すと結果へまとめて反映する。
+入力中はヒートマップと詳細を保持し、未反映の変更があることをボタンの隣に表示する。
+CSV も最後に適用した条件を使い、表示中の結果と一致させる。
+
+ヒートマップは `Distinct targets`（標的数）と `Canonical drugs`（薬剤数）を選び、`Update` で切り替える。
 初期表示は `Distinct targets` とし、切り替えても疾患・細胞の並びとフィルターを保つ。
 標的数は Ensembl 遺伝子 ID の重複を除いた数である。
 薬剤数は `parentMolecule.id` で確認できる塩や水和物を同じ成分としてまとめ、一つでも標的が条件を満たせば一剤と数える。

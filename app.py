@@ -18,6 +18,7 @@ SNAPSHOT_PATH = BASE_DIR / "data" / "snapshot.json"
 DEFAULT_EXPRESSION_THRESHOLD = 0.5
 DEFAULT_SPECIFICITY_THRESHOLD = 0.75
 SOURCE_PAGE_SIZE = 50
+PARAMETER_IDS = ("measure", "modality", "stage", "method", "threshold", "specificity", "diseases", "cells", "heatmap-view")
 STAGE_LABELS = {"phase1": "Phase I or later", "phase2": "Phase II or later", "phase3": "Phase III or later", "approved": "Approval reached"}
 METHOD_LABELS = {"fixed": "Fixed CPM", "relative": "Target-relative median", "specificity": "CELLEX specificity"}
 
@@ -515,18 +516,12 @@ def dashboard_layout(snapshot) -> html.Main:
     ready = sum(row["status"] == "ready" for row in snapshot["diseases"]); data_version = format_data_version(snapshot.get("data_version")); source = "https://platform.opentargets.org/"
     modality_options = [{"label": "All", "value": "all"}] + [{"label": label, "value": value} for label, value in atlas.DRUG_TYPE_MODALITIES]
     control = lambda label, component: html.Div([html.Label(label, htmlFor=component.id), component], className="control")
+    applied = dict(zip(PARAMETER_IDS, ("count", "all", "phase3", "fixed", DEFAULT_EXPRESSION_THRESHOLD, DEFAULT_SPECIFICITY_THRESHOLD, ordered_disease_ids(snapshot, default_diseases), default_cells, "target")))
     return html.Main([
         html.Nav([html.A("Autoimmune Atlas", href="#", className="app-brand"), html.Div([html.A("Comparison", href="#comparison"), html.A("Evidence", href="#evidence"), html.A("Open Targets ↗", href=source, target="_blank", rel="noreferrer")], className="app-nav")], className="app-bar", **{"aria-label": "Main navigation"}),
         html.Header([html.Div([html.P("AUTOIMMUNE DISEASE / DRUG TARGETS", className="eyebrow"), html.H1(["Drug targets by cell type", info_tip("overview", "the atlas", "Compare which drug targets meet an expression rule in healthy reference cells across diseases. Disease differences reflect eligible drug and target sets, not disease-specific expression. This does not establish treatment efficacy; disease records may include symptom or comorbidity treatment.")])]), html.Div([html.Div([html.Strong(str(len(snapshot["diseases"]))), html.Span("Disease terms in snapshot")], className="stat"), html.Div([html.Strong(str(len(snapshot["records"]))), html.Span("Drug records in snapshot")], className="stat"), html.Div([html.Strong(str(len(snapshot["expression"]))), html.Span("Targets in snapshot")], className="stat")], className="stats")], className="hero"),
         html.Section([html.Div([html.Span("Disease data", className="meta-label"), html.Strong(f"Loaded {ready} / unavailable {len(snapshot['diseases']) - ready}")]), html.Div([html.Span("Retrieved at", className="meta-label"), html.Strong(snapshot["retrieved_at"])]), html.Div([html.Span("Expression reference", className="meta-label"), html.Strong("Tabula Sapiens")]), html.Div([html.Span("Data source", className="meta-label"), html.A(f"Open Targets {data_version}".strip(), href=source, target="_blank", rel="noreferrer")])], className="source-bar"),
         html.Section([
-            html.Div([
-                html.H3("Comparison scope"),
-                html.Div([
-                    disease_selector(snapshot, default_diseases),
-                    cell_selector(snapshot, default_cells),
-                ], className="control-grid scope-controls"),
-            ], className="filter-group scope-group"),
             html.Div([
                 html.Section([html.H3("Drug evidence"),
                     html.Div([html.Div([html.Label("Clinical stage", htmlFor="stage"), info_tip("stage", "clinical stage", "Highest recorded stage of a canonical drug in this disease. Approval reached may include withdrawn drugs.")], className="label-help"), dcc.Dropdown(id="stage", options=[{"label": label, "value": value} for label, value in (("Phase I or later", "phase1"), ("Phase II or later", "phase2"), ("Phase III or later", "phase3"), ("Approval reached", "approved"))], value="phase3", clearable=False)], className="control"),
@@ -534,16 +529,29 @@ def dashboard_layout(snapshot) -> html.Main:
                 ], className="filter-group"),
                 html.Section([html.H3("Expression criteria"),
                     control("Expression rule", dcc.Dropdown(id="method", options=[{"label": label, "value": value} for label, value in (("Fixed CPM", "fixed"), ("Target-relative median", "relative"), ("CELLEX specificity", "specificity"))], value="fixed", clearable=False)),
-                    html.Div([html.Div([html.Label("Minimum CPM (strict >)", htmlFor="threshold"), info_tip("threshold", "minimum CPM", f"Every rule requires median CPM above this value. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.")], className="label-help"), dcc.Input(id="threshold", type="number", min=0, step=.1, value=DEFAULT_EXPRESSION_THRESHOLD)], className="control"),
+                    # Dash 4.4.1 は max を省略すると増減時に NaN になるため、上限なしを明示する。
+                    html.Div([html.Div([html.Label("Minimum CPM (strict >)", htmlFor="threshold"), info_tip("threshold", "minimum CPM", f"Every rule requires median CPM above this value. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.")], className="label-help"), dcc.Input(id="threshold", type="number", min=0, max=None, step=.1, value=DEFAULT_EXPRESSION_THRESHOLD)], className="control"),
                     html.Div([html.Div([html.Label("CELLEX specificity (≥)", htmlFor="specificity"), info_tip("specificity", "CELLEX specificity", f"Only used with CELLEX specificity. Blank uses {DEFAULT_SPECIFICITY_THRESHOLD:g}.")], className="label-help"), dcc.Input(id="specificity", type="number", min=0, max=1, step=.05, value=DEFAULT_SPECIFICITY_THRESHOLD, disabled=True)], className="control"),
                 ], className="filter-group"),
+                html.Div([
+                    html.H3("Comparison scope"),
+                    html.Div([
+                        disease_selector(snapshot, default_diseases),
+                        cell_selector(snapshot, default_cells),
+                    ], className="control-grid scope-controls"),
+                ], className="filter-group scope-group"),
                 html.Section([html.H3("Display"),
                     html.Fieldset([html.Legend(["View", info_tip("view", "heatmap view", "Targets are distinct genes meeting the rule. Drug forms mapped to the same active ingredient count once if any known target meets the rule.")]), dcc.RadioItems(id="heatmap-view", options=[{"label": "Distinct targets", "value": "target"}, {"label": "Canonical drugs", "value": "drug"}], value="target", inline=True)], className="control radio-control"),
                     html.Fieldset([html.Legend(["Measure", info_tip("measure", "measure", "Percent divides by known targets or canonical drugs with known targets for the current disease and drug filters. Each denominator stays fixed across cells; percent is not a share of cells.")]), dcc.RadioItems(id="measure", options=[{"label": "Count", "value": "count"}, {"label": "Percent", "value": "percent"}], value="count", inline=True)], className="control radio-control"),
                 ], className="filter-group"),
             ], className="filter-groups"),
+            html.Div([
+                html.Button("Update", id="update-button", type="button", n_clicks=0),
+                html.Span("Settings applied.", id="update-status", role="status"),
+            ], className="update-actions"),
+            dcc.Store(id="applied-parameters", data=applied),
         ], className="panel controls"),
-        html.Section([html.Div([html.H2(["Cell-type comparison", info_tip("comparison", "cell-type comparison", "Heatmap cells show confirmed support without a ≥ mark; hover, details, and CSV values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.")]), html.Div([html.Button("Download CSV", id="download-button", n_clicks=0), info_tip("csv", "CSV download", "CSV includes both target and drug summaries and expression values for selected disease–cell pairs, plus drug records for the selected diseases and drug filters."), dcc.Download(id="download")], className="download-actions")], className="section-heading"), html.Div(id="matrix-note", className="matrix-note", role="status"), html.Div([html.Article([html.H3("Distinct targets"), html.Div(dcc.Graph(id="target-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")], id="target-heatmap-panel"), html.Article([html.H3("Canonical drugs"), html.Div(dcc.Graph(id="drug-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")], id="drug-heatmap-panel", hidden=True)], className="heatmap-stack"), html.P("× No value · Hover for values · Click for details", className="matrix-note")], className="panel matrix-panel", id="comparison"),
+        html.Section([html.Div([html.H2(["Cell-type comparison", info_tip("comparison", "cell-type comparison", "Heatmap cells show confirmed support without a ≥ mark; hover, details, and CSV values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.")]), html.Div([html.Button("Download CSV", id="download-button", n_clicks=0), info_tip("csv", "CSV download", "CSV uses the settings last applied with Update, matching the displayed results. It includes summaries, expression values and source drug records."), dcc.Download(id="download")], className="download-actions")], className="section-heading"), html.Div(id="matrix-note", className="matrix-note", role="status"), html.Div([html.Article([html.H3("Distinct targets"), html.Div(dcc.Graph(id="target-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")], id="target-heatmap-panel"), html.Article([html.H3("Canonical drugs"), html.Div(dcc.Graph(id="drug-heatmap", config={"displaylogo": False, "responsive": False}), className="graph-scroll")], id="drug-heatmap-panel", hidden=True)], className="heatmap-stack"), html.P("× No value · Hover for values · Click for details", className="matrix-note")], className="panel matrix-panel", id="comparison"),
         html.Section([html.Div([html.H2(["Selection details", info_tip("selection", "selection details", "The selectors resolve the same disease–cell evidence as a click on the displayed heatmap.")])], className="section-heading detail-heading"), html.Div([control("Disease", dcc.Dropdown(id="detail-disease", clearable=False)), control("Cell", dcc.Dropdown(id="detail-cell", clearable=False))], className="control-grid selectors"), html.Div(id="details", className="details")], className="panel", id="evidence"),
         html.Footer("Drug records: Open Targets. Healthy reference expression: Tabula Sapiens."),
     ], className="shell")
@@ -551,6 +559,20 @@ def dashboard_layout(snapshot) -> html.Main:
 
 def register_callbacks(application: Dash, snapshot: dict) -> None:
     """schema 2 dashboard のコールバックを登録する。"""
+    @application.callback(
+        Output("applied-parameters", "data"), Input("update-button", "n_clicks"),
+        *[State(item, "value") for item in PARAMETER_IDS], prevent_initial_call=True,
+    )
+    def apply_parameters(_clicks, *values):
+        return dict(zip(PARAMETER_IDS, values))
+
+    @application.callback(
+        Output("update-status", "children"), Input("applied-parameters", "data"),
+        *[Input(item, "value") for item in PARAMETER_IDS],
+    )
+    def parameter_status(applied, *values):
+        return "Settings applied." if dict(zip(PARAMETER_IDS, values)) == applied else "Changes not applied. Click Update."
+
     families = [section for group in disease_catalog(snapshot) for family in group["families"] for section in _disease_checklist_sections(family)]
     family_ids = [section["id"] for section in families]
 
@@ -571,8 +593,9 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
     def toggle_specificity(method):
         return method != "specificity"
 
-    @application.callback(Output("target-heatmap-panel", "hidden"), Output("drug-heatmap-panel", "hidden"), Input("heatmap-view", "value"))
-    def select_heatmap(view):
+    @application.callback(Output("target-heatmap-panel", "hidden"), Output("drug-heatmap-panel", "hidden"), Input("applied-parameters", "data"))
+    def select_heatmap(applied):
+        view = applied["heatmap-view"]
         return view == "drug", view != "drug"
 
     cell_sections = [section for group in _cell_selection_catalog(snapshot) for section in group["sections"]]
@@ -591,8 +614,9 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         ordered = _ordered_cell_ids(snapshot, "mixed", selected)
         return [ordered, *[[cell["id"] for cell in section["cells"] if cell["id"] in ordered] for section in cell_sections]]
 
-    @application.callback(Output("target-heatmap", "figure"), Output("drug-heatmap", "figure"), Output("matrix-note", "children"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("diseases", "value"), Input("cells", "value"))
-    def update_figures(measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids):
+    @application.callback(Output("target-heatmap", "figure"), Output("drug-heatmap", "figure"), Output("matrix-note", "children"), Input("applied-parameters", "data"))
+    def update_figures(applied):
+        measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids = (applied[key] for key in PARAMETER_IDS[:-1])
         minimum, specificity_value, errors = effective_filters(threshold, specificity)
         disease_ids = ordered_disease_ids(snapshot, disease_ids)
         cell_ids = _ordered_cell_ids(snapshot, "mixed", cell_ids)
@@ -610,8 +634,9 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         error_note = html.Span(" ".join(errors), className="filter-errors", role="alert") if errors else None
         return target_figure, drug_figure, html.Div([status, info_tip("applied", "applied filters", note), error_note], className="matrix-status")
 
-    @application.callback(Output("detail-disease", "options"), Output("detail-disease", "value"), Output("detail-cell", "options"), Output("detail-cell", "value"), Input("diseases", "value"), Input("cells", "value"), Input("target-heatmap", "clickData"), Input("drug-heatmap", "clickData"), State("detail-disease", "value"), State("detail-cell", "value"))
-    def update_detail_selectors(disease_ids, cell_ids, target_click, drug_click, current_disease, current_cell):
+    @application.callback(Output("detail-disease", "options"), Output("detail-disease", "value"), Output("detail-cell", "options"), Output("detail-cell", "value"), Input("applied-parameters", "data"), Input("target-heatmap", "clickData"), Input("drug-heatmap", "clickData"), State("detail-disease", "value"), State("detail-cell", "value"))
+    def update_detail_selectors(applied, target_click, drug_click, current_disease, current_cell):
+        disease_ids, cell_ids = applied["diseases"], applied["cells"]
         disease_ids, cell_ids = ordered_disease_ids(snapshot, disease_ids), _ordered_cell_ids(snapshot, "mixed", cell_ids); disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}; cell_names = dict(cell_catalog(snapshot, "mixed"))
         triggered = ctx.triggered_id
         click_data = target_click if triggered == "target-heatmap" else drug_click if triggered == "drug-heatmap" else None
@@ -621,8 +646,9 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             current_disease, current_cell = selected
         return ([{"label": disease_names[item], "value": item} for item in disease_ids if item in disease_names], current_disease if current_disease in disease_ids else next(iter(disease_ids), None), [{"label": cell_names[item], "value": item} for item in cell_ids if item in cell_names], current_cell if current_cell in cell_ids else next(iter(cell_ids), None))
 
-    @application.callback(Output("details", "children"), Input("detail-disease", "value"), Input("detail-cell", "value"), Input("measure", "value"), Input("modality", "value"), Input("stage", "value"), Input("method", "value"), Input("threshold", "value"), Input("specificity", "value"), Input("diseases", "value"), Input("cells", "value"))
-    def update_details(detail_disease, detail_cell, _measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids):
+    @application.callback(Output("details", "children"), Input("detail-disease", "value"), Input("detail-cell", "value"), Input("applied-parameters", "data"))
+    def update_details(detail_disease, detail_cell, applied):
+        _measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids = (applied[key] for key in PARAMETER_IDS[:-1])
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
         rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level="mixed")
         selection = resolve_selection("detail-cell", None, detail_disease, detail_cell, rows)
@@ -643,8 +669,9 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             _evidence_table(records[start:end]),
         ])
 
-    @application.callback(Output("download", "data"), Input("download-button", "n_clicks"), State("measure", "value"), State("modality", "value"), State("stage", "value"), State("method", "value"), State("threshold", "value"), State("specificity", "value"), State("diseases", "value"), State("cells", "value"), prevent_initial_call=True)
-    def download_csv(_clicks, measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids):
+    @application.callback(Output("download", "data"), Input("download-button", "n_clicks"), State("applied-parameters", "data"), prevent_initial_call=True)
+    def download_csv(_clicks, applied):
+        measure, modality, stage, method, threshold, specificity, disease_ids, cell_ids = (applied[key] for key in PARAMETER_IDS[:-1])
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
         rows = visible_rows(snapshot, modality, minimum, disease_ids, cell_ids, stage=stage, method=method, specificity=specificity_value, level="mixed")
         content = "\ufeff" + atlas.to_csv(export_rows(rows, measure, modality_filter=modality, stage_filter=stage, method=method, expression_threshold=minimum, specificity_threshold=specificity_value, level="mixed", snapshot=snapshot))

@@ -239,6 +239,14 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         return response.get_json()["response"]
 
+    def _apply(self, values):
+        result = self._post("applied-parameters.data", values, "update-button.n_clicks")
+        values[("applied-parameters", "data")] = result["applied-parameters"]["data"]
+
+    def _post_applied(self, output_id, values):
+        self._apply(values)
+        return self._post(output_id, values, "applied-parameters.data")
+
     def _click_details(self, values, graph):
         selected = self._post("detail-cell.value", values, f"{graph}.clickData")
         values = dict(values)
@@ -247,14 +255,58 @@ class CallbackTests(unittest.TestCase):
         return self._post("details.children", values, "detail-cell.value")
 
     def _values(self) -> dict:
-        return {
+        values = {
             ("measure", "value"): "percent", ("modality", "value"): "all", ("stage", "value"): "phase3",
             ("method", "value"): "fixed", ("threshold", "value"): None, ("specificity", "value"): None,
             ("diseases", "value"): ["MONDO_RA_TEST"], ("cells", "value"): ["group:CL_B_GROUP"],
             ("detail-disease", "value"): "MONDO_RA_TEST", ("detail-cell", "value"): "group:CL_B_GROUP",
             ("target-heatmap", "clickData"): None, ("drug-heatmap", "clickData"): None,
-            ("download-button", "n_clicks"): 1,
+            ("download-button", "n_clicks"): 1, ("update-button", "n_clicks"): 1,
+            ("heatmap-view", "value"): "target",
         }
+        values[("applied-parameters", "data")] = {key: values[(key, "value")] for key in app.PARAMETER_IDS}
+        return values
+
+    def test_update_applies_parameters_together_and_csv_uses_displayed_settings(self) -> None:
+        values = self._values()
+        applied = self._post("applied-parameters.data", values, "update-button.n_clicks")
+        values[("applied-parameters", "data")] = applied["applied-parameters"]["data"]
+        before = self._post("target-heatmap.figure", values, "applied-parameters.data")
+        values[("threshold", "value")] = 2
+        values[("cells", "value")] = ["CL_B_ONE"]
+        values[("measure", "value")] = "count"
+        values[("heatmap-view", "value")] = "drug"
+        status = self._post("update-status.children", values, "threshold.value")
+        self.assertIn("not applied", status["update-status"]["children"])
+        unchanged = self._post("target-heatmap.figure", values, "applied-parameters.data")
+        self.assertEqual(before, unchanged)
+        exported = self._post("download.data", values, "download-button.n_clicks")
+        rows = list(csv.DictReader(io.StringIO(exported["download"]["data"]["content"].lstrip("\ufeff"))))
+        self.assertEqual({row["minimum_cpm"] for row in rows}, {"0.5"})
+        self.assertEqual({row["group_cell_id"] for row in rows if row["row_type"] == "summary"}, {"group:CL_B_GROUP"})
+        applied = self._post("applied-parameters.data", values, "update-button.n_clicks")
+        values[("applied-parameters", "data")] = applied["applied-parameters"]["data"]
+        after = self._post("target-heatmap.figure", values, "applied-parameters.data")
+        self.assertNotEqual(before, after)
+        self.assertEqual(after["target-heatmap"]["figure"]["data"][0]["y"], ["memory B cell"])
+        self.assertIn("CPM > 2", json.dumps(after["matrix-note"], ensure_ascii=False))
+        panels = self._post("target-heatmap-panel.hidden", values, "applied-parameters.data")
+        self.assertTrue(panels["target-heatmap-panel"]["hidden"])
+        selectors = self._post("detail-cell.options", values, "applied-parameters.data")
+        self.assertEqual(selectors["detail-cell"]["value"], "CL_B_ONE")
+        values[("detail-cell", "value")] = "CL_B_ONE"
+        details = self._post("details.children", values, "detail-cell.value")
+        self.assertIn("rheumatoid arthritis × memory B cell", json.dumps(details, ensure_ascii=False))
+        exported = self._post("download.data", values, "download-button.n_clicks")
+        rows = list(csv.DictReader(io.StringIO(exported["download"]["data"]["content"].lstrip("\ufeff"))))
+        self.assertEqual({row["minimum_cpm"] for row in rows}, {"2.0"})
+        self.assertEqual({row["measure"] for row in rows}, {"count"})
+        status = self._post("update-status.children", values, "applied-parameters.data")
+        self.assertEqual(status["update-status"]["children"], "Settings applied.")
+        parameter_ids = {"threshold", "specificity", "modality", "stage", "method", "diseases", "cells", "measure", "heatmap-view"}
+        for output in ("target-heatmap.figure", "detail-cell.options", "details.children", "target-heatmap-panel.hidden", "download.data"):
+            callback = self.application.callback_map[self._callback_key(output)]
+            self.assertFalse(parameter_ids & {item["id"] for item in callback["inputs"] + callback["state"]})
 
     def test_disease_tree_and_search_sync_without_selecting_descendants(self) -> None:
         snapshot = fixture()
@@ -289,7 +341,7 @@ class CallbackTests(unittest.TestCase):
         synced = self._post("diseases.value", values, "disease-details-MONDO_0008383.value")
         self.assertEqual(synced["diseases"]["value"], expected[:2])
         values[("diseases", "value")] = list(reversed(synced["diseases"]["value"]))
-        figures = self._post("target-heatmap.figure", values, "diseases.value")
+        figures = self._post_applied("target-heatmap.figure", values)
         for graph in ("target-heatmap", "drug-heatmap"):
             self.assertEqual(figures[graph]["figure"]["data"][0]["x"], ["systemic lupus erythematosus", "rheumatoid arthritis"])
         values[("diseases", "value")] = []
@@ -300,17 +352,18 @@ class CallbackTests(unittest.TestCase):
         values = self._values()
         for changed in ("threshold.value", "measure.value", "modality.value", "cells.value"):
             with self.subTest(changed=changed):
-                result = self._post("details.children", values, changed)
+                result = self._post_applied("details.children", values)
                 rendered = json.dumps(result)
                 self.assertIn("rheumatoid arthritis × B cell", json.dumps(result, ensure_ascii=False))
                 self.assertNotIn('"children": "Original drug"', rendered)
         values[("cells", "value")] = []
-        result = self._post("details.children", values, "cells.value")
+        result = self._post_applied("details.children", values)
         self.assertNotIn("Expression of targets", str(result))
 
     def test_heatmap_selection_updates_selectors_and_survives_threshold_change(self) -> None:
         values = self._values()
         values[("cells", "value")] = ["group:" + atlas.T_CELL_ID, "group:CL_B_GROUP"]
+        self._apply(values)
         for graph in ("target-heatmap", "drug-heatmap"):
             with self.subTest(graph=graph):
                 values[("detail-cell", "value")] = "group:CL_B_GROUP"
@@ -318,7 +371,7 @@ class CallbackTests(unittest.TestCase):
                 selected = self._post("detail-cell.value", values, f"{graph}.clickData")
                 self.assertEqual(selected["detail-cell"]["value"], "group:" + atlas.T_CELL_ID)
                 values[("detail-cell", "value")] = selected["detail-cell"]["value"]
-                result = self._post("details.children", values, "threshold.value")
+                result = self._post_applied("details.children", values)
                 self.assertIn("rheumatoid arthritis × T cell", json.dumps(result, ensure_ascii=False))
 
     def test_source_records_are_loaded_on_open_and_paged_without_losing_rows(self) -> None:
@@ -358,11 +411,12 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual([option["value"] for option in self.components["modality"]["options"]], ["all", *[value for _, value in atlas.DRUG_TYPE_MODALITIES]])
         layout = self.client.get("/_dash-layout").get_json()
         controls = next(node for node in layout["props"]["children"] if node.get("props", {}).get("className") == "panel controls")
-        scope, groups = controls["props"]["children"]
+        groups = controls["props"]["children"][0]
+        scope = groups["props"]["children"][2]
         scope_controls = scope["props"]["children"][1]
         self.assertEqual(scope_controls["type"], "Div")
         self.assertEqual([node["props"]["children"][1]["props"]["id"] for node in scope_controls["props"]["children"]], ["diseases", "cells"])
-        self.assertEqual([group["props"]["children"][0]["props"]["children"] for group in groups["props"]["children"]], ["Drug evidence", "Expression criteria", "Display"])
+        self.assertEqual([group["props"]["children"][0]["props"]["children"] for group in groups["props"]["children"]], ["Drug evidence", "Expression criteria", "Comparison scope", "Display"])
         self.assertTrue(self.components["specificity"]["disabled"])
 
     def test_specificity_input_follows_rule_and_keeps_value(self) -> None:
@@ -372,13 +426,13 @@ class CallbackTests(unittest.TestCase):
             values[("method", "value")] = method
             response = self._post("specificity.disabled", values, "method.value")
             self.assertEqual(response["specificity"], {"disabled": disabled})
-        figures = self._post("target-heatmap.figure", values, "method.value")
+        figures = self._post_applied("target-heatmap.figure", values)
         self.assertIn("specificity ≥ 0.8", json.dumps(figures["matrix-note"]["children"], ensure_ascii=False))
 
     def test_help_buttons_describe_unique_tooltips_and_errors_stay_visible(self) -> None:
         values = self._values()
         values[("threshold", "value")] = -1
-        figures = self._post("target-heatmap.figure", values, "threshold.value")
+        figures = self._post_applied("target-heatmap.figure", values)
         note = figures["matrix-note"]["children"]["props"]["children"]
         self.assertEqual(note[0]["props"]["children"], "1 disease–cell combinations")
         self.assertEqual(note[2]["props"]["role"], "alert")
@@ -423,13 +477,13 @@ class CallbackTests(unittest.TestCase):
 
     def test_both_heatmaps_callbacks(self) -> None:
         values = self._values()
-        figures = self._post("target-heatmap.figure", values, "measure.value")
+        figures = self._post_applied("target-heatmap.figure", values)
         self.assertEqual(figures["target-heatmap"]["figure"]["data"][0]["x"], figures["drug-heatmap"]["figure"]["data"][0]["x"])
         self.assertIn("CPM > 0.5", json.dumps(figures["matrix-note"]["children"], ensure_ascii=False))
         self.assertNotIn("specificity ≥", json.dumps(figures["matrix-note"]["children"], ensure_ascii=False))
 
         values[("method", "value")] = "relative"
-        relative = self._post("target-heatmap.figure", values, "method.value")
+        relative = self._post_applied("target-heatmap.figure", values)
         self.assertIn("full-reference target median", json.dumps(relative["matrix-note"]["children"], ensure_ascii=False))
 
     def test_heatmap_view_switch_keeps_both_graphs_and_details(self) -> None:
@@ -437,13 +491,13 @@ class CallbackTests(unittest.TestCase):
         self.assertFalse(self.components["target-heatmap-panel"].get("hidden", False))
         self.assertTrue(self.components["drug-heatmap-panel"]["hidden"])
         values = self._values()
-        figures = self._post("target-heatmap.figure", values, "measure.value")
+        figures = self._post_applied("target-heatmap.figure", values)
         self.assertIn("figure", figures["target-heatmap"])
         self.assertIn("figure", figures["drug-heatmap"])
         click = {"points": [{"customdata": ["MONDO_RA_TEST", "group:CL_B_GROUP"]}]}
         for view, hidden, graph in (("target", (False, True), "target-heatmap"), ("drug", (True, False), "drug-heatmap")):
             values[("heatmap-view", "value")] = view
-            panels = self._post("target-heatmap-panel.hidden", values, "heatmap-view.value")
+            panels = self._post_applied("target-heatmap-panel.hidden", values)
             self.assertEqual((panels["target-heatmap-panel"]["hidden"], panels["drug-heatmap-panel"]["hidden"]), hidden)
             case = dict(values); case[(graph, "clickData")] = click
             details = self._click_details(case, graph)
@@ -452,16 +506,16 @@ class CallbackTests(unittest.TestCase):
     def test_figures_and_detail_cells_ignore_reversed_selection_order(self) -> None:
         values = self._values()
         values[("cells", "value")] = ["group:CL_B_GROUP", "group:" + atlas.T_CELL_ID]
-        figures = self._post("target-heatmap.figure", values, "cells.value")
+        figures = self._post_applied("target-heatmap.figure", values)
         self.assertEqual(figures["target-heatmap"]["figure"]["data"][0]["y"], ["T cell (group)", "B cell (group)"])
         self.assertEqual(figures["drug-heatmap"]["figure"]["data"][0]["y"], ["T cell (group)", "B cell (group)"])
-        selectors = self._post("detail-cell.options", values, "cells.value")
+        selectors = self._post_applied("detail-cell.options", values)
         self.assertEqual([item["value"] for item in selectors["detail-cell"]["options"]], ["group:" + atlas.T_CELL_ID, "group:CL_B_GROUP"])
 
     def test_mixed_selection_csv_preserves_row_ids_and_group_evidence(self) -> None:
         values = self._values()
         values[("cells", "value")] = ["group:CL_B_GROUP", "CL_B_ONE"]
-        figures = self._post("target-heatmap.figure", values, "cells.value")
+        figures = self._post_applied("target-heatmap.figure", values)
         self.assertEqual(figures["target-heatmap"]["figure"]["data"][0]["y"], ["B cell (group)", "memory B cell"])
         downloaded = self._post("download.data", values, "download-button.n_clicks")
         exported = list(csv.DictReader(io.StringIO(downloaded["download"]["data"]["content"].lstrip("\ufeff"))))
