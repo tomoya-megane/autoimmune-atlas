@@ -248,10 +248,10 @@ def summarize(
     cell_ids: list[str] | None = None,
     disease_ids: list[str] | None = None,
 ) -> list[dict]:
-    """疾患・細胞ごとの標的数と有効成分数を三値判定で集計する。"""
+    """疾患・細胞または全元細胞の標的数と有効成分数を三値判定で集計する。"""
     if method not in {"fixed", "relative", "specificity"}:
         raise ValueError(f"未対応の発現判定方法: {method}")
-    if level not in {"group", "cell", "mixed"}:
+    if level not in {"group", "cell", "mixed", "all"}:
         raise ValueError(f"未対応の細胞分類レベル: {level}")
     if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or threshold < 0:
         raise ValueError("最低 CPM は 0 以上の有限の数値にしてください")
@@ -261,7 +261,8 @@ def summarize(
     for row in filtered_records(snapshot, modality, stage):
         records_by_disease[row["disease_id"]].append(row)
     metadata = expression_metadata(snapshot)
-    catalog = cell_catalog(snapshot, level)
+    catalog = ([{"id": "all", "name": "All source cell types", "members": [cell["id"] for cell in cell_catalog(snapshot, "cell")]}]
+               if level == "all" else cell_catalog(snapshot, level))
     if cell_ids is not None:
         selected_cells = set(cell_ids)
         catalog = [cell for cell in catalog if cell["id"] in selected_cells]

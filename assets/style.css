@@ -84,7 +84,7 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 .filter-groups .scope-controls { grid-column: 1 / -1; }
 .filter-groups > .filter-group > h3 { grid-column: 1 / -1; margin-bottom: 0; }
 .filter-groups > .filter-group > .control { min-width: 0; }
-.control-grid.selectors { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
+.control-grid.selectors { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
 .control label { display: block; margin-bottom: 5px; color: #444; font-size: 12px; font-weight: 600; }
 .control > label { display: flex; align-items: center; min-height: 22px; }
 .label-help { display: flex; align-items: center; gap: 3px; margin-bottom: 5px; }
@@ -150,14 +150,8 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 .heatmap-stack h3 { margin: 10px 0 4px; color: #444; }
 .expression-graph { margin-bottom: 14px; }
 .source-records { margin-top: 14px; border-top: 1px solid #ddd; }
-.source-records > summary { padding: 10px 0; color: #1769aa; cursor: pointer; font-weight: 600; }
 .source-pagination { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
 .source-pagination #source-page { width: 140px; }
-.pair-table { max-height: 360px; margin-bottom: 14px; }
-.pair-table table { table-layout: fixed; }
-.pair-table td { overflow-wrap: anywhere; }
-.pair-table summary { color: #1769aa; cursor: pointer; }
-.pair-table ul { margin: 6px 0; padding-left: 18px; }
 .details { margin-top: 14px; }
 .detail-summary { color: #555; font-size: 12px; }
 

@@ -45,6 +45,13 @@ def _snapshot() -> dict:
 
 
 class AtlasTests(unittest.TestCase):
+    def test_all_source_cells_count_each_target_and_drug_once(self) -> None:
+        row = summarize(_snapshot(), "all", .5, level="all", disease_ids=["D1"])[0]
+        self.assertEqual(row["cell_id"], "all")
+        self.assertEqual(set(row["member_cell_ids"]), {"T4", "T8", "B1", "X"})
+        self.assertEqual((row["count"], row["denominator"], row["unknown"]), (3, 3, 0))
+        self.assertEqual((row["drug_count"], row["drug_denominator"]), (2, 2))
+
     def test_mixed_cells_preserve_group_and_source_counts_with_distinct_ids(self) -> None:
         snapshot = _snapshot()
         catalog = cell_catalog(snapshot, "mixed")
