@@ -825,26 +825,6 @@ def expression_figure(
 
 def _reference_links(record):
     links = []
-    for reference in record.get("references") or []:
-        source, urls, ids = (
-            reference.get("source") or "Source",
-            reference.get("urls") or [],
-            reference.get("ids") or [],
-        )
-        if urls:
-            links.extend(
-                html.A(
-                    f"{source}: {ids[i] if i < len(ids) else i + 1}",
-                    href=url,
-                    target="_blank",
-                    rel="noreferrer",
-                )
-                for i, url in enumerate(urls)
-            )
-        else:
-            links.append(
-                html.Span(f"{source}: {', '.join(map(str, ids))}" if ids else source)
-            )
     if record.get("target_id"):
         links.append(
             html.A(
@@ -900,7 +880,7 @@ def _evidence_table(records):
         "Record stage / highest disease-specific drug stage",
         "Target",
         "Action / mechanism",
-        "Sources",
+        "Open Targets links",
     )
     body = []
     for record in records:

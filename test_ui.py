@@ -289,6 +289,14 @@ class FigureTests(unittest.TestCase):
 class EvidenceTests(unittest.TestCase):
     """詳細と CSV が陽性以外の元記録も保持する。"""
 
+    def test_source_links_only_show_open_targets_pages(self) -> None:
+        links = str(app._reference_links(fixture()["records"][0]))
+        self.assertIn("Open Targets target", links)
+        self.assertIn("Open Targets drug", links)
+        self.assertIn("Open Targets canonical drug", links)
+        self.assertIn("Open Targets disease", links)
+        self.assertNotIn("PubMed", links)
+
     def setUp(self) -> None:
         self.snapshot = fixture()
         self.rows = app.visible_rows(
@@ -892,7 +900,7 @@ class CallbackTests(unittest.TestCase):
                         "Record stage / highest disease-specific drug stage",
                         "Target",
                         "Action / mechanism",
-                        "Sources",
+                        "Open Targets links",
                     ],
                 )
         self.assertEqual(
