@@ -10,6 +10,11 @@ start = "python app.py"
 dev = "python app.py --dev"
 refresh = "python fetch_data.py"
 test = "python -m unittest -v"
+format = "../../mycompany/.pixi/envs/default/bin/ruff format ."
+format-check = "../../mycompany/.pixi/envs/default/bin/ruff format --check ."
+lint = "../../mycompany/.pixi/envs/default/bin/ruff check ."
+lint-markdown = "../../mycompany/.pixi/envs/default/bin/markdownlint-cli2 '**/*.md' --config ../../mycompany/.markdownlint-cli2.jsonc"
+lint-natural-japanese = "../../mycompany/.pixi/envs/default/bin/python ../../mycompany/.agents/skills/natural-japanese/scripts/lint.py --json"
 
 [dependencies]
 python = ">=3.14.7,<3.15"
