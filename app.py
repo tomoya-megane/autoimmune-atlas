@@ -371,7 +371,13 @@ def heatmap_row_controls(names, cell_ids, expanded, kind):
     return [
         html.Button(
             ("▼ " if cell_id in expanded else "▶ ") + names[cell_id],
-            id={"type": "heatmap-cell-toggle", "kind": kind, "cell": cell_id},
+            id={
+                "type": "expression-cell-toggle"
+                if kind == "expression"
+                else "heatmap-cell-toggle",
+                "kind": kind,
+                "cell": cell_id,
+            },
             n_clicks=0,
             title=("Collapse " if cell_id in expanded else "Expand ") + names[cell_id],
             **{"aria-expanded": "true" if cell_id in expanded else "false"},
@@ -759,6 +765,7 @@ def expression_figure(
     threshold=DEFAULT_EXPRESSION_THRESHOLD,
     method="fixed",
     specificity=DEFAULT_SPECIFICITY_THRESHOLD,
+    grouped=False,
 ) -> go.Figure:
     """全元細胞について、現在の薬剤条件に含まれる標的の連続発現量を示す。"""
     metadata = metadata if metadata is not None else atlas.expression_metadata(snapshot)
@@ -770,10 +777,10 @@ def expression_figure(
             )
     cells = atlas.cell_catalog(snapshot, "cell")
     members = [cell["id"] for cell in cells]
-    member_names = {cell["id"]: cell["name"] for cell in cells}
     targets = sorted(
         target_names, key=lambda item: (target_names[item].casefold(), item)
     )
+    # 表示用の大分類平均は、標準化とクラスタリングの基準に含めない。
     target_stats = {}
     profiles = {}
     for target_id in targets:
@@ -792,12 +799,25 @@ def expression_figure(
     targets = _clustered_targets(targets, profiles)
     z, hover, missing_x, missing_y = [], [], [], []
     positive_x, positive_y, positive_hover = [], [], []
-    for member in members:
+    display_cells = atlas.cell_catalog(snapshot, "mixed") if grouped else cells
+    member_names = {cell["id"]: cell["name"] for cell in display_cells}
+    for cell in display_cells:
+        member = cell["id"]
+        is_group = cell.get("cell_level") == "group"
         z_row, hover_row = [], []
         for target_id in targets:
             label = f"{target_names[target_id]} ({target_id})"
             item = metadata.get((target_id, member))
             cpm = item.get("median") if item else None
+            observed = []
+            if is_group:
+                observed = [
+                    metadata[target_id, child]["median"]
+                    for child in cell["members"]
+                    if (target_id, child) in metadata
+                    and metadata[target_id, child].get("median") is not None
+                ]
+                cpm = mean(observed) if observed else None
             center, spread = target_stats[target_id]
             score = (
                 (math.log2(1 + cpm) - center) / spread
@@ -825,10 +845,28 @@ def expression_figure(
                     )
                 )
             )
+            if is_group:
+                hover_row[-1] = "<br>".join(
+                    (
+                        f"<b>{label}</b>",
+                        f"Cell group: {cell['name']}",
+                        f"Mean CPM: {cpm:g}"
+                        if cpm is not None
+                        else "Mean CPM: missing",
+                        f"Observed source cells: {len(observed)} / {len(cell['members'])}",
+                        f"Target-wise z-score: {score:.2f}"
+                        if score is not None
+                        else "Target-wise z-score: missing",
+                        "Arithmetic mean of available source-cell median CPM values; equal weight per cell type.",
+                    )
+                )
             if cpm is None:
                 missing_x.append(label)
                 missing_y.append(member_names[member])
-            elif atlas.expression_state(item, threshold, method, specificity) is True:
+            elif (
+                not is_group
+                and atlas.expression_state(item, threshold, method, specificity) is True
+            ):
                 positive_x.append(label)
                 positive_y.append(member_names[member])
                 positive_hover.append(hover_row[-1] + "<br>Expression rule: met")
@@ -845,7 +883,7 @@ def expression_figure(
     figure = go.Figure(
         go.Heatmap(
             x=target_labels,
-            y=[member_names[m] for m in members],
+            y=[cell["name"] for cell in display_cells],
             z=z,
             zmin=-color_limit,
             zmax=color_limit,
@@ -898,7 +936,7 @@ def expression_figure(
         )
     figure.update_layout(
         template="plotly_white",
-        height=max(360, 170 + 25 * len(members)),
+        height=max(360, 170 + 25 * len(display_cells)),
         margin={"l": 280, "r": 40, "t": 110, "b": 60},
         font={"family": "Arial, sans-serif", "size": 11, "color": "#263238"},
         hoverlabel={"align": "left"},
@@ -913,7 +951,41 @@ def expression_figure(
     )
     figure.update_yaxes(autorange="reversed", title="Source cell type", automargin=True)
     if members:
-        figure.update_yaxes(range=[len(members) - 0.5, -0.5], autorange=False)
+        figure.update_yaxes(range=[len(display_cells) - 0.5, -0.5], autorange=False)
+    return figure
+
+
+def expression_view(base, catalog, expanded):
+    """集計済みの図から表示行だけを選び、色範囲と標的順を保つ。"""
+    groups = [cell["id"] for cell in catalog if cell["cell_level"] == "group"]
+    visible = set(heatmap_cell_ids(None, groups, expanded, catalog=catalog))
+    names = {cell["name"] for cell in catalog if cell["id"] in visible}
+    figure = go.Figure(base)
+    heatmap = figure.data[0]
+    indices = [i for i, name in enumerate(heatmap.y) if name in names]
+    for attr in ("y", "z", "hovertext"):
+        values = getattr(heatmap, attr)
+        setattr(heatmap, attr, [values[i] for i in indices])
+    for trace in figure.data[1:]:
+        keep = [i for i, name in enumerate(trace.y) if name in names]
+        for attr in ("x", "y", "hovertext"):
+            values = getattr(trace, attr)
+            if values is not None:
+                setattr(trace, attr, [values[i] for i in keep])
+    count = max(1, len(indices))
+    figure.update_layout(
+        height=110 + 60 + 28 * count, margin=dict(l=280, r=40, t=110, b=60)
+    )
+    figure.update_xaxes(automargin=False)
+    figure.update_yaxes(
+        range=[count - 0.5, -0.5],
+        autorange=False,
+        automargin=False,
+        fixedrange=True,
+        showticklabels=False,
+        title=None,
+    )
+    heatmap.colorbar.len = min(240, 28 * count)
     return figure
 
 
@@ -1043,7 +1115,6 @@ def detail_panel(
                 ),
             ]
         )
-    metadata = atlas.expression_metadata(snapshot)
     filtered = [
         record
         for record in atlas.filtered_records(snapshot, modality, stage)
@@ -1053,16 +1124,11 @@ def detail_panel(
         "disease_id": row["disease_id"],
         "modality": modality,
         "stage": stage,
+        "threshold": threshold,
+        "method": method,
+        "specificity": specificity,
     }
     pages = max(1, math.ceil(len(filtered) / SOURCE_PAGE_SIZE))
-    expression = expression_figure(
-        snapshot,
-        filtered,
-        metadata,
-        threshold=threshold,
-        method=method,
-        specificity=specificity,
-    )
     return html.Div(
         [
             html.H3(
@@ -1104,7 +1170,7 @@ def detail_panel(
                     info_tip(
                         "expression",
                         "target expression",
-                        "For each target, color shows the z-score of log2(1 + median CPM) across all healthy reference source cell types. A white dot with a dark outline marks a target–cell pair meeting the applied expression rule. Targets with similar z-score patterns are grouped together; targets with missing expression are shown last. The color range follows the largest absolute z-score and stays centered on zero; hover shows the z-score and raw median CPM. This is not disease-sample expression.",
+                        "Click a cell group to expand or collapse its source cells. Group values are arithmetic means of available source-cell median CPM values, with equal weight per cell type; hover shows coverage. The group mean is log2(1 + CPM) transformed and standardized using the same target-wise mean and standard deviation as all healthy reference source cells. A white dot with a dark outline marks an individual source-cell pair meeting the applied expression rule; group averages have no dot. Targets with similar z-score patterns are grouped together; targets with missing expression are shown last. Group averages never enter target-relative medians, z-score reference statistics, clustering, or expression-rule calculations. Expansion does not change the color range or target order. The color range follows the largest absolute z-score and stays centered on zero; hover shows the z-score and raw median CPM. This is not disease-sample expression.",
                     ),
                     html.Small(
                         "○ Meets expression rule", className="expression-marker-key"
@@ -1113,12 +1179,19 @@ def detail_panel(
                 className="detail-expression-heading",
             ),
             html.Div(
-                dcc.Graph(
-                    figure=expression,
-                    style={
-                        "minWidth": f"{max(640, 320 + 28 * len(expression.data[0].x))}px"
-                    },
-                    config={"displaylogo": False, "responsive": True},
+                html.Div(
+                    [
+                        dcc.Graph(
+                            id="expression-heatmap",
+                            config={"displaylogo": False, "responsive": True},
+                        ),
+                        html.Div(
+                            id="expression-row-controls",
+                            className="heatmap-row-controls",
+                            style={"top": "110px", "width": "280px"},
+                        ),
+                    ],
+                    className="expandable-heatmap",
                 ),
                 className="graph-scroll expression-graph",
             ),
@@ -1529,6 +1602,7 @@ def dashboard_layout(snapshot) -> html.Main:
                     ),
                     dcc.Store(id="applied-parameters", data=applied),
                     dcc.Store(id="expanded-cell-groups", data=[]),
+                    dcc.Store(id="expanded-expression-groups", data=[]),
                 ],
                 className="panel controls",
             ),
@@ -1697,6 +1771,66 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         expanded = set(expanded or []) & valid
         expanded.symmetric_difference_update([cell_id])
         return sorted(expanded)
+
+    application.callback(
+        Output("expanded-expression-groups", "data"),
+        Input({"type": "expression-cell-toggle", "kind": ALL, "cell": ALL}, "n_clicks"),
+        State("expanded-expression-groups", "data"),
+        prevent_initial_call=True,
+    )(toggle_cell_group)
+
+    @lru_cache(maxsize=1)
+    def expression_base(disease, modality, stage, threshold, method, specificity):
+        # ponytail: retain one selected disease; enlarge only for concurrent users.
+        records = [
+            record
+            for record in atlas.filtered_records(snapshot, modality, stage)
+            if record["disease_id"] == disease
+        ]
+        return expression_figure(
+            snapshot,
+            records,
+            threshold=threshold,
+            method=method,
+            specificity=specificity,
+            grouped=True,
+        )
+
+    @application.callback(
+        Output("expression-heatmap", "figure"),
+        Output("expression-heatmap", "style"),
+        Output("expression-row-controls", "children"),
+        Input("source-context", "data"),
+        Input("expanded-expression-groups", "data"),
+    )
+    def update_expression(context, expanded):
+        if not context:
+            return no_update, no_update, no_update
+        base = expression_base(
+            *(
+                context[key]
+                for key in (
+                    "disease_id",
+                    "modality",
+                    "stage",
+                    "threshold",
+                    "method",
+                    "specificity",
+                )
+            )
+        )
+        figure = expression_view(base, heatmap_catalog, expanded or [])
+        cells = heatmap_cell_ids(
+            snapshot, heatmap_groups, expanded, catalog=heatmap_catalog
+        )
+        return (
+            figure,
+            {
+                "minWidth": f"{max(640, 320 + 28 * len(figure.data[0].x))}px",
+                "height": f"{figure.layout.height}px",
+            },
+            heatmap_row_controls(heatmap_names, cells, expanded or [], "expression"),
+        )
 
     @application.callback(
         Output("applied-parameters", "data"),

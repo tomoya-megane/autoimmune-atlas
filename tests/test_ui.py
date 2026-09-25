@@ -516,6 +516,61 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(figure.layout.xaxis.side, "top")
         self.assertEqual(list(figure.layout.yaxis.range), [len(cells) - 0.5, -0.5])
 
+    def test_group_expression_averages_cpm_before_transform_and_keeps_scale(self):
+        figure = app.expression_figure(
+            self.snapshot, self.snapshot["records"], grouped=True
+        )
+        heatmap = figure.data[0]
+        row = list(heatmap.y).index("B cell (group)")
+        col = list(heatmap.x).index("TARGET1 (ENSG_TARGET_1)")
+        values = [math.log2(1 + x) for x in (2, 0.1, 0.2)]
+        center = sum(values) / len(values)
+        spread = (sum((x - center) ** 2 for x in values) / len(values)) ** 0.5
+        self.assertAlmostEqual(
+            heatmap.z[row][col], (math.log2(1 + 1.05) - center) / spread
+        )
+        self.assertIn("Mean CPM: 1.05", heatmap.hovertext[row][col])
+        self.assertIn("Observed source cells: 2 / 2", heatmap.hovertext[row][col])
+        col2 = list(heatmap.x).index("TARGET2 (ENSG_TARGET_2)")
+        self.assertIn("Mean CPM: 0.6", heatmap.hovertext[row][col2])
+        self.assertIn("Observed source cells: 1 / 2", heatmap.hovertext[row][col2])
+        original = app.expression_figure(self.snapshot, self.snapshot["records"])
+        self.assertEqual(original.data[0].x, heatmap.x)
+        for i, name in enumerate(original.data[0].y):
+            self.assertEqual(
+                original.data[0].z[i], heatmap.z[list(heatmap.y).index(name)]
+            )
+        metadata = atlas.expression_metadata(self.snapshot)
+        app.expression_figure(
+            self.snapshot, self.snapshot["records"], metadata, grouped=True
+        )
+        self.assertEqual(metadata, atlas.expression_metadata(self.snapshot))
+        catalog = atlas.cell_catalog(self.snapshot, "mixed")
+        collapsed = app.expression_view(figure, catalog, [])
+        expanded = app.expression_view(figure, catalog, ["group:CL_B_GROUP"])
+        self.assertEqual(len(collapsed.data[0].y), 2)
+        self.assertEqual(len(expanded.data[0].y), 4)
+        self.assertEqual(collapsed.data[0].zmax, expanded.data[0].zmax)
+        self.assertEqual(collapsed.data[0].x, expanded.data[0].x)
+        self.assertEqual(len(figure.data[0].y), 5)
+        for trace in expanded.data[1:]:
+            self.assertTrue(set(trace.y) <= set(expanded.data[0].y))
+            if trace.name == "Meets expression rule":
+                self.assertNotIn("B cell (group)", trace.y)
+
+    def test_group_expression_is_missing_when_all_members_are_missing(self):
+        for item in self.snapshot["expression"]["ENSG_TARGET_2"]:
+            item["median"] = None
+        figure = app.expression_figure(
+            self.snapshot, self.snapshot["records"], grouped=True
+        )
+        column = list(figure.data[0].x).index("TARGET2 (ENSG_TARGET_2)")
+        self.assertTrue(all(row[column] is None for row in figure.data[0].z))
+        row = list(figure.data[0].y).index("B cell (group)")
+        self.assertIn(
+            "Observed source cells: 0 / 2", figure.data[0].hovertext[row][column]
+        )
+
     def test_constant_target_expression_has_zero_z_score(self) -> None:
         for item in self.snapshot["expression"]["ENSG_TARGET_1"]:
             item["median"] = 2
@@ -578,14 +633,10 @@ class EvidenceTests(unittest.TestCase):
             self.rows, "MONDO_RA_TEST", self.snapshot, method="specificity"
         )
         self.assertIn("○ Meets expression rule", str(panel.children[2]))
-        figure = panel.children[3].children.figure
-        self.assertIsNone(figure.layout.width)
-        self.assertEqual(panel.children[3].children.style["minWidth"], "640px")
-        self.assertTrue(panel.children[3].children.config["responsive"])
-        marks = next(
-            trace for trace in figure.data if trace.name == "Meets expression rule"
-        )
-        self.assertEqual(len(marks.x), 3)
+        graph = panel.children[3].children.children[0]
+        self.assertEqual(graph.id, "expression-heatmap")
+        self.assertTrue(graph.config["responsive"])
+        self.assertEqual(panel.children[1].children[0].data["method"], "specificity")
 
     def test_expression_columns_group_similar_profiles_and_put_missing_last(
         self,
@@ -1038,6 +1089,48 @@ class CallbackTests(unittest.TestCase):
                     "Filtered drug records for rheumatoid arthritis",
                     json.dumps(result, ensure_ascii=False),
                 )
+
+    def test_expression_expansion_uses_cached_values_and_applied_rule(self):
+        values = {
+            ("source-context", "data"): {
+                "disease_id": "MONDO_RA_TEST",
+                "modality": "all",
+                "stage": "phase3",
+                "threshold": 0.5,
+                "method": "specificity",
+                "specificity": 0.75,
+            },
+            ("expanded-expression-groups", "data"): [],
+        }
+        collapsed = self._post(
+            "expression-heatmap.figure", values, "source-context.data"
+        )
+        values[("expanded-expression-groups", "data")] = ["group:CL_B_GROUP"]
+        with patch.object(
+            app,
+            "expression_figure",
+            side_effect=AssertionError("Expansion recomputed expression"),
+        ):
+            expanded = self._post(
+                "expression-heatmap.figure", values, "expanded-expression-groups.data"
+            )
+        for result in (collapsed, expanded):
+            graph = result["expression-heatmap"]
+            self.assertEqual(
+                graph["style"]["height"], f"{graph['figure']['layout']['height']}px"
+            )
+        before = collapsed["expression-heatmap"]["figure"]["data"][0]
+        after = expanded["expression-heatmap"]["figure"]["data"][0]
+        self.assertEqual(len(before["y"]), 2)
+        self.assertEqual(len(after["y"]), 4)
+        self.assertEqual(before["zmax"], after["zmax"])
+        marks = next(
+            trace
+            for trace in expanded["expression-heatmap"]["figure"]["data"]
+            if trace.get("name") == "Meets expression rule"
+        )
+        self.assertEqual(set(marks["y"]), {"memory B cell", "naive B cell"})
+        self.assertEqual(len(expanded["expression-row-controls"]["children"]), 4)
 
     def test_source_records_are_visible_and_paged_without_losing_rows(self) -> None:
         self.assertIn("source-records-page.children", self.application.callback_map)
