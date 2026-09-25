@@ -1385,9 +1385,9 @@ def dashboard_layout(snapshot) -> html.Main:
             "Sjogren syndrome",
             "rheumatoid arthritis",
             "multiple sclerosis",
-            "myasthenia gravis",
+            "dermatomyositis",
             "type 1 diabetes mellitus",
-            "Graves disease",
+            "anti-neutrophil cytoplasmic antibody-associated vasculitis",
             "pemphigus",
             "autoimmune hepatitis",
         ),
@@ -1662,10 +1662,10 @@ def dashboard_layout(snapshot) -> html.Main:
                                     html.H3("Comparison scope"),
                                     html.Div(
                                         [
+                                            cell_selector(snapshot, default_cells),
                                             disease_selector(
                                                 snapshot, default_diseases
                                             ),
-                                            cell_selector(snapshot, default_cells),
                                         ],
                                         className="control-grid scope-controls",
                                     ),

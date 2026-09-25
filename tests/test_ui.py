@@ -1091,7 +1091,7 @@ class CallbackTests(unittest.TestCase):
                 node["props"]["children"][1]["props"]["id"]
                 for node in scope_controls["props"]["children"]
             ],
-            ["diseases", "cells"],
+            ["cells", "diseases"],
         )
         self.assertEqual(
             [
