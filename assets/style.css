@@ -76,7 +76,7 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 
 .panel { margin-bottom: 16px; padding: 16px; border: 1px solid #d8d8d8; background: #fff; }
 .control-grid { display: grid; gap: 14px; }
-.scope-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.scope-controls { grid-template-columns: minmax(0, 1fr); }
 .filter-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
 .filter-group { min-width: 0; }
 .filter-group h3 { margin: 0 0 8px; color: #2d2d2d; font-size: 13px; font-weight: 600; }
@@ -128,7 +128,7 @@ h3 { margin-bottom: 6px; font-size: 15px; }
     font-weight: 600;
 }
 .section-heading button:hover, .update-actions button:hover { background: #0d4f86; }
-.update-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding-top: 12px; border-top: 1px solid #ddd; }
+.update-actions { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; min-width: 0; }
 #update-status { color: #555; font-size: 12px; }
 .download-actions { display: flex; align-items: center; gap: 4px; }
 .detail-heading { align-items: baseline; }
@@ -185,8 +185,9 @@ th { position: sticky; top: 0; background: #f0f0f0; color: #333; font-weight: 60
     .filter-groups { grid-template-columns: repeat(15, minmax(0, 1fr)); }
     .filter-groups > .filter-group:first-child { grid-column: span 6; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .filter-groups > .filter-group:nth-child(2) { grid-column: span 9; grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr)); }
-    .filter-groups > .filter-group:nth-child(3) { grid-column: span 10; }
-    .filter-groups > .filter-group:last-child { grid-column: span 5; grid-template-columns: minmax(0, 1fr); }
+    .filter-groups > .filter-group:nth-child(3) { grid-column: span 6; }
+    .filter-groups > .filter-group:nth-child(4) { grid-column: span 6; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .filter-groups > .update-actions { grid-column: span 3; align-items: center; text-align: center; }
 }
 
 

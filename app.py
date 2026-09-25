@@ -30,7 +30,6 @@ PARAMETER_IDS = (
     "threshold",
     "specificity",
     "diseases",
-    "cells",
     "heatmap-view",
 )
 STAGE_LABELS = {
@@ -326,101 +325,6 @@ def disease_selector(snapshot, selected):
     )
 
 
-def _cell_selection_catalog(snapshot):
-    """大分類と元細胞を、同じ ID の場合も別の選択肢として定義する。"""
-    catalog = {cell["id"]: cell for cell in atlas.cell_catalog(snapshot, "mixed")}
-    return [
-        {
-            "name": group["name"],
-            "sections": [
-                {
-                    "id": f"cell-group-{group['id']}",
-                    "cells": [catalog["group:" + group["id"]]],
-                },
-                {
-                    "id": f"cell-details-{group['id']}",
-                    "cells": [catalog[member] for member in group["members"]],
-                },
-            ],
-        }
-        for group in atlas.cell_catalog(snapshot, "group")
-    ]
-
-
-def cell_selector(snapshot, selected):
-    """疾患と同じ開閉操作で、大分類と細分類を独立して選べるようにする。"""
-    groups = []
-    for group in _cell_selection_catalog(snapshot):
-        checklists = [
-            dcc.Checklist(
-                id=section["id"],
-                options=[
-                    {"label": cell["name"], "value": cell["id"]}
-                    for cell in section["cells"]
-                ],
-                value=[
-                    cell["id"] for cell in section["cells"] if cell["id"] in selected
-                ],
-                className="disease-checklist",
-            )
-            for section in group["sections"]
-        ]
-        groups.append(
-            html.Details(
-                [
-                    html.Summary(group["name"]),
-                    html.Div(
-                        [
-                            checklists[0],
-                            html.Details(
-                                [
-                                    html.Summary(
-                                        f"{group['name']} details ({len(group['sections'][1]['cells'])} cells)"
-                                    ),
-                                    checklists[1],
-                                ]
-                            ),
-                        ],
-                        className="disease-families",
-                    ),
-                ]
-            )
-        )
-    return html.Div(
-        [
-            html.Div(
-                [
-                    html.Label("Cells", htmlFor="cells"),
-                    info_tip(
-                        "cells",
-                        "cells",
-                        "Select groups and source cells independently. A group counts the union of targets or drugs meeting the rule in any member; CPM values are never added or averaged. A source cell uses only its own expression. Selecting a group does not select its members. Rows follow lineage order, not support strength.",
-                    ),
-                ],
-                className="label-help",
-            ),
-            dcc.Dropdown(
-                id="cells",
-                options=[
-                    {"label": name, "value": cell_id}
-                    for cell_id, name in cell_catalog(snapshot, "mixed")
-                ],
-                value=selected,
-                multi=True,
-                searchable=True,
-            ),
-            html.Details(
-                [
-                    html.Summary("Browse cell groups"),
-                    html.Div(groups, className="disease-tree"),
-                ],
-                className="disease-browser",
-            ),
-        ],
-        className="control",
-    )
-
-
 def choose_defaults(items, terms, limit, preferred_ids=None) -> list[str]:
     """名前と実データの有無から、存在する項目だけを初期選択する。"""
     selected = []
@@ -444,10 +348,6 @@ def choose_defaults(items, terms, limit, preferred_ids=None) -> list[str]:
         if item_id not in selected:
             selected.append(item_id)
     return selected[:limit]
-
-
-def _default_cells(snapshot: dict) -> list[str]:
-    return ["group:" + cell["id"] for cell in atlas.cell_catalog(snapshot, "group")]
 
 
 def heatmap_cell_ids(snapshot, selected, expanded, *, catalog=None):
@@ -1434,7 +1334,6 @@ def dashboard_layout(snapshot) -> html.Main:
         10,
         {row["disease_id"] for row in snapshot["records"]},
     )
-    default_cells = _default_cells(snapshot)
     retrieved_at = (
         datetime.fromisoformat(snapshot["retrieved_at"])
         .astimezone(timezone(timedelta(hours=9)))
@@ -1463,7 +1362,6 @@ def dashboard_layout(snapshot) -> html.Main:
                 DEFAULT_EXPRESSION_THRESHOLD,
                 DEFAULT_SPECIFICITY_THRESHOLD,
                 ordered_disease_ids(snapshot, default_diseases),
-                default_cells,
                 "target",
             ),
         )
@@ -1702,7 +1600,6 @@ def dashboard_layout(snapshot) -> html.Main:
                                     html.H3("Comparison scope"),
                                     html.Div(
                                         [
-                                            cell_selector(snapshot, default_cells),
                                             disease_selector(
                                                 snapshot, default_diseases
                                             ),
@@ -1778,19 +1675,24 @@ def dashboard_layout(snapshot) -> html.Main:
                                 ],
                                 className="filter-group",
                             ),
+                            html.Div(
+                                [
+                                    html.Button(
+                                        "Update",
+                                        id="update-button",
+                                        type="button",
+                                        n_clicks=0,
+                                    ),
+                                    html.Span(
+                                        "Settings applied.",
+                                        id="update-status",
+                                        role="status",
+                                    ),
+                                ],
+                                className="update-actions",
+                            ),
                         ],
                         className="filter-groups",
-                    ),
-                    html.Div(
-                        [
-                            html.Button(
-                                "Update", id="update-button", type="button", n_clicks=0
-                            ),
-                            html.Span(
-                                "Settings applied.", id="update-status", role="status"
-                            ),
-                        ],
-                        className="update-actions",
                     ),
                     dcc.Store(id="applied-parameters", data=applied),
                     dcc.Store(id="expanded-cell-groups", data=[]),
@@ -1807,7 +1709,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                     info_tip(
                                         "comparison",
                                         "cell-type comparison",
-                                        "Heatmap cells show confirmed support without a ≥ mark; hover and CSV values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.",
+                                        "Click a cell group to expand or collapse its source cells. A group counts the union of qualifying targets or drugs across its members; CPM values are never added or averaged. Heatmap cells show confirmed support without a ≥ mark; hover and CSV values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.",
                                     ),
                                 ]
                             ),
@@ -2042,36 +1944,6 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         view = applied["heatmap-view"]
         return view == "drug", view != "drug"
 
-    cell_sections = [
-        section
-        for group in _cell_selection_catalog(snapshot)
-        for section in group["sections"]
-    ]
-    cell_section_ids = [section["id"] for section in cell_sections]
-
-    @application.callback(
-        Output("cells", "value"),
-        *[Output(item, "value") for item in cell_section_ids],
-        Input("cells", "value"),
-        *[Input(item, "value") for item in cell_section_ids],
-    )
-    def sync_cell_selection(selected, *section_values):
-        selected = set(selected or [])
-        if ctx.triggered_id in cell_section_ids:
-            index = cell_section_ids.index(ctx.triggered_id)
-            members = {cell["id"] for cell in cell_sections[index]["cells"]}
-            selected = (selected - members) | (
-                set(section_values[index] or []) & members
-            )
-        ordered = _ordered_cell_ids(snapshot, "mixed", selected)
-        return [
-            ordered,
-            *[
-                [cell["id"] for cell in section["cells"] if cell["id"] in ordered]
-                for section in cell_sections
-            ],
-        ]
-
     @application.callback(
         Output("target-heatmap", "figure"),
         Output("drug-heatmap", "figure"),
@@ -2094,8 +1966,8 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             threshold,
             specificity,
             disease_ids,
-            cell_ids,
         ) = (applied[key] for key in PARAMETER_IDS[:-1])
+        cell_ids = heatmap_groups
         minimum, specificity_value, errors = effective_filters(threshold, specificity)
         disease_ids = ordered_disease_ids(snapshot, disease_ids)
         scale_cell_ids = heatmap_cell_ids(
@@ -2171,7 +2043,7 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
                 modality,
             )
         )
-        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: selected groups and source cells; Measure: {measure.capitalize()}. {len(rows)} disease–cell combinations. Heatmap entries without a value: targets {target_missing}, drugs {drug_missing}."
+        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: all groups and expanded source cells; Measure: {measure.capitalize()}. {len(rows)} disease–cell combinations. Heatmap entries without a value: targets {target_missing}, drugs {drug_missing}."
         status = html.Span(f"{len(rows)} disease–cell combinations")
         error_note = (
             html.Span(" ".join(errors), className="filter-errors", role="alert")
@@ -2241,7 +2113,6 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             threshold,
             specificity,
             disease_ids,
-            _cell_ids,
         ) = (applied[key] for key in PARAMETER_IDS[:-1])
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
         selected = detail_disease if detail_disease in disease_ids else None
@@ -2316,8 +2187,8 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             threshold,
             specificity,
             disease_ids,
-            cell_ids,
         ) = (applied[key] for key in PARAMETER_IDS[:-1])
+        cell_ids = heatmap_groups
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
         cell_ids = heatmap_cell_ids(
             snapshot, cell_ids, expanded, catalog=heatmap_catalog

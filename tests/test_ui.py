@@ -792,7 +792,6 @@ class CallbackTests(unittest.TestCase):
             ("threshold", "value"): None,
             ("specificity", "value"): None,
             ("diseases", "value"): ["MONDO_RA_TEST"],
-            ("cells", "value"): ["group:CL_B_GROUP"],
             ("detail-disease", "value"): "MONDO_RA_TEST",
             ("target-heatmap", "clickData"): None,
             ("drug-heatmap", "clickData"): None,
@@ -901,7 +900,7 @@ class CallbackTests(unittest.TestCase):
             )
             summarize.assert_called_once()
             self.assertEqual(summarize.call_args.args[2], 123)
-            self.assertIsNone(result["target-heatmap"]["figure"]["data"][0]["z"][0][0])
+            self.assertIsNone(result["target-heatmap"]["figure"]["data"][0]["z"][1][0])
 
     def test_update_applies_parameters_together_and_csv_uses_displayed_settings(
         self,
@@ -913,7 +912,6 @@ class CallbackTests(unittest.TestCase):
         values[("applied-parameters", "data")] = applied["applied-parameters"]["data"]
         before = self._post("target-heatmap.figure", values, "applied-parameters.data")
         values[("threshold", "value")] = 2
-        values[("cells", "value")] = ["CL_B_ONE"]
         values[("measure", "value")] = "count"
         values[("heatmap-view", "value")] = "drug"
         status = self._post("update-status.children", values, "threshold.value")
@@ -931,7 +929,7 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual({row["minimum_cpm"] for row in rows}, {"0.5"})
         self.assertEqual(
             {row["group_cell_id"] for row in rows if row["row_type"] == "summary"},
-            {"group:CL_B_GROUP"},
+            {"group:" + atlas.T_CELL_ID, "group:CL_B_GROUP"},
         )
         applied = self._post(
             "applied-parameters.data", values, "update-button.n_clicks"
@@ -940,7 +938,8 @@ class CallbackTests(unittest.TestCase):
         after = self._post("target-heatmap.figure", values, "applied-parameters.data")
         self.assertNotEqual(before, after)
         self.assertEqual(
-            after["target-heatmap"]["figure"]["data"][0]["y"], ["memory B cell"]
+            after["target-heatmap"]["figure"]["data"][0]["y"],
+            ["T cell (group)", "B cell (group)"],
         )
         self.assertIn("CPM ≥ 2", json.dumps(after["matrix-note"], ensure_ascii=False))
         panels = self._post(
@@ -973,7 +972,6 @@ class CallbackTests(unittest.TestCase):
             "stage",
             "method",
             "diseases",
-            "cells",
             "measure",
             "heatmap-view",
         }
@@ -1060,7 +1058,6 @@ class CallbackTests(unittest.TestCase):
             "threshold.value",
             "measure.value",
             "modality.value",
-            "cells.value",
         ):
             with self.subTest(changed=changed):
                 result = self._post_applied("details.children", values)
@@ -1070,7 +1067,6 @@ class CallbackTests(unittest.TestCase):
                     json.dumps(result, ensure_ascii=False),
                 )
                 self.assertNotIn('"children": "Original drug"', rendered)
-        values[("cells", "value")] = []
         result = self._post_applied("details.children", values)
         self.assertIn(
             "Filtered drug records for rheumatoid arthritis",
@@ -1079,7 +1075,6 @@ class CallbackTests(unittest.TestCase):
 
     def test_heatmap_selection_keeps_disease_wide_details(self) -> None:
         values = self._values()
-        values[("cells", "value")] = ["group:" + atlas.T_CELL_ID, "group:CL_B_GROUP"]
         self._apply(values)
         for graph in ("target-heatmap", "drug-heatmap"):
             with self.subTest(graph=graph):
@@ -1164,12 +1159,8 @@ class CallbackTests(unittest.TestCase):
         )
         self.assertNotIn("level", self.components)
         self.assertNotIn("detail-cell", self.components)
-        self.assertTrue(
-            all(
-                value.startswith("group:")
-                for value in self.components["cells"]["value"]
-            )
-        )
+        self.assertNotIn("cells", self.components)
+        self.assertNotIn("cells", app.PARAMETER_IDS)
         self.assertEqual(
             [option["value"] for option in self.components["modality"]["options"]],
             ["all", *[value for _, value in atlas.DRUG_TYPE_MODALITIES]],
@@ -1189,12 +1180,13 @@ class CallbackTests(unittest.TestCase):
                 node["props"]["children"][1]["props"]["id"]
                 for node in scope_controls["props"]["children"]
             ],
-            ["cells", "diseases"],
+            ["diseases"],
         )
         self.assertEqual(
             [
                 group["props"]["children"][0]["props"]["children"]
                 for group in groups["props"]["children"]
+                if "filter-group" in group["props"].get("className", "").split()
             ],
             ["Drug evidence", "Expression criteria", "Comparison scope", "Display"],
         )
@@ -1225,7 +1217,7 @@ class CallbackTests(unittest.TestCase):
         values[("threshold", "value")] = -1
         figures = self._post_applied("target-heatmap.figure", values)
         note = figures["matrix-note"]["children"]["props"]["children"]
-        self.assertEqual(note[0]["props"]["children"], "1 disease–cell combinations")
+        self.assertEqual(note[0]["props"]["children"], "2 disease–cell combinations")
         self.assertEqual(note[2]["props"]["role"], "alert")
         self.assertIn("must be finite", note[2]["props"]["children"])
 
@@ -1269,25 +1261,6 @@ class CallbackTests(unittest.TestCase):
                 for button in buttons
             )
         )
-
-    def test_cell_tree_and_search_sync_independent_group_and_source_selection(
-        self,
-    ) -> None:
-        values = self._values()
-        for group in app._cell_selection_catalog(self.snapshot):
-            for section in group["sections"]:
-                values[(section["id"], "value")] = []
-        values[("cells", "value")] = ["CL_B_ONE", "group:CL_B_GROUP"]
-        synced = self._post("cells.value", values, "cells.value")
-        self.assertEqual(synced["cells"]["value"], ["group:CL_B_GROUP", "CL_B_ONE"])
-        self.assertEqual(synced["cell-group-CL_B_GROUP"]["value"], ["group:CL_B_GROUP"])
-        self.assertEqual(synced["cell-details-CL_B_GROUP"]["value"], ["CL_B_ONE"])
-        values[("cells", "value")] = synced["cells"]["value"]
-        removed = self._post("cells.value", values, "cell-group-CL_B_GROUP.value")
-        self.assertEqual(removed["cells"]["value"], ["CL_B_ONE"])
-        values[("cells", "value")] = []
-        cleared = self._post("cells.value", values, "cells.value")
-        self.assertTrue(all(result["value"] == [] for result in cleared.values()))
 
     def test_both_heatmaps_callbacks(self) -> None:
         values = self._values()
@@ -1344,9 +1317,8 @@ class CallbackTests(unittest.TestCase):
                 str(details["details"]["children"]),
             )
 
-    def test_figures_ignore_reversed_selection_order(self) -> None:
+    def test_figures_keep_cell_lineage_order(self) -> None:
         values = self._values()
-        values[("cells", "value")] = ["group:CL_B_GROUP", "group:" + atlas.T_CELL_ID]
         figures = self._post_applied("target-heatmap.figure", values)
         self.assertEqual(
             figures["target-heatmap"]["figure"]["data"][0]["y"],
@@ -1362,13 +1334,13 @@ class CallbackTests(unittest.TestCase):
             ["MONDO_RA_TEST"],
         )
 
-    def test_mixed_selection_csv_preserves_row_ids_and_group_evidence(self) -> None:
+    def test_expanded_csv_preserves_row_ids_and_group_evidence(self) -> None:
         values = self._values()
-        values[("cells", "value")] = ["group:CL_B_GROUP", "CL_B_ONE"]
+        values[("expanded-cell-groups", "data")] = ["group:CL_B_GROUP"]
         figures = self._post_applied("target-heatmap.figure", values)
         self.assertEqual(
             figures["target-heatmap"]["figure"]["data"][0]["y"],
-            ["B cell (group)", "memory B cell"],
+            ["T cell (group)", "B cell (group)", "memory B cell", "naive B cell"],
         )
         downloaded = self._post("download.data", values, "download-button.n_clicks")
         exported = list(
@@ -1387,18 +1359,20 @@ class CallbackTests(unittest.TestCase):
                 for key, row in summaries.items()
             },
             {
+                "group:" + atlas.T_CELL_ID: (atlas.T_CELL_ID, "group"),
                 "group:CL_B_GROUP": ("CL_B_GROUP", "group"),
                 "CL_B_ONE": ("CL_B_ONE", "cell"),
+                "CL_B_TWO": ("CL_B_TWO", "cell"),
             },
         )
         evidence = [row for row in exported if row["row_type"] == "expression_evidence"]
         self.assertEqual(
             {row["evidence_cell_id"] for row in evidence if row["level"] == "group"},
-            {"CL_B_ONE", "CL_B_TWO"},
+            {"CL_T_ONE", "CL_B_ONE", "CL_B_TWO"},
         )
         self.assertEqual(
             {row["evidence_cell_id"] for row in evidence if row["level"] == "cell"},
-            {"CL_B_ONE"},
+            {"CL_B_ONE", "CL_B_TWO"},
         )
         sources = [row for row in exported if row["row_type"] == "source_record"]
         self.assertEqual(
