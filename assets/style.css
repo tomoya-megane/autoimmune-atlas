@@ -146,6 +146,13 @@ h3 { margin-bottom: 6px; font-size: 15px; }
 
 .graph-scroll, .table-scroll { overflow: auto; }
 .graph-scroll { border-top: 1px solid #eee; scrollbar-color: #aaa #eee; }
+.expandable-heatmap { position: relative; min-width: 600px; }
+.heatmap-row-controls { position: absolute; left: 0; width: 240px; background: white; }
+.heatmap-row-controls > * { display: block; box-sizing: border-box; width: 100%; height: 28px; margin: 0; padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 12px; line-height: 20px; }
+.heatmap-row-controls > button { border: 0; border-bottom: 1px solid #e3e9ed; background: #edf3f6; color: #263238; cursor: pointer; }
+.heatmap-row-controls > button:hover { background: #dcebf3; }
+.heatmap-row-controls > button:focus-visible { outline: 2px solid #1769aa; outline-offset: -2px; }
+.heatmap-row-controls > .heatmap-child-label { padding-left: 24px; color: #444; }
 .heatmap-stack { display: grid; gap: 18px; }
 .heatmap-stack article { min-width: 0; }
 .heatmap-stack h3 { margin: 10px 0 4px; color: #444; }

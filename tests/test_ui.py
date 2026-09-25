@@ -799,11 +799,109 @@ class CallbackTests(unittest.TestCase):
             ("download-button", "n_clicks"): 1,
             ("update-button", "n_clicks"): 1,
             ("heatmap-view", "value"): "target",
+            ("expanded-cell-groups", "data"): [],
         }
         values[("applied-parameters", "data")] = {
             key: values[(key, "value")] for key in app.PARAMETER_IDS
         }
         return values
+
+    def test_expand_cells_preserves_scale_and_exports_visible_rows(self):
+        values = self._values()
+        before = self._post("target-heatmap.figure", values, "applied-parameters.data")
+        values[("expanded-cell-groups", "data")] = ["group:CL_B_GROUP"]
+        expanded = self._post(
+            "target-heatmap.figure", values, "expanded-cell-groups.data"
+        )
+        for graph in ("target-heatmap", "drug-heatmap"):
+            self.assertEqual(
+                expanded[graph]["figure"]["layout"]["xaxis"]["tickangle"], -45
+            )
+            old = before[graph]["figure"]["data"][0]
+            new = expanded[graph]["figure"]["data"][0]
+            self.assertGreater(len(new["y"]), len(old["y"]))
+            self.assertEqual((old["zmin"], old["zmax"]), (new["zmin"], new["zmax"]))
+            self.assertEqual(old["z"][0], new["z"][0])
+        download = self._post("download.data", values, "download-button.n_clicks")
+        self.assertIn("CL_B_ONE", download["download"]["data"]["content"])
+        values[("expanded-cell-groups", "data")] = []
+        collapsed = self._post(
+            "target-heatmap.figure", values, "expanded-cell-groups.data"
+        )
+        self.assertEqual(
+            before["target-heatmap"]["figure"], collapsed["target-heatmap"]["figure"]
+        )
+        self.assertEqual(
+            app.heatmap_cell_ids(self.snapshot, ["group:CL_B_GROUP", "CL_B_ONE"], []),
+            ["group:CL_B_GROUP", "CL_B_ONE"],
+        )
+
+    def test_heatmap_button_toggles_and_ignores_rendered_buttons(self):
+        button = {
+            "type": "heatmap-cell-toggle",
+            "kind": "target",
+            "cell": "group:CL_B_GROUP",
+        }
+        for clicks, expanded, expected in (
+            (1, [], ["group:CL_B_GROUP"]),
+            (1, ["group:CL_B_GROUP"], []),
+            (0, [], None),
+        ):
+            response = self.client.post(
+                "/_dash-update-component",
+                json={
+                    "output": "expanded-cell-groups.data",
+                    "outputs": {"id": "expanded-cell-groups", "property": "data"},
+                    "inputs": [
+                        [{"id": button, "property": "n_clicks", "value": clicks}]
+                    ],
+                    "state": [
+                        {
+                            "id": "expanded-cell-groups",
+                            "property": "data",
+                            "value": expanded,
+                        }
+                    ],
+                    "changedPropIds": [
+                        json.dumps(button, sort_keys=True, separators=(",", ":"))
+                        + ".n_clicks"
+                    ],
+                },
+            )
+            if expected is None:
+                self.assertNotIn(
+                    "expanded-cell-groups", response.get_json().get("response", {})
+                )
+            else:
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.get_json()["response"]["expanded-cell-groups"]["data"],
+                    expected,
+                )
+
+    def test_expansion_reuses_summary_and_catalog_but_new_filters_recompute(self):
+        values = self._values()
+        self._post("target-heatmap.figure", values, "applied-parameters.data")
+        with (
+            patch.object(atlas, "summarize", wraps=atlas.summarize) as summarize,
+            patch.object(atlas, "cell_catalog", wraps=atlas.cell_catalog) as catalog,
+        ):
+            values[("expanded-cell-groups", "data")] = ["group:CL_B_GROUP"]
+            self._post("target-heatmap.figure", values, "expanded-cell-groups.data")
+            values[("expanded-cell-groups", "data")] = []
+            self._post("target-heatmap.figure", values, "expanded-cell-groups.data")
+            summarize.assert_not_called()
+            catalog.assert_not_called()
+            values[("applied-parameters", "data")] = {
+                **values[("applied-parameters", "data")],
+                "threshold": 123,
+            }
+            result = self._post(
+                "target-heatmap.figure", values, "applied-parameters.data"
+            )
+            summarize.assert_called_once()
+            self.assertEqual(summarize.call_args.args[2], 123)
+            self.assertIsNone(result["target-heatmap"]["figure"]["data"][0]["z"][0][0])
 
     def test_update_applies_parameters_together_and_csv_uses_displayed_settings(
         self,

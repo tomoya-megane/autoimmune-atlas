@@ -6,11 +6,12 @@ import argparse
 import json
 import math
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from statistics import mean, pstdev
 
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, ctx, dcc, html
+from dash import ALL, Dash, Input, Output, State, ctx, dcc, html, no_update
 from scipy.cluster.hierarchy import leaves_list, linkage
 
 import atlas
@@ -449,6 +450,39 @@ def _default_cells(snapshot: dict) -> list[str]:
     return ["group:" + cell["id"] for cell in atlas.cell_catalog(snapshot, "group")]
 
 
+def heatmap_cell_ids(snapshot, selected, expanded, *, catalog=None):
+    """選択済みの行に、展開中の大分類の元細胞を追加する。"""
+    visible = set(selected or [])
+    if catalog is None:
+        catalog = atlas.cell_catalog(snapshot, "mixed")
+    for cell in catalog:
+        if (
+            cell["cell_level"] == "group"
+            and cell["id"] in visible
+            and cell["id"] in (expanded or [])
+        ):
+            visible.update(cell["members"])
+    return [cell["id"] for cell in catalog if cell["id"] in visible]
+
+
+def heatmap_row_controls(names, cell_ids, expanded, kind):
+    """図の各行に揃えた、キーボードでも操作できる行見出し。"""
+    return [
+        html.Button(
+            ("▼ " if cell_id in expanded else "▶ ") + names[cell_id],
+            id={"type": "heatmap-cell-toggle", "kind": kind, "cell": cell_id},
+            n_clicks=0,
+            title=("Collapse " if cell_id in expanded else "Expand ") + names[cell_id],
+            **{"aria-expanded": "true" if cell_id in expanded else "false"},
+        )
+        if cell_id.startswith("group:")
+        else html.Div(
+            names[cell_id], className="heatmap-child-label", title=names[cell_id]
+        )
+        for cell_id in cell_ids
+    ]
+
+
 def format_data_version(value: object) -> str:
     """Open Targets の版を画面と CSV で使える短い文字列にする。"""
     if not isinstance(value, dict):
@@ -590,7 +624,9 @@ def _hover_text(row: dict, measure: str, kind: str) -> str:
     )
 
 
-def build_figure(rows, disease_ids, cell_ids, measure, kind="target") -> go.Figure:
+def build_figure(
+    rows, disease_ids, cell_ids, measure, kind="target", *, scale_rows=None
+) -> go.Figure:
     """0、下限値、欠測を区別した target または drug heatmap を作る。"""
     value_key = _measure_fields(kind, measure)[0]
     lookup = {(row["disease_id"], row["cell_id"]): row for row in rows}
@@ -628,7 +664,11 @@ def build_figure(rows, disease_ids, cell_ids, measure, kind="target") -> go.Figu
         texts.append(text_row)
         hovers.append(hover_row)
         customs.append(custom_row)
-    values = [value for z_row in z for value in z_row if value is not None]
+    values = (
+        [row[value_key] for row in scale_rows if row.get(value_key) is not None]
+        if scale_rows is not None
+        else [value for z_row in z for value in z_row if value is not None]
+    )
     color_min = min(values, default=0)
     color_max = max(values, default=1)
     if color_min == color_max:
@@ -1753,6 +1793,7 @@ def dashboard_layout(snapshot) -> html.Main:
                         className="update-actions",
                     ),
                     dcc.Store(id="applied-parameters", data=applied),
+                    dcc.Store(id="expanded-cell-groups", data=[]),
                 ],
                 className="panel controls",
             ),
@@ -1794,13 +1835,22 @@ def dashboard_layout(snapshot) -> html.Main:
                                 [
                                     html.H3("Distinct targets"),
                                     html.Div(
-                                        dcc.Graph(
-                                            id="target-heatmap",
-                                            style={"minWidth": "600px"},
-                                            config={
-                                                "displaylogo": False,
-                                                "responsive": True,
-                                            },
+                                        html.Div(
+                                            [
+                                                dcc.Graph(
+                                                    id="target-heatmap",
+                                                    style={"minWidth": "600px"},
+                                                    config={
+                                                        "displaylogo": False,
+                                                        "responsive": True,
+                                                    },
+                                                ),
+                                                html.Div(
+                                                    id="target-row-controls",
+                                                    className="heatmap-row-controls",
+                                                ),
+                                            ],
+                                            className="expandable-heatmap",
                                         ),
                                         className="graph-scroll",
                                     ),
@@ -1811,13 +1861,22 @@ def dashboard_layout(snapshot) -> html.Main:
                                 [
                                     html.H3("Canonical drugs"),
                                     html.Div(
-                                        dcc.Graph(
-                                            id="drug-heatmap",
-                                            style={"minWidth": "600px"},
-                                            config={
-                                                "displaylogo": False,
-                                                "responsive": True,
-                                            },
+                                        html.Div(
+                                            [
+                                                dcc.Graph(
+                                                    id="drug-heatmap",
+                                                    style={"minWidth": "600px"},
+                                                    config={
+                                                        "displaylogo": False,
+                                                        "responsive": True,
+                                                    },
+                                                ),
+                                                html.Div(
+                                                    id="drug-row-controls",
+                                                    className="heatmap-row-controls",
+                                                ),
+                                            ],
+                                            className="expandable-heatmap",
                                         ),
                                         className="graph-scroll",
                                     ),
@@ -1874,6 +1933,49 @@ def dashboard_layout(snapshot) -> html.Main:
 
 def register_callbacks(application: Dash, snapshot: dict) -> None:
     """schema 2 dashboard のコールバックを登録する。"""
+    heatmap_catalog = atlas.cell_catalog(snapshot, "mixed")
+    heatmap_names = {cell["id"]: cell["name"] for cell in heatmap_catalog}
+    heatmap_groups = {
+        cell["id"] for cell in heatmap_catalog if cell["cell_level"] == "group"
+    }
+
+    @lru_cache(maxsize=1)
+    def comparison_rows(
+        modality, minimum, disease_ids, cell_ids, stage, method, specificity
+    ):
+        # ponytail: retain one filter combination per app; enlarge only for concurrent users.
+        return visible_rows(
+            snapshot,
+            modality,
+            minimum,
+            disease_ids,
+            cell_ids,
+            stage=stage,
+            method=method,
+            specificity=specificity,
+            level="mixed",
+        )
+
+    @application.callback(
+        Output("expanded-cell-groups", "data"),
+        Input({"type": "heatmap-cell-toggle", "kind": ALL, "cell": ALL}, "n_clicks"),
+        State("expanded-cell-groups", "data"),
+        prevent_initial_call=True,
+    )
+    def toggle_cell_group(_clicks, expanded):
+        # Newly rendered buttons have zero clicks; only user clicks toggle a group.
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict) or not any(
+            item["id"] == triggered and item.get("value") for item in ctx.inputs_list[0]
+        ):
+            return no_update
+        cell_id = triggered["cell"]
+        valid = heatmap_groups
+        if cell_id not in valid:
+            return no_update
+        expanded = set(expanded or []) & valid
+        expanded.symmetric_difference_update([cell_id])
+        return sorted(expanded)
 
     @application.callback(
         Output("applied-parameters", "data"),
@@ -1976,9 +2078,14 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         Output("target-heatmap", "style"),
         Output("drug-heatmap", "style"),
         Output("matrix-note", "children"),
+        Output("target-row-controls", "children"),
+        Output("drug-row-controls", "children"),
+        Output("target-row-controls", "style"),
+        Output("drug-row-controls", "style"),
         Input("applied-parameters", "data"),
+        Input("expanded-cell-groups", "data"),
     )
-    def update_figures(applied):
+    def update_figures(applied, expanded):
         (
             measure,
             modality,
@@ -1991,22 +2098,56 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         ) = (applied[key] for key in PARAMETER_IDS[:-1])
         minimum, specificity_value, errors = effective_filters(threshold, specificity)
         disease_ids = ordered_disease_ids(snapshot, disease_ids)
-        cell_ids = _ordered_cell_ids(snapshot, "mixed", cell_ids)
-        rows = visible_rows(
-            snapshot,
+        scale_cell_ids = heatmap_cell_ids(
+            snapshot, cell_ids, heatmap_groups, catalog=heatmap_catalog
+        )
+        cell_ids = heatmap_cell_ids(
+            snapshot, cell_ids, expanded, catalog=heatmap_catalog
+        )
+        scale_rows = comparison_rows(
             modality,
             minimum,
-            disease_ids,
-            cell_ids,
-            stage=stage,
-            method=method,
-            specificity=specificity_value,
-            level="mixed",
+            tuple(disease_ids),
+            tuple(scale_cell_ids),
+            stage,
+            method,
+            specificity_value,
+        )
+        rows = [row for row in scale_rows if row["cell_id"] in cell_ids]
+        names = {row["id"]: row["name"] for row in snapshot["diseases"]}
+        top_margin = max(
+            130,
+            math.ceil(max((len(names.get(d, d)) for d in disease_ids), default=0) * 4.5)
+            + 35,
+        )
+        right_margin = max(
+            90,
+            math.ceil(len(names.get(disease_ids[-1], disease_ids[-1])) * 4.5)
+            if disease_ids
+            else 0,
         )
         target_figure, drug_figure = (
-            build_figure(rows, disease_ids or [], cell_ids or [], measure, "target"),
-            build_figure(rows, disease_ids or [], cell_ids or [], measure, "drug"),
+            build_figure(
+                rows,
+                disease_ids or [],
+                cell_ids or [],
+                measure,
+                kind,
+                scale_rows=scale_rows,
+            )
+            for kind in ("target", "drug")
         )
+        for figure in (target_figure, drug_figure):
+            figure.update_layout(
+                height=top_margin + 70 + 28 * max(1, len(cell_ids)),
+                margin={"l": 240, "r": right_margin, "t": top_margin, "b": 70},
+            )
+            figure.update_xaxes(automargin=False, tickangle=-45)
+            figure.update_yaxes(title=None, automargin=False, fixedrange=True)
+            figure.update_traces(
+                colorbar_len=min(240, max(28, 28 * len(cell_ids))),
+                selector={"type": "heatmap"},
+            )
         target_missing = sum(
             row[_measure_fields("target", measure)[0]] is None for row in rows
         )
@@ -2037,7 +2178,9 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             if errors
             else None
         )
-        graph_style = {"minWidth": f"{max(600, 220 + 50 * len(disease_ids))}px"}
+        graph_style = {
+            "minWidth": f"{max(600, 240 + right_margin + 50 * len(disease_ids))}px"
+        }
         return (
             target_figure,
             drug_figure,
@@ -2047,6 +2190,10 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
                 [status, info_tip("applied", "applied filters", note), error_note],
                 className="matrix-status",
             ),
+            heatmap_row_controls(heatmap_names, cell_ids, expanded or [], "target"),
+            heatmap_row_controls(heatmap_names, cell_ids, expanded or [], "drug"),
+            {"top": f"{top_margin}px"},
+            {"top": f"{top_margin}px"},
         )
 
     @application.callback(
@@ -2157,9 +2304,10 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         Output("download", "data"),
         Input("download-button", "n_clicks"),
         State("applied-parameters", "data"),
+        State("expanded-cell-groups", "data"),
         prevent_initial_call=True,
     )
-    def download_csv(_clicks, applied):
+    def download_csv(_clicks, applied, expanded):
         (
             measure,
             modality,
@@ -2171,6 +2319,9 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             cell_ids,
         ) = (applied[key] for key in PARAMETER_IDS[:-1])
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
+        cell_ids = heatmap_cell_ids(
+            snapshot, cell_ids, expanded, catalog=heatmap_catalog
+        )
         rows = visible_rows(
             snapshot,
             modality,
