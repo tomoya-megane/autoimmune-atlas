@@ -330,7 +330,19 @@ class FigureTests(unittest.TestCase):
         missing = app.build_figure([summary(percent=None)], ["D1"], ["C1"], "percent")
         self.assertEqual((missing.data[0].zmin, missing.data[0].zmax), (0, 1))
 
-    def test_two_figures_have_aligned_axes_and_cross_for_na(self) -> None:
+    def test_missing_percent_uses_same_fill_and_text_as_zero(self):
+        rows = [
+            summary(percent=0, drug_percent=0),
+            summary(cell_id="C2", cell="T cell", percent=None, drug_percent=None),
+        ]
+        for kind in ("target", "drug"):
+            figure = app.build_figure(rows, ["D1"], ["C1", "C2"], "percent", kind)
+            self.assertEqual(figure.data[0].z[0][0], figure.data[0].z[1][0])
+            self.assertEqual(figure.data[0].text[0][0], figure.data[0].text[1][0])
+        self.assertIsNone(rows[1]["percent"])
+        self.assertIsNone(rows[1]["drug_percent"])
+
+    def test_two_figures_have_aligned_axes_and_zero_for_na(self) -> None:
         rows = [
             summary(),
             summary(
@@ -353,23 +365,20 @@ class FigureTests(unittest.TestCase):
             self.assertEqual(figure.data[0].colorbar.len, 240)
             self.assertEqual(figure.data[0].colorbar.y, 1)
             self.assertEqual(figure.data[0].colorbar.yanchor, "top")
+        for figure in (target, drug):
+            self.assertFalse(figure.layout.yaxis.autorange)
+            self.assertEqual(list(figure.layout.yaxis.range), [1.5, -0.5])
         self.assertEqual(list(target.data[0].x), list(drug.data[0].x))
         self.assertEqual(list(target.data[0].y), list(drug.data[0].y))
-        self.assertIn("No value (see hover)", [trace.name for trace in target.data])
-        missing = next(
-            trace for trace in target.data if trace.name == "No value (see hover)"
-        )
-        self.assertIn("Denominator: 5", missing.hovertext[0])
-        self.assertIn("Unknown in denominator: 1", missing.hovertext[0])
-        self.assertIn("Mapped / all canonical drugs: 4 / 4", missing.hovertext[0])
-        self.assertIn("Status: unavailable", missing.hovertext[0])
-        self.assertFalse(
-            any(
-                getattr(trace.marker, "symbol", None) == "square-open"
-                for trace in target.data
-                if trace.type == "scatter"
-            )
-        )
+        self.assertEqual(len(target.data), 1)
+        self.assertEqual(target.data[0].z[1][0], 0)
+        self.assertEqual(target.data[0].text[1][0], "0")
+        self.assertIsNone(rows[1]["count"])
+        hover = target.data[0].hovertext[1][0]
+        self.assertIn("Denominator: 5", hover)
+        self.assertIn("Unresolved in denominator: 1", hover)
+        self.assertIn("Drugs with known targets / all drugs: 4 / 4", hover)
+        self.assertIn("not a measured zero", hover)
 
     def test_count_zero_with_unknown_evidence_has_no_cross(self) -> None:
         row = summary(
@@ -388,8 +397,9 @@ class FigureTests(unittest.TestCase):
             self.assertEqual(len(figure.data), 1)
             self.assertIn("≥0", figure.data[0].hovertext[0][0])
         percent = app.build_figure([row], ["D1"], ["C1"], "percent")
-        self.assertIsNone(percent.data[0].z[0][0])
-        self.assertIn("No value (see hover)", [trace.name for trace in percent.data])
+        self.assertEqual(percent.data[0].z[0][0], 0)
+        self.assertEqual(percent.data[0].text[0][0], "0.0%")
+        self.assertIsNone(row["percent"])
 
     def test_no_value_hover_distinguishes_unavailable_from_empty_denominator(
         self,
@@ -443,9 +453,9 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("Drug–target pairs", str(panel))
         self.assertNotIn("Targets meeting rule in any source cell", str(panel))
         self.assertNotIn("rheumatoid arthritis · all source cell types", str(panel))
-        self.assertIn("Filtered drug records for rheumatoid arthritis", str(panel))
-        self.assertIn("Filtered drug records", str(panel.children[0]))
-        self.assertIn("Relative expression", str(panel.children[2]))
+        self.assertIn("Drug–target records for rheumatoid arthritis", str(panel))
+        self.assertIn("Drug–target records", str(panel.children[0]))
+        self.assertIn("Relative target expression", str(panel.children[2]))
         source_children = panel.children[1].children
         self.assertEqual(source_children[-1].className, "source-pagination")
         self.assertEqual(source_children[1].children.id, "source-records-page")
@@ -511,6 +521,8 @@ class EvidenceTests(unittest.TestCase):
         missing = next(
             trace for trace in figure.data if trace.name == "Missing expression"
         )
+        self.assertEqual(missing.mode, "text")
+        self.assertEqual(missing.text, "0")
         self.assertEqual(list(missing.x), ["TARGET2 (ENSG_TARGET_2)"])
         self.assertEqual(list(missing.y), ["memory B cell"])
         self.assertEqual(figure.layout.xaxis.side, "top")
@@ -530,10 +542,10 @@ class EvidenceTests(unittest.TestCase):
             heatmap.z[row][col], (math.log2(1 + 1.05) - center) / spread
         )
         self.assertIn("Mean CPM: 1.05", heatmap.hovertext[row][col])
-        self.assertIn("Observed source cells: 2 / 2", heatmap.hovertext[row][col])
+        self.assertIn("Observed source cell types: 2 / 2", heatmap.hovertext[row][col])
         col2 = list(heatmap.x).index("TARGET2 (ENSG_TARGET_2)")
         self.assertIn("Mean CPM: 0.6", heatmap.hovertext[row][col2])
-        self.assertIn("Observed source cells: 1 / 2", heatmap.hovertext[row][col2])
+        self.assertIn("Observed source cell types: 1 / 2", heatmap.hovertext[row][col2])
         original = app.expression_figure(self.snapshot, self.snapshot["records"])
         self.assertEqual(original.data[0].x, heatmap.x)
         for i, name in enumerate(original.data[0].y):
@@ -568,7 +580,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(all(row[column] is None for row in figure.data[0].z))
         row = list(figure.data[0].y).index("B cell (group)")
         self.assertIn(
-            "Observed source cells: 0 / 2", figure.data[0].hovertext[row][column]
+            "Observed source cell types: 0 / 2", figure.data[0].hovertext[row][column]
         )
 
     def test_constant_target_expression_has_zero_z_score(self) -> None:
@@ -632,7 +644,7 @@ class EvidenceTests(unittest.TestCase):
         panel = app.detail_panel(
             self.rows, "MONDO_RA_TEST", self.snapshot, method="specificity"
         )
-        self.assertIn("○ Meets expression rule", str(panel.children[2]))
+        self.assertIn("○ Source cell meets expression rule", str(panel.children[2]))
         graph = panel.children[3].children.children[0]
         self.assertEqual(graph.id, "expression-heatmap")
         self.assertTrue(graph.config["responsive"])
@@ -917,7 +929,9 @@ class CallbackTests(unittest.TestCase):
             )
             summarize.assert_called_once()
             self.assertEqual(summarize.call_args.args[2], 123)
-            self.assertIsNone(result["target-heatmap"]["figure"]["data"][0]["z"][1][0])
+            self.assertEqual(
+                result["target-heatmap"]["figure"]["data"][0]["z"][1][0], 0
+            )
 
     def test_update_applies_parameters_together(
         self,
@@ -958,7 +972,7 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(selectors["detail-disease"]["value"], "MONDO_RA_TEST")
         details = self._post("details.children", values, "detail-disease.value")
         self.assertIn(
-            "Filtered drug records for rheumatoid arthritis",
+            "Drug–target records for rheumatoid arthritis",
             json.dumps(details, ensure_ascii=False),
         )
         status = self._post("update-status.children", values, "applied-parameters.data")
@@ -1060,13 +1074,13 @@ class CallbackTests(unittest.TestCase):
                 result = self._post_applied("details.children", values)
                 rendered = json.dumps(result)
                 self.assertIn(
-                    "Filtered drug records for rheumatoid arthritis",
+                    "Drug–target records for rheumatoid arthritis",
                     json.dumps(result, ensure_ascii=False),
                 )
                 self.assertNotIn('"children": "Original drug"', rendered)
         result = self._post_applied("details.children", values)
         self.assertIn(
-            "Filtered drug records for rheumatoid arthritis",
+            "Drug–target records for rheumatoid arthritis",
             json.dumps(result, ensure_ascii=False),
         )
 
@@ -1086,7 +1100,7 @@ class CallbackTests(unittest.TestCase):
                 self.assertEqual(selected["detail-disease"]["value"], "MONDO_RA_TEST")
                 result = self._post_applied("details.children", values)
                 self.assertIn(
-                    "Filtered drug records for rheumatoid arthritis",
+                    "Drug–target records for rheumatoid arthritis",
                     json.dumps(result, ensure_ascii=False),
                 )
 
@@ -1158,14 +1172,19 @@ class CallbackTests(unittest.TestCase):
                 headers = children[1]["props"]["children"]["props"]["children"][0][
                     "props"
                 ]["children"]["props"]["children"]
-                labels_in_table = [header["props"]["children"] for header in headers]
+                labels_in_table = [
+                    header["props"]["children"][0]
+                    if isinstance(header["props"]["children"], list)
+                    else header["props"]["children"]
+                    for header in headers
+                ]
                 self.assertEqual(
                     labels_in_table,
                     [
                         "Canonical drug",
                         "Original drug",
                         "Modality",
-                        "Record stage / highest disease-specific drug stage",
+                        "Original / canonical stage",
                         "Target",
                         "Action / mechanism",
                         "Open Targets links",
@@ -1216,7 +1235,7 @@ class CallbackTests(unittest.TestCase):
             if node.get("props", {}).get("className") == "panel controls"
         )
         self.assertEqual(
-            controls["props"]["children"][0]["props"]["children"], "Settings panel"
+            controls["props"]["children"][0]["props"]["children"][0], "Settings panel"
         )
         groups = controls["props"]["children"][1]
         scope = groups["props"]["children"][0]
@@ -1363,7 +1382,7 @@ class CallbackTests(unittest.TestCase):
             case[(graph, "clickData")] = click
             details = self._click_details(case, graph)
             self.assertIn(
-                "Relative expression of targets across all source cell types",
+                "Relative target expression by cell type",
                 str(details["details"]["children"]),
             )
 
@@ -1392,10 +1411,8 @@ class CallbackTests(unittest.TestCase):
             case[(heatmap, "clickData")] = click
             details = self._click_details(case, heatmap)
             rendered = str(details["details"]["children"])
-            self.assertIn(
-                "Relative expression of targets across all source cell types", rendered
-            )
-            self.assertIn("Filtered drug records for rheumatoid arthritis", rendered)
+            self.assertIn("Relative target expression by cell type", rendered)
+            self.assertIn("Drug–target records for rheumatoid arthritis", rendered)
 
 
 if __name__ == "__main__":

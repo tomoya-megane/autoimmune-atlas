@@ -302,7 +302,7 @@ def disease_selector(snapshot, selected):
                     info_tip(
                         "diseases",
                         "disease groups",
-                        "Browse groups to select individual diseases and related terms, or search by name. Each checkbox selects only that term; parent and child terms are never combined. Groups organize browsing, not diagnostic classification.",
+                        "Search by name or browse disease groups. Each checkbox selects one disease term; selecting a parent does not select its children. Click Update to apply your selection. These groups are navigation aids, not a diagnostic classification.",
                     ),
                 ],
                 className="label-help",
@@ -501,7 +501,7 @@ def _display_value(row: dict, measure: str, kind: str = "target") -> str:
 
 def _hover_text(row: dict, measure: str, kind: str) -> str:
     value_key, unknown_key, denominator_key = _measure_fields(kind, measure)
-    value = _display_value(row, measure, kind) or "No value"
+    value = _display_value(row, measure, kind) or "Not available"
     label = "Drugs" if kind == "drug" else "Targets"
     if row["status"] == "unavailable":
         assessment = "Disease data unavailable"
@@ -519,14 +519,17 @@ def _hover_text(row: dict, measure: str, kind: str) -> str:
         assessment = f"{label} meeting the expression rule"
     return "<br>".join(
         (
-            f"<b>{row['disease']} × {row['cell']}</b>",
+            f"<b>{row['disease']} / {row['cell']}</b>",
             f"{label}: {value}",
             assessment,
+            *(
+                ["Displayed as zero for readability; not a measured zero."]
+                if row.get(value_key) is None
+                else []
+            ),
             f"Denominator: {row.get(denominator_key, 0)}",
-            f"Unknown in denominator: {row.get(unknown_key, 0)}",
-            f"Mapped / all canonical drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
-            f"Drugs without mapped targets: {row.get('unmapped_drugs', 0)}",
-            f"Status: {row['status']}",
+            f"Unresolved in denominator: {row.get(unknown_key, 0)}",
+            f"Drugs with known targets / all drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
         )
     )
 
@@ -547,7 +550,6 @@ def build_figure(
     disease_names = {row["disease_id"]: row["disease"] for row in rows}
     cell_names = {row["cell_id"]: row["cell"] for row in rows}
     z, texts, hovers, customs = [], [], [], []
-    missing_x, missing_y, missing_custom, missing_hover = [], [], [], []
     for cell_id in cell_ids:
         z_row, text_row, hover_row, custom_row = [], [], [], []
         for disease_id in disease_ids:
@@ -555,8 +557,8 @@ def build_figure(
             value = None if row is None else row.get(value_key)
             z_row.append(value)
             text_row.append(
-                ""
-                if row is None
+                ("0.0%" if measure == "percent" else "0")
+                if value is None
                 else _display_value(row, measure, kind).removeprefix("≥")
             )
             hover_row.append(
@@ -565,15 +567,6 @@ def build_figure(
                 else _hover_text(row, measure, kind)
             )
             custom_row.append([disease_id, cell_id])
-            if value is None:
-                missing_x.append(disease_names.get(disease_id, disease_id))
-                missing_y.append(cell_names.get(cell_id, cell_id))
-                missing_custom.append([disease_id, cell_id])
-                missing_hover.append(
-                    "No summary for this combination"
-                    if row is None
-                    else _hover_text(row, measure, kind)
-                )
         z.append(z_row)
         texts.append(text_row)
         hovers.append(hover_row)
@@ -592,7 +585,8 @@ def build_figure(
         go.Heatmap(
             x=[disease_names.get(item, item) for item in disease_ids],
             y=[cell_names.get(item, item) for item in cell_ids],
-            z=z,
+            # 欠測を0にするのは描画用の配列だけで、集計と色範囲の計算には加えない。
+            z=[[0 if value is None else value for value in row] for row in z],
             zmin=color_min,
             zmax=color_max,
             colorscale="Greens",
@@ -612,19 +606,6 @@ def build_figure(
             ygap=2,
         )
     )
-    if missing_x:
-        figure.add_trace(
-            go.Scatter(
-                x=missing_x,
-                y=missing_y,
-                customdata=missing_custom,
-                hovertext=missing_hover,
-                mode="markers",
-                marker={"symbol": "x", "size": 10, "color": "#8a99a6"},
-                name="No value (see hover)",
-                hovertemplate="%{hovertext}<extra></extra>",
-            )
-        )
     if not disease_ids or not cell_ids:
         figure.add_annotation(text="Select diseases and cell types", showarrow=False)
     figure.update_layout(
@@ -645,7 +626,12 @@ def build_figure(
         tickvals=labels,
         ticktext=["<br>".join(disease_label_lines(name)) for name in labels],
     )
-    figure.update_yaxes(autorange="reversed", title="Cell type")
+    # 欠測表示用の文字が追加されても、行見出しとマスの中心を揃える。
+    figure.update_yaxes(
+        range=[max(1, len(cell_ids)) - 0.5, -0.5],
+        autorange=False,
+        title="Cell type",
+    )
     return figure
 
 
@@ -797,7 +783,7 @@ def expression_figure(
                 (value - center) / spread if spread else 0 for value in values
             )
     targets = _clustered_targets(targets, profiles)
-    z, hover, missing_x, missing_y = [], [], [], []
+    z, hover, missing_x, missing_y, missing_hover = [], [], [], [], []
     positive_x, positive_y, positive_hover = [], [], []
     display_cells = atlas.cell_catalog(snapshot, "mixed") if grouped else cells
     member_names = {cell["id"]: cell["name"] for cell in display_cells}
@@ -853,16 +839,21 @@ def expression_figure(
                         f"Mean CPM: {cpm:g}"
                         if cpm is not None
                         else "Mean CPM: missing",
-                        f"Observed source cells: {len(observed)} / {len(cell['members'])}",
+                        f"Observed source cell types: {len(observed)} / {len(cell['members'])}",
                         f"Target-wise z-score: {score:.2f}"
                         if score is not None
                         else "Target-wise z-score: missing",
-                        "Arithmetic mean of available source-cell median CPM values; equal weight per cell type.",
+                        "Equal-weight mean across cell types with data; missing values are excluded.",
+                        "Display only: excluded from reference medians, standardization, clustering and rule evaluation.",
                     )
                 )
             if cpm is None:
                 missing_x.append(label)
                 missing_y.append(member_names[member])
+                missing_hover.append(
+                    hover_row[-1]
+                    + "<br>Displayed as 0; expression is missing, not measured as zero."
+                )
             elif (
                 not is_group
                 and atlas.expression_state(item, threshold, method, specificity) is True
@@ -906,10 +897,12 @@ def expression_figure(
             go.Scatter(
                 x=missing_x,
                 y=missing_y,
-                mode="markers",
-                marker={"symbol": "x", "size": 9, "color": "#8a99a6"},
+                mode="text",
+                text="0",
+                textfont={"size": 12, "color": "#263238"},
                 name="Missing expression",
-                hovertemplate="Expression missing<extra></extra>",
+                hovertext=missing_hover,
+                hovertemplate="%{hovertext}<extra></extra>",
             )
         )
     if positive_x:
@@ -1043,11 +1036,25 @@ def _evidence_table(records):
         "Canonical drug",
         "Original drug",
         "Modality",
-        "Record stage / highest disease-specific drug stage",
+        "Original / canonical stage",
         "Target",
         "Action / mechanism",
         "Open Targets links",
     )
+    column_help = {
+        "Canonical drug": (
+            "canonical-drug",
+            "Drug used for counting: original forms sharing Open Targets' parentMolecule are counted once. If no parent is recorded, the original drug is used.",
+        ),
+        "Original drug": (
+            "original-drug",
+            "Drug name and ID in the source record, which may describe a salt or another form. Original does not mean originator brand. Forms of the same canonical drug can have different targets, stages or references.",
+        ),
+        "Original / canonical stage": (
+            "record-stage",
+            "Left: stage of this original drug in this disease. Right: highest stage across original forms of the same canonical drug in this disease, used for filtering.",
+        ),
+    }
     body = []
     for record in records:
         actions, mechanism = (
@@ -1077,7 +1084,28 @@ def _evidence_table(records):
         )
     return html.Div(
         html.Table(
-            [html.Thead(html.Tr([html.Th(item) for item in headers])), html.Tbody(body)]
+            [
+                html.Thead(
+                    html.Tr(
+                        [
+                            html.Th(
+                                [
+                                    item,
+                                    info_tip(
+                                        column_help[item][0],
+                                        item.lower(),
+                                        column_help[item][1],
+                                    ),
+                                ]
+                            )
+                            if item in column_help
+                            else html.Th(item)
+                            for item in headers
+                        ]
+                    )
+                ),
+                html.Tbody(body),
+            ]
         ),
         className="table-scroll",
     )
@@ -1110,7 +1138,7 @@ def detail_panel(
         return html.Div(
             [
                 html.P(
-                    "Underlying schema 2 data are required for evidence details.",
+                    "Refresh the data with pixi run refresh to view evidence details.",
                     className="empty-note",
                 ),
             ]
@@ -1133,11 +1161,11 @@ def detail_panel(
         [
             html.H3(
                 [
-                    f"Filtered drug records for {row['disease']}",
+                    f"Drug–target records for {row['disease']}",
                     info_tip(
                         "source-records",
                         "source records",
-                        "Only records for the selected disease and the applied clinical stage and modality are shown. Each original drug record appears once.",
+                        "Records match the selected disease and applied drug filters. Each row is an original drug–target pair, so a drug with several targets appears on several rows. Expression thresholds do not filter this table. Ten rows are shown per page; — means unavailable information.",
                     ),
                 ]
             ),
@@ -1166,14 +1194,32 @@ def detail_panel(
             ),
             html.H3(
                 [
-                    "Relative expression of targets across all source cell types",
+                    "Relative target expression by cell type",
                     info_tip(
                         "expression",
                         "target expression",
-                        "Click a cell group to expand or collapse its source cells. Group values are arithmetic means of available source-cell median CPM values, with equal weight per cell type; hover shows coverage. The group mean is log2(1 + CPM) transformed and standardized using the same target-wise mean and standard deviation as all healthy reference source cells. A white dot with a dark outline marks an individual source-cell pair meeting the applied expression rule; group averages have no dot. Targets with similar z-score patterns are grouped together; targets with missing expression are shown last. Group averages never enter target-relative medians, z-score reference statistics, clustering, or expression-rule calculations. Expansion does not change the color range or target order. The color range follows the largest absolute z-score and stays centered on zero; hover shows the z-score and raw median CPM. This is not disease-sample expression.",
+                        "Healthy reference expression for known targets of the selected disease's filtered drugs. Click a group name to show its source cell types. The same reference data are used for every disease; differences between diseases reflect their drug and target sets, not expression in patients.",
                     ),
                     html.Small(
-                        "○ Meets expression rule", className="expression-marker-key"
+                        "○ Source cell meets expression rule",
+                        className="expression-marker-key",
+                    ),
+                    html.Small(
+                        [
+                            "Group means",
+                            info_tip(
+                                "expression-groups",
+                                "group mean expression",
+                                "Each group shows the arithmetic mean of available source-cell donor-median CPM values, with equal weight per cell type. Hover shows how many cell types have data. All missing means no group value. Group means are display-only: they never enter reference medians, z-score reference statistics, clustering, expression rules or comparison counts. White dots apply only to individual source cells.",
+                            ),
+                            "Color & zeros",
+                            info_tip(
+                                "expression-scale",
+                                "expression colors and zeros",
+                                "Red is higher and blue lower expression relative to the same target across all source cell types, not relative to other targets. Values are log2(1 + CPM), standardized using source-cell values only; group means use that same transformation. Targets are ordered by source-cell patterns. Expanding groups changes neither order nor color scale. A printed 0 marks missing expression; hover identifies it. Neutral color at z = 0 means reference-average log expression, not absence of expression.",
+                            ),
+                        ],
+                        className="expression-marker-key",
                     ),
                 ],
                 className="detail-expression-heading",
@@ -1208,7 +1254,9 @@ def unavailable_layout(error=None) -> html.Main:
                 [
                     html.P("AUTOIMMUNE DRUG–CELL ATLAS", className="eyebrow"),
                     html.H1(title),
-                    html.P("Refresh the snapshot to load the comparison."),
+                    html.P(
+                        "Run the command below to download data, then restart the app."
+                    ),
                     html.Code("pixi run refresh"),
                     *([html.P(str(error), className="empty-note")] if error else []),
                 ],
@@ -1251,10 +1299,14 @@ def dashboard_layout(snapshot) -> html.Main:
         {"label": label, "value": value} for label, value in atlas.DRUG_TYPE_MODALITIES
     ]
 
-    def control(label, component):
-        return html.Div(
-            [html.Label(label, htmlFor=component.id), component], className="control"
-        )
+    def control(label, component, description=None):
+        title = html.Label(label, htmlFor=component.id)
+        if description:
+            title = html.Div(
+                [title, info_tip(component.id, label.lower(), description)],
+                className="label-help",
+            )
+        return html.Div([title, component], className="control")
 
     applied = dict(
         zip(
@@ -1302,11 +1354,11 @@ def dashboard_layout(snapshot) -> html.Main:
                             ),
                             html.H1(
                                 [
-                                    "Drug targets by cell type",
+                                    "Drug targets across diseases and cell types",
                                     info_tip(
                                         "overview",
                                         "the atlas",
-                                        "Compare which drug targets meet an expression rule in healthy reference cells across diseases. Disease differences reflect eligible drug and target sets, not disease-specific expression. This does not establish treatment efficacy; disease records may include symptom or comorbidity treatment.",
+                                        "Snapshot totals above the settings describe all saved data, not the filtered results. Compare which drug targets meet an expression rule in healthy reference cells across diseases. Disease differences reflect eligible drug and target sets, not disease-specific expression. This does not establish treatment efficacy; disease records may include symptom or comorbidity treatment.",
                                     ),
                                 ]
                             ),
@@ -1324,7 +1376,9 @@ def dashboard_layout(snapshot) -> html.Main:
                             ),
                             html.Div(
                                 [
-                                    html.Span("Drug records", className="meta-label"),
+                                    html.Span(
+                                        "Drug–target records", className="meta-label"
+                                    ),
                                     html.Strong(str(len(snapshot["records"]))),
                                 ]
                             ),
@@ -1370,7 +1424,16 @@ def dashboard_layout(snapshot) -> html.Main:
             ),
             html.Section(
                 [
-                    html.H2("Settings panel"),
+                    html.H2(
+                        [
+                            "Settings panel",
+                            info_tip(
+                                "settings",
+                                "applying settings",
+                                "Edit the settings, then click Update to apply them together. Until then, both heatmaps and disease details keep the previous settings. Group expansion, detail disease selection and table pages update immediately.",
+                            ),
+                        ]
+                    ),
                     html.Div(
                         [
                             html.Div(
@@ -1401,7 +1464,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                                     info_tip(
                                                         "stage",
                                                         "clinical stage",
-                                                        "Highest recorded stage of a canonical drug in this disease. Approval reached may include withdrawn drugs.",
+                                                        "Filters by the highest recorded stage across original forms of a canonical drug within each disease. An earlier-stage original record may remain in the table. Approval reached can include withdrawn drugs and does not guarantee current approval.",
                                                     ),
                                                 ],
                                                 className="label-help",
@@ -1437,6 +1500,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                             value="all",
                                             clearable=False,
                                         ),
+                                        "Filters original drug records by the modality recorded in Open Targets. All includes every modality; Unknown means no mapped modality.",
                                     ),
                                 ],
                                 className="filter-group",
@@ -1455,6 +1519,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                             value="specificity",
                                             clearable=False,
                                         ),
+                                        "Fixed CPM uses Minimum CPM alone. Target-relative median also requires expression at or above that target's median across all source cell types; incomplete reference data make that median unavailable. CELLEX also requires the selected specificity threshold. Group averages never enter these rules.",
                                     ),
                                     # Dash 4.4.1 は max を省略すると増減時に NaN になるため、上限なしを明示する。
                                     html.Div(
@@ -1468,7 +1533,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                                     info_tip(
                                                         "threshold",
                                                         "minimum CPM",
-                                                        f"Every rule requires median CPM at least this value. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.",
+                                                        f"Minimum donor-median CPM for an individual source cell type. Applies to every rule; group averages are not tested. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.",
                                                     ),
                                                 ],
                                                 className="label-help",
@@ -1495,7 +1560,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                                     info_tip(
                                                         "specificity",
                                                         "CELLEX specificity",
-                                                        f"Only used with Fixed CPM + CELLEX specificity. Blank uses {DEFAULT_SPECIFICITY_THRESHOLD:g}.",
+                                                        f"Requires the source-cell CELLEX score to be at least this value, in addition to Minimum CPM. Used only with the CELLEX rule; missing scores remain unresolved. Blank uses {DEFAULT_SPECIFICITY_THRESHOLD:g}.",
                                                     ),
                                                 ],
                                                 className="label-help",
@@ -1526,7 +1591,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                                     info_tip(
                                                         "view",
                                                         "heatmap view",
-                                                        "Targets are distinct genes meeting the rule. Drug forms mapped to the same active ingredient count once if any known target meets the rule.",
+                                                        "Distinct targets counts unique genes meeting the expression rule. Canonical drugs counts each parent drug once when any known target meets the rule. A group counts a target or drug once if any member cell type qualifies.",
                                                     ),
                                                 ]
                                             ),
@@ -1556,7 +1621,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                                     info_tip(
                                                         "measure",
                                                         "measure",
-                                                        "Percent divides by known targets or canonical drugs with known targets for the current disease and drug filters. Each denominator stays fixed across cells; percent is not a share of cells.",
+                                                        "Count shows qualifying targets or drugs. Percent divides by all known targets, or drugs with known targets, for that disease and the applied drug filters. The denominator is fixed across cell types. These are not cell proportions or probabilities of treatment benefit.",
                                                     ),
                                                 ]
                                             ),
@@ -1612,11 +1677,11 @@ def dashboard_layout(snapshot) -> html.Main:
                         [
                             html.H2(
                                 [
-                                    "Cell-type comparison",
+                                    "Compare diseases by cell type",
                                     info_tip(
                                         "comparison",
                                         "cell-type comparison",
-                                        "Click a cell group to expand or collapse its source cells. A group counts the union of qualifying targets or drugs across its members; CPM values are never added or averaged. Heatmap cells show confirmed support without a ≥ mark; hover values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.",
+                                        "Compare qualifying targets or drugs across diseases. Group rows count distinct targets or drugs across their members, not average expression. Zero-colored cells can mean no qualifying evidence or an unavailable value; hover explains which. A ≥ in the hover means the result is a lower bound. Color scales are separate for targets and drugs and can change when filters change.",
                                     ),
                                 ]
                             ),
@@ -1683,7 +1748,7 @@ def dashboard_layout(snapshot) -> html.Main:
                         className="heatmap-stack",
                     ),
                     html.P(
-                        "Hover for values · Click for details",
+                        "Click a group name to expand · Click a heatmap cell for disease details · Hover to distinguish zero from unavailable",
                         className="matrix-note",
                     ),
                 ],
@@ -1696,11 +1761,11 @@ def dashboard_layout(snapshot) -> html.Main:
                         [
                             html.H2(
                                 [
-                                    "Selection details",
+                                    "Drug records and target expression",
                                     info_tip(
                                         "selection",
                                         "selection details",
-                                        "Select a disease to see target expression across healthy reference source cells and its filtered drug records. Click a comparison heatmap column to select its disease.",
+                                        "Click a comparison heatmap cell or choose a disease below. Details update immediately within the last applied settings. Drug records show the underlying evidence; the expression map includes all known targets of those drugs, even when they do not meet the expression rule.",
                                     ),
                                 ]
                             )
@@ -1992,7 +2057,7 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
                 modality,
             )
         )
-        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: all groups and expanded source cells; Measure: {measure.capitalize()}. {len(rows)} disease–cell combinations. Heatmap entries without a value: targets {target_missing}, drugs {drug_missing}."
+        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: all groups and expanded source cells; Measure: {measure.capitalize()}. {len(rows)} disease–cell combinations. Unavailable entries shown as zero: targets {target_missing}, drugs {drug_missing}."
         status = html.Span(f"{len(rows)} disease–cell combinations")
         error_note = (
             html.Span(" ".join(errors), className="filter-errors", role="alert")
