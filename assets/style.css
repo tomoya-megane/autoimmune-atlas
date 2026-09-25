@@ -212,3 +212,44 @@ th { position: sticky; top: 0; background: #f0f0f0; color: #333; font-weight: 60
     .source-bar > div:first-child { border-top: 0; }
     .section-heading, .detail-heading { align-items: flex-start; flex-direction: column; }
 }
+
+/* 操作アイコンは共通の線幅とサイズを使い、文字ラベルを残す。 */
+.ui-icon,
+.disease-browser summary::before,
+.heatmap-row-controls > button::before,
+#update-button::before,
+a[target="_blank"]::after {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    vertical-align: -3px;
+    background-color: currentColor;
+    -webkit-mask: var(--ui-icon) center / contain no-repeat;
+    mask: var(--ui-icon) center / contain no-repeat;
+}
+.icon-info { --ui-icon: url("icons/info.svg"); }
+.info-button { display: inline-flex; align-items: center; justify-content: center; }
+.disease-browser summary { list-style: none; }
+.disease-browser summary::-webkit-details-marker { display: none; }
+.disease-browser summary::before,
+.heatmap-row-controls > button::before {
+    content: "";
+    --ui-icon: url("icons/chevron.svg");
+    margin-right: 5px;
+}
+.disease-browser details[open] > summary::before,
+.heatmap-row-controls > button[aria-expanded="true"]::before { transform: rotate(90deg); }
+#update-button::before {
+    content: "";
+    --ui-icon: url("icons/update.svg");
+    margin-right: 6px;
+}
+a[target="_blank"]::after {
+    content: "";
+    --ui-icon: url("icons/external.svg");
+    width: 13px;
+    height: 13px;
+    margin-left: 4px;
+    vertical-align: -2px;
+}

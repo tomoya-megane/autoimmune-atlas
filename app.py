@@ -52,7 +52,7 @@ def info_tip(key: str, label: str, description: str):
     return html.Span(
         [
             html.Button(
-                "ⓘ",
+                html.Span(className="ui-icon icon-info", **{"aria-hidden": "true"}),
                 type="button",
                 className="info-button",
                 **{"aria-label": f"About {label}", "aria-describedby": tip_id},
@@ -370,7 +370,7 @@ def heatmap_row_controls(names, cell_ids, expanded, kind):
     """図の各行に揃えた、キーボードでも操作できる行見出し。"""
     return [
         html.Button(
-            ("▼ " if cell_id in expanded else "▶ ") + names[cell_id],
+            names[cell_id],
             id={
                 "type": "expression-cell-toggle"
                 if kind == "expression"
@@ -1333,7 +1333,7 @@ def dashboard_layout(snapshot) -> html.Main:
                             html.A("Comparison", href="#comparison"),
                             html.A("Evidence", href="#evidence"),
                             html.A(
-                                "Open Targets ↗",
+                                "Open Targets",
                                 href=source,
                                 target="_blank",
                                 rel="noreferrer",
