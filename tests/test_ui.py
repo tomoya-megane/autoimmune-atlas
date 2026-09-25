@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import runpy
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,8 +13,18 @@ from unittest.mock import patch
 
 from dash import html
 
-import app
-import atlas
+from autoimmune_atlas import aggregation as atlas
+from autoimmune_atlas import refresh, snapshot
+from autoimmune_atlas.ui import (
+    application,
+    callbacks,
+    components,
+    config,
+    figures,
+    layout,
+)
+
+ASSETS_PATH = Path(__file__).resolve().parents[1] / "assets"
 
 
 def fixture() -> dict:
@@ -200,7 +212,7 @@ class DiseaseTreeTests(unittest.TestCase):
                 {"id": "LOOP_B", "name": "loop b", "parent_ids": ["LOOP_A"]},
             ],
         }
-        sections = app._disease_checklist_sections(family)
+        sections = components._disease_checklist_sections(family)
         ids = {s["id"]: [d["id"] for d in s["diseases"]] for s in sections}
         self.assertEqual(
             ids,
@@ -216,7 +228,7 @@ class DiseaseTreeTests(unittest.TestCase):
         )
         placed = [d for s in sections for d in s["diseases"]]
         self.assertEqual(len(placed), len(family["diseases"]))
-        layout = app.disease_selector(
+        layout = components.disease_selector(
             {"diseases": [{**d, "status": "ready"} for d in family["diseases"]]},
             [],
         )
@@ -243,7 +255,7 @@ class DiseaseTreeTests(unittest.TestCase):
                 {"id": "A", "name": "a term", "parent_ids": ["MISSING"]},
             ],
         }
-        sections = app._disease_checklist_sections(family)
+        sections = components._disease_checklist_sections(family)
         self.assertEqual(
             [(s["id"], [d["id"] for d in s["diseases"]]) for s in sections],
             [("disease-family-other", ["A", "B"])],
@@ -257,10 +269,10 @@ class FigureTests(unittest.TestCase):
         row = summary(
             count=0, percent=0.0, drug_count=1, drug_percent=25.0, unknown_drugs=1
         )
-        self.assertEqual(app._display_value(row, "count"), "0")
-        self.assertEqual(app._display_value(row, "count", "drug"), "≥1")
-        self.assertEqual(app._display_value(row, "percent"), "0.0%")
-        self.assertEqual(app._display_value(row, "percent", "drug"), "≥25.0%")
+        self.assertEqual(figures._display_value(row, "count"), "0")
+        self.assertEqual(figures._display_value(row, "count", "drug"), "≥1")
+        self.assertEqual(figures._display_value(row, "percent"), "0.0%")
+        self.assertEqual(figures._display_value(row, "percent", "drug"), "≥25.0%")
 
     def test_unmapped_drug_does_not_change_percent_lower_bound(self) -> None:
         row = summary(
@@ -272,16 +284,16 @@ class FigureTests(unittest.TestCase):
             total_drugs=5,
             status="partial",
         )
-        self.assertEqual(app._display_value(row, "count"), "≥2")
-        self.assertEqual(app._display_value(row, "percent"), "40.0%")
-        self.assertEqual(app._display_value(row, "count", "drug"), "≥1")
-        self.assertEqual(app._display_value(row, "percent", "drug"), "25.0%")
+        self.assertEqual(figures._display_value(row, "count"), "≥2")
+        self.assertEqual(figures._display_value(row, "percent"), "40.0%")
+        self.assertEqual(figures._display_value(row, "count", "drug"), "≥1")
+        self.assertEqual(figures._display_value(row, "percent", "drug"), "25.0%")
 
     def test_long_disease_ticks_wrap_without_changing_data(self) -> None:
         name = "anti-neutrophil cytoplasmic antibody-associated vasculitis"
         rows = [summary(disease=name), summary(disease_id="D2", disease="Short name")]
         for kind in ("target", "drug"):
-            figure = app.build_figure(rows, ["D1", "D2"], ["C1"], "count", kind)
+            figure = figures.build_figure(rows, ["D1", "D2"], ["C1"], "count", kind)
             self.assertEqual(
                 list(figure.layout.xaxis.ticktext),
                 [
@@ -310,7 +322,7 @@ class FigureTests(unittest.TestCase):
             ("drug", "count", "1", 1),
             ("drug", "percent", "25.0%", 25.0),
         ):
-            figure = app.build_figure([row], ["D1"], ["C1"], measure, kind)
+            figure = figures.build_figure([row], ["D1"], ["C1"], measure, kind)
             self.assertEqual(figure.data[0].text[0][0], label)
             self.assertEqual(figure.data[0].z[0][0], value)
             self.assertIn("≥" + label, figure.data[0].hovertext[0][0])
@@ -321,13 +333,15 @@ class FigureTests(unittest.TestCase):
             summary(),
             summary(cell_id="C2", cell="T cell", percent=60, drug_percent=40),
         ]
-        target = app.build_figure(rows, ["D1"], ["C1", "C2"], "percent", "target")
-        drug = app.build_figure(rows, ["D1"], ["C1", "C2"], "percent", "drug")
+        target = figures.build_figure(rows, ["D1"], ["C1", "C2"], "percent", "target")
+        drug = figures.build_figure(rows, ["D1"], ["C1", "C2"], "percent", "drug")
         self.assertEqual((target.data[0].zmin, target.data[0].zmax), (20, 60))
         self.assertEqual((drug.data[0].zmin, drug.data[0].zmax), (25, 40))
-        flat = app.build_figure([summary(percent=0)], ["D1"], ["C1"], "percent")
+        flat = figures.build_figure([summary(percent=0)], ["D1"], ["C1"], "percent")
         self.assertEqual((flat.data[0].zmin, flat.data[0].zmax), (0, 1))
-        missing = app.build_figure([summary(percent=None)], ["D1"], ["C1"], "percent")
+        missing = figures.build_figure(
+            [summary(percent=None)], ["D1"], ["C1"], "percent"
+        )
         self.assertEqual((missing.data[0].zmin, missing.data[0].zmax), (0, 1))
 
     def test_missing_percent_uses_same_fill_and_text_as_zero(self):
@@ -336,7 +350,7 @@ class FigureTests(unittest.TestCase):
             summary(cell_id="C2", cell="T cell", percent=None, drug_percent=None),
         ]
         for kind in ("target", "drug"):
-            figure = app.build_figure(rows, ["D1"], ["C1", "C2"], "percent", kind)
+            figure = figures.build_figure(rows, ["D1"], ["C1", "C2"], "percent", kind)
             self.assertEqual(figure.data[0].z[0][0], figure.data[0].z[1][0])
             self.assertEqual(figure.data[0].text[0][0], figure.data[0].text[1][0])
         self.assertIsNone(rows[1]["percent"])
@@ -357,8 +371,8 @@ class FigureTests(unittest.TestCase):
                 status="unavailable",
             ),
         ]
-        target = app.build_figure(rows, ["D1"], ["C1", "C2"], "count", "target")
-        drug = app.build_figure(rows, ["D1"], ["C1", "C2"], "count", "drug")
+        target = figures.build_figure(rows, ["D1"], ["C1", "C2"], "count", "target")
+        drug = figures.build_figure(rows, ["D1"], ["C1", "C2"], "count", "drug")
         for figure in (target, drug):
             self.assertIsNone(figure.layout.width)
             self.assertEqual(figure.data[0].colorbar.lenmode, "pixels")
@@ -391,12 +405,12 @@ class FigureTests(unittest.TestCase):
             status="partial",
         )
         for kind in ("target", "drug"):
-            figure = app.build_figure([row], ["D1"], ["C1"], "count", kind)
+            figure = figures.build_figure([row], ["D1"], ["C1"], "count", kind)
             self.assertEqual(figure.data[0].z[0][0], 0)
             self.assertEqual(figure.data[0].text[0][0], "0")
             self.assertEqual(len(figure.data), 1)
             self.assertIn("≥0", figure.data[0].hovertext[0][0])
-        percent = app.build_figure([row], ["D1"], ["C1"], "percent")
+        percent = figures.build_figure([row], ["D1"], ["C1"], "percent")
         self.assertEqual(percent.data[0].z[0][0], 0)
         self.assertEqual(percent.data[0].text[0][0], "0.0%")
         self.assertIsNone(row["percent"])
@@ -410,14 +424,14 @@ class FigureTests(unittest.TestCase):
         empty = summary(percent=None, denominator=0)
         self.assertIn(
             "Disease data unavailable",
-            app._hover_text(unavailable, "percent", "target"),
+            figures._hover_text(unavailable, "percent", "target"),
         )
         self.assertNotIn(
-            "No eligible items", app._hover_text(unavailable, "percent", "target")
+            "No eligible items", figures._hover_text(unavailable, "percent", "target")
         )
         self.assertIn(
             "No eligible items in the percentage denominator",
-            app._hover_text(empty, "percent", "target"),
+            figures._hover_text(empty, "percent", "target"),
         )
 
 
@@ -425,7 +439,7 @@ class EvidenceTests(unittest.TestCase):
     """詳細が陽性以外の元記録も保持する。"""
 
     def test_source_links_only_show_open_targets_pages(self) -> None:
-        links = str(app._reference_links(fixture()["records"][0]))
+        links = str(components._reference_links(fixture()["records"][0]))
         self.assertIn("Open Targets target", links)
         self.assertIn("Open Targets drug", links)
         self.assertIn("Open Targets canonical drug", links)
@@ -434,7 +448,7 @@ class EvidenceTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.snapshot = fixture()
-        self.rows = app.visible_rows(
+        self.rows = callbacks.visible_rows(
             self.snapshot, "all", 0.5, ["MONDO_RA_TEST"], ["CL_B_GROUP"]
         )
 
@@ -449,7 +463,7 @@ class EvidenceTests(unittest.TestCase):
             }
         )
         all_rows = atlas.summarize(self.snapshot, "all", 0.5, level="all")
-        panel = app.detail_panel(all_rows, "MONDO_RA_TEST", self.snapshot)
+        panel = layout.detail_panel(all_rows, "MONDO_RA_TEST", self.snapshot)
         self.assertNotIn("Drug–target pairs", str(panel))
         self.assertNotIn("Targets meeting rule in any source cell", str(panel))
         self.assertNotIn("rheumatoid arthritis · all source cell types", str(panel))
@@ -475,7 +489,7 @@ class EvidenceTests(unittest.TestCase):
     def test_continuous_expression_uses_target_wise_z_score_and_raw_cpm_hover(
         self,
     ) -> None:
-        evidence = app.evidence_rows(
+        evidence = figures.evidence_rows(
             self.snapshot,
             self.rows[0],
             modality="all",
@@ -484,7 +498,7 @@ class EvidenceTests(unittest.TestCase):
             method="fixed",
             specificity=0.75,
         )
-        figure = app.expression_figure(self.snapshot, evidence)
+        figure = figures.expression_figure(self.snapshot, evidence)
         targets = list(figure.data[0].x)
         cells = list(figure.data[0].y)
         target_index = next(i for i, label in enumerate(targets) if "TARGET1" in label)
@@ -529,7 +543,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(list(figure.layout.yaxis.range), [len(cells) - 0.5, -0.5])
 
     def test_group_expression_averages_cpm_before_transform_and_keeps_scale(self):
-        figure = app.expression_figure(
+        figure = figures.expression_figure(
             self.snapshot, self.snapshot["records"], grouped=True
         )
         heatmap = figure.data[0]
@@ -546,20 +560,20 @@ class EvidenceTests(unittest.TestCase):
         col2 = list(heatmap.x).index("TARGET2 (ENSG_TARGET_2)")
         self.assertIn("Mean CPM: 0.6", heatmap.hovertext[row][col2])
         self.assertIn("Observed source cell types: 1 / 2", heatmap.hovertext[row][col2])
-        original = app.expression_figure(self.snapshot, self.snapshot["records"])
+        original = figures.expression_figure(self.snapshot, self.snapshot["records"])
         self.assertEqual(original.data[0].x, heatmap.x)
         for i, name in enumerate(original.data[0].y):
             self.assertEqual(
                 original.data[0].z[i], heatmap.z[list(heatmap.y).index(name)]
             )
         metadata = atlas.expression_metadata(self.snapshot)
-        app.expression_figure(
+        figures.expression_figure(
             self.snapshot, self.snapshot["records"], metadata, grouped=True
         )
         self.assertEqual(metadata, atlas.expression_metadata(self.snapshot))
         catalog = atlas.cell_catalog(self.snapshot, "mixed")
-        collapsed = app.expression_view(figure, catalog, [])
-        expanded = app.expression_view(figure, catalog, ["group:CL_B_GROUP"])
+        collapsed = figures.expression_view(figure, catalog, [])
+        expanded = figures.expression_view(figure, catalog, ["group:CL_B_GROUP"])
         self.assertEqual(len(collapsed.data[0].y), 2)
         self.assertEqual(len(expanded.data[0].y), 4)
         self.assertEqual(collapsed.data[0].zmax, expanded.data[0].zmax)
@@ -573,7 +587,7 @@ class EvidenceTests(unittest.TestCase):
     def test_group_expression_is_missing_when_all_members_are_missing(self):
         for item in self.snapshot["expression"]["ENSG_TARGET_2"]:
             item["median"] = None
-        figure = app.expression_figure(
+        figure = figures.expression_figure(
             self.snapshot, self.snapshot["records"], grouped=True
         )
         column = list(figure.data[0].x).index("TARGET2 (ENSG_TARGET_2)")
@@ -586,7 +600,7 @@ class EvidenceTests(unittest.TestCase):
     def test_constant_target_expression_has_zero_z_score(self) -> None:
         for item in self.snapshot["expression"]["ENSG_TARGET_1"]:
             item["median"] = 2
-        evidence = app.evidence_rows(
+        evidence = figures.evidence_rows(
             self.snapshot,
             self.rows[0],
             modality="all",
@@ -595,12 +609,12 @@ class EvidenceTests(unittest.TestCase):
             method="fixed",
             specificity=0.75,
         )
-        figure = app.expression_figure(self.snapshot, evidence)
+        figure = figures.expression_figure(self.snapshot, evidence)
         target_index = next(
             i for i, label in enumerate(figure.data[0].x) if "TARGET1" in label
         )
         self.assertTrue(all(row[target_index] == 0 for row in figure.data[0].z))
-        constant_only = app.expression_figure(
+        constant_only = figures.expression_figure(
             self.snapshot,
             [record for record in evidence if record["target_id"] == "ENSG_TARGET_1"],
         )
@@ -610,10 +624,10 @@ class EvidenceTests(unittest.TestCase):
 
     def test_expression_markers_follow_current_rule(self) -> None:
         records = self.snapshot["records"]
-        fixed = app.expression_figure(
+        fixed = figures.expression_figure(
             self.snapshot, records, threshold=0.5, method="fixed"
         )
-        specific = app.expression_figure(
+        specific = figures.expression_figure(
             self.snapshot, records, threshold=0.5, method="specificity"
         )
 
@@ -641,7 +655,7 @@ class EvidenceTests(unittest.TestCase):
         )
 
     def test_detail_expression_markers_use_applied_rule(self) -> None:
-        panel = app.detail_panel(
+        panel = layout.detail_panel(
             self.rows, "MONDO_RA_TEST", self.snapshot, method="specificity"
         )
         self.assertIn("○ Source cell meets expression rule", str(panel.children[2]))
@@ -670,7 +684,7 @@ class EvidenceTests(unittest.TestCase):
             {"target_id": target, "target": target}
             for target in ["A", "B", "C", "D", "E"]
         ]
-        labels = list(app.expression_figure(snapshot, records, metadata).data[0].x)
+        labels = list(figures.expression_figure(snapshot, records, metadata).data[0].x)
         self.assertEqual(labels[-1], "E (E)")
         self.assertEqual(abs(labels.index("A (A)") - labels.index("C (C)")), 1)
         self.assertEqual(abs(labels.index("B (B)") - labels.index("D (D)")), 1)
@@ -682,7 +696,7 @@ class EvidenceTests(unittest.TestCase):
             **self.rows[0],
             "member_cell_ids": list(reversed(self.rows[0]["member_cell_ids"])),
         }
-        evidence = app.evidence_rows(
+        evidence = figures.evidence_rows(
             self.snapshot,
             row,
             modality="all",
@@ -691,7 +705,7 @@ class EvidenceTests(unittest.TestCase):
             method="fixed",
             specificity=0.75,
         )
-        figure = app.expression_figure(self.snapshot, evidence)
+        figure = figures.expression_figure(self.snapshot, evidence)
         self.assertEqual(
             list(figure.data[0].y),
             ["CD8-positive T cell", "memory B cell", "naive B cell"],
@@ -702,18 +716,18 @@ class EvidenceTests(unittest.TestCase):
         valid = {"points": [{"customdata": ["MONDO_RA_TEST", "CL_B_GROUP"]}]}
         visible = ["MONDO_RA_TEST"]
         self.assertIsNone(
-            app.resolve_disease_selection("target-heatmap", stale, None, visible)
+            callbacks.resolve_disease_selection("target-heatmap", stale, None, visible)
         )
         self.assertEqual(
-            app.resolve_disease_selection("target-heatmap", valid, None, visible),
+            callbacks.resolve_disease_selection("target-heatmap", valid, None, visible),
             "MONDO_RA_TEST",
         )
         self.assertEqual(
-            app.resolve_disease_selection("drug-heatmap", valid, None, visible),
+            callbacks.resolve_disease_selection("drug-heatmap", valid, None, visible),
             "MONDO_RA_TEST",
         )
         self.assertEqual(
-            app.resolve_disease_selection(
+            callbacks.resolve_disease_selection(
                 "detail-disease", None, "MONDO_RA_TEST", visible
             ),
             "MONDO_RA_TEST",
@@ -724,8 +738,8 @@ class InputTests(unittest.TestCase):
     """空欄と不正値で表示値と計算値がずれない。"""
 
     def test_empty_and_invalid_thresholds_use_visible_defaults(self) -> None:
-        self.assertEqual(app.effective_filters(None, ""), (0.5, 0.5, []))
-        minimum, specificity, errors = app.effective_filters("NaN", 1.5)
+        self.assertEqual(callbacks.effective_filters(None, ""), (0.5, 0.5, []))
+        minimum, specificity, errors = callbacks.effective_filters("NaN", 1.5)
         self.assertEqual((minimum, specificity), (0.5, 0.5))
         self.assertEqual(len(errors), 2)
 
@@ -734,7 +748,38 @@ class InputTests(unittest.TestCase):
             path = Path(directory) / "snapshot.json"
             path.write_text(json.dumps({"schema": 1}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "Refresh"):
-                app.load_snapshot(path)
+                snapshot.load_snapshot(path)
+
+
+class ApplicationPathTests(unittest.TestCase):
+    def test_data_paths_keep_the_repository_data_directory(self):
+        expected = ASSETS_PATH.parent / "data" / "snapshot.json"
+        self.assertEqual(snapshot.DATA_PATH, expected)
+        self.assertEqual(refresh.DATA_PATH, expected)
+
+    def test_entrypoint_and_assets_do_not_depend_on_working_directory(self):
+        entrypoint = ASSETS_PATH.parent / "app.py"
+        previous = Path.cwd()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                os.chdir(directory)
+                with patch(
+                    "autoimmune_atlas.snapshot.load_snapshot", return_value=None
+                ):
+                    namespace = runpy.run_path(
+                        str(entrypoint), run_name="app_path_test"
+                    )
+            dash_app = namespace["app"]
+            self.assertEqual(Path(dash_app.config.assets_folder), ASSETS_PATH)
+            client = dash_app.server.test_client()
+            for asset in ("/assets/style.css", "/assets/icons/info.svg"):
+                response = client.get(asset)
+                try:
+                    self.assertEqual(response.status_code, 200)
+                finally:
+                    response.close()
+        finally:
+            os.chdir(previous)
 
 
 class CallbackTests(unittest.TestCase):
@@ -743,7 +788,9 @@ class CallbackTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.snapshot = fixture()
-        cls.application = app.create_app(cls.snapshot)
+        cls.application = application.create_app(
+            cls.snapshot, assets_folder=ASSETS_PATH
+        )
         cls.client = cls.application.server.test_client()
         cls.components = {}
 
@@ -832,7 +879,7 @@ class CallbackTests(unittest.TestCase):
             ("expanded-cell-groups", "data"): [],
         }
         values[("applied-parameters", "data")] = {
-            key: values[(key, "value")] for key in app.PARAMETER_IDS
+            key: values[(key, "value")] for key in config.PARAMETER_IDS
         }
         return values
 
@@ -860,7 +907,9 @@ class CallbackTests(unittest.TestCase):
             before["target-heatmap"]["figure"], collapsed["target-heatmap"]["figure"]
         )
         self.assertEqual(
-            app.heatmap_cell_ids(self.snapshot, ["group:CL_B_GROUP", "CL_B_ONE"], []),
+            figures.heatmap_cell_ids(
+                self.snapshot, ["group:CL_B_GROUP", "CL_B_ONE"], []
+            ),
             ["group:CL_B_GROUP", "CL_B_ONE"],
         )
 
@@ -1012,7 +1061,7 @@ class CallbackTests(unittest.TestCase):
             snapshot["records"].append(
                 {**snapshot["records"][0], "disease_id": item_id, "disease": name}
             )
-        self.application = app.create_app(snapshot)
+        self.application = application.create_app(snapshot, assets_folder=ASSETS_PATH)
         self.client = self.application.server.test_client()
         values = self._values()
         values[("diseases", "value")] = [
@@ -1121,7 +1170,7 @@ class CallbackTests(unittest.TestCase):
         )
         values[("expanded-expression-groups", "data")] = ["group:CL_B_GROUP"]
         with patch.object(
-            app,
+            callbacks,
             "expression_figure",
             side_effect=AssertionError("Expansion recomputed expression"),
         ):
@@ -1152,7 +1201,7 @@ class CallbackTests(unittest.TestCase):
         values = {("source-page", "value"): 1, ("source-context", "data"): context}
         records = atlas.filtered_records(self.snapshot, "all", "phase3")
         seen = []
-        with patch.object(app, "SOURCE_PAGE_SIZE", 2):
+        with patch.object(callbacks, "SOURCE_PAGE_SIZE", 2):
             for page in range(1, math.ceil(len(records) / 2) + 1):
                 values[("source-page", "value")] = page
                 result = self._post(
@@ -1223,7 +1272,7 @@ class CallbackTests(unittest.TestCase):
             any("download" in key for key in self.application.callback_map)
         )
         self.assertNotIn("cells", self.components)
-        self.assertNotIn("cells", app.PARAMETER_IDS)
+        self.assertNotIn("cells", config.PARAMETER_IDS)
         self.assertEqual(
             [option["value"] for option in self.components["modality"]["options"]],
             ["all", *[value for _, value in atlas.DRUG_TYPE_MODALITIES]],

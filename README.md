@@ -8,6 +8,31 @@ Python の Dash と Plotly を使う。
 小さな概要欄、比較表の近くのフィルター、根拠を表示する詳細欄を採用した。
 配色と余白はこのアプリ向けの調整であり、Open Targets のテーマをそのまま移植したものではない。
 
+## コード構成
+
+起動とデータ更新の入口だけをリポジトリ直下に置き、処理の実体は `autoimmune_atlas/` にまとめている。
+集計、データ取得、画面表示のどこを読むべきかを、ファイル名から判断できる構成である。
+
+```text
+app.py                         Dash アプリの起動
+fetch_data.py                  公開 API からのデータ更新
+autoimmune_atlas/
+├── aggregation.py             薬剤、標的、細胞型の集計
+├── disease_catalog.py         対象疾患と表示順の定義
+├── refresh.py                 公開 API の取得、正規化、保存
+├── snapshot.py                保存済みデータの読み込みと検証
+└── ui/
+    ├── application.py         Dash アプリの組み立て
+    ├── callbacks.py           画面操作への応答
+    ├── components.py          再利用する画面部品
+    ├── config.py              画面で共有する固定値
+    ├── figures.py             比較図と発現図
+    └── layout.py              初期画面と詳細欄の配置
+assets/                        CSS、JavaScript、アイコン
+data/                          取得済みスナップショット
+tests/                         集計、画面、取得処理のテスト
+```
+
 ## 起動
 
 `data/` は大容量のため Git で追跡しない。
@@ -49,7 +74,7 @@ MONDO が自己免疫疾患の枝の外に置く疾患（筋炎、血管炎、�
 親疾患のチェックはその疾患だけを選び、子疾患の選択や集計値の合算は行わない。
 分類先が確認できない用語も `Other / unclassified` から選べる。
 臨床段階は Phase I 以降、Phase II 以降、Phase III 以降、承認到達から選ぶ。
-初期表示は Phase III 以降。
+初期表示では、臨床段階に Phase III 以降、モダリティに All、発現基準に Fixed CPM + CELLEX specificity、表示値に Percent を使う。
 各疾患の `drugAndClinicalCandidates.maxClinicalStage` を使い、薬剤全体の最高段階は使わない。
 Phase I/II は Phase II 以降に、Phase II/III は Phase III 以降に含めない。
 承認到達には歴史的な記録を含み、現在の販売継続や承認の有効性を保証しない。

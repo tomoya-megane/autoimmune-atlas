@@ -1,8 +1,8 @@
 # 対象疾患の起点
 
-対象疾患は、いまは Open Targets の `autoimmune disease`（`MONDO_0007179`）の下位語だけである。
-MONDO は idiopathic inflammatory myopathy、lupus nephritis、ANCA 関連血管炎、primary biliary cholangitis などを別の枝に置いているので、この 1 語では拾えない。
-そこで対象を「起点 ID の一覧と、その下位語」に変える。
+対象疾患は、Open Targets の `autoimmune disease`（`MONDO_0007179`）と、表 A から表 C で採用した追加起点から作る。
+下位語を含める起点では、その下位語も対象にする。
+MONDO は idiopathic inflammatory myopathy、lupus nephritis、ANCA 関連血管炎、primary biliary cholangitis などを別の枝に置いているため、基底の 1 語だけでは拾えない。
 このノートは、起点の一覧と、その根拠の記録である。
 
 基準は 3 層にする。
@@ -143,9 +143,9 @@ lichen planus の下位語には lichenoid drug reaction が、psoriasis の下�
 | premature ovarian insufficiency、pure red cell aplasia | 手書き | 対応づけ先が HP の表現型で、疾患語が無い |
 | autoimmune disease of urogenital tract、infantile onset multisystem autoimmune disease 1 から 5、ankylosing spondylitis 1 から 3 | DOID | DOID だけの群の名前と遺伝子座ごとの語。対応する MONDO の語は基底の下にある |
 
-## 次の手順
+## 起点はコードとスナップショットで管理する
 
-1. 表 A、表 B、表 C の「入れる」と「本体のみ入れる」の ID を `disease_catalog.py` の起点の一覧に写し、本体のみの語には下位語を含めない印を付ける。
-2. `fetch_data.py` を、起点ごとの下位語の和集合を取る形に変え、スナップショットに起点の一覧を記録する。
-3. 閲覧用の群（血管炎、腎、眼、消化器と肝胆、血液、筋、自己炎症）を足す。
-4. 再取得し、`design.md` の疾患選択の節からこのノートへリンクする。
+起点と下位語を含めるかどうかは、`autoimmune_atlas/disease_catalog.py` の `SCOPE_ROOTS` に定義している。
+`autoimmune_atlas/refresh.py` は起点ごとの対象語を集めて和集合を作り、起点の一覧とともにスナップショットへ保存する。
+閲覧用の群と各群の起点は、`autoimmune_atlas/disease_catalog.py` の `DISEASE_GROUPS` に定義している。
+対象を保守するときは、表の採否と `SCOPE_ROOTS`、全疾患の配置先、独立して表示する疾患を確認し、`tests/test_disease_catalog.py` の回帰テストも更新する。

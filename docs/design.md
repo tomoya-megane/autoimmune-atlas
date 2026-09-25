@@ -12,7 +12,7 @@ MONDO は idiopathic inflammatory myopathy や lupus nephritis を自己免疫�
 起点の一覧と、1 件ごとの根拠、起点にしなかった候補は[対象疾患の起点](disease-roots.md)にある。
 自己炎症性疾患は `autoinflammatory syndrome` を起点にして含め、アレルギー性疾患は含めない。
 下位語に遺伝性や感染性の疾患が混ざる起点は、本体だけを入れる。
-起点の一覧は `disease_catalog.py` の `SCOPE_ROOTS` にあり、`fetch_data.py` が起点ごとの下位語を取って和集合を作る。
+起点の一覧は `autoimmune_atlas/disease_catalog.py` の `SCOPE_ROOTS` にあり、`autoimmune_atlas/refresh.py` が起点ごとの下位語を取って和集合を作る。
 親概念とサブタイプは混在するため、表示する疾患を選択できるようにする。
 症状や併存症に対する治療も含め、初期版では治療目的の分類を行わない。
 
@@ -23,7 +23,7 @@ MONDO は idiopathic inflammatory myopathy や lupus nephritis を自己免疫�
 複数の親を持つ語は、より深い親の下に 1 回だけ置き、同じ深さなら名前順で決める。
 2 か所に出すと、片方で外したときにもう片方と食い違う。
 本体の選択と詳細内の選択は独立させ、一方を外しても他方は残す。
-`disease_catalog.py` の `DISEASE_GROUPS` に群と起点の疾患 ID を定義し、保存した `parent_ids` を辿って最も近い起点へ配置する。
+`autoimmune_atlas/disease_catalog.py` の `DISEASE_GROUPS` に群と起点の疾患 ID を定義し、保存した `parent_ids` を辿って最も近い起点へ配置する。
 距離が同じ場合は定義順を使い、一つの疾患を複数の群で重複表示しない。
 表示時は群とファミリーをそれぞれ名称順に並べ、`Other / unclassified` を最後に置く。
 起点と同じ疾患を先頭に置き、残りは名称順に並べる。
@@ -44,9 +44,9 @@ Open Targets は[複数の親と祖先を持つ疾患階層](https://community.o
 Hailey-Hailey disease と MASS syndrome は病型としての配置を保留し、`UNCLASSIFIED_IDS` で `Other / unclassified` に残す。
 親情報がない既存データや、新しく増えた分類先不明の用語も同じ欄に残し、比較対象から落とさない。
 
-`fetch_data.py` は薬剤情報と一緒に疾患の親 ID を保存する。
+`autoimmune_atlas/refresh.py` は薬剤情報と一緒に疾患の親 ID を保存する。
 既存スナップショットには同じ Open Targets の版から親 ID だけを補い、薬剤記録と発現データは変えていない。
-分類を保守するときは、起点 ID、全疾患の配置先、独立して表示すべき疾患を確認し、`test_disease_catalog.py` の回帰テストも更新する。
+分類を保守するときは、起点 ID、全疾患の配置先、独立して表示すべき疾患を確認し、`tests/test_disease_catalog.py` の回帰テストも更新する。
 
 臨床段階は薬剤全体の段階ではなく、疾患と薬剤の組合せで到達した最高段階を使う。
 同じ有効成分の記録を統合する場合も、段階の最大値は疾患内で求める。
@@ -66,7 +66,7 @@ Early Phase I、Phase 0、IND、Preclinical、Unknown はこれらのフィル�
 
 モダリティは All に加え、Small molecule、Antibody、Protein、Cell、Gene、Enzyme、Oligonucleotide、Antibody drug conjugate、Vaccine component、Oligosaccharide、Unknown を個別に選べる。
 Antibody drug conjugate、Vaccine component、Oligosaccharide は Phase I まで取得範囲を広げたときに見つかったため、Unknown にまとめず個別に扱う。
-初期表示は Phase III or later、All、実数とする。
+初期表示では、臨床段階に Phase III or later、モダリティに All、発現基準に Fixed CPM + CELLEX specificity、表示値に Percent を使う。
 
 ## 標的の広がりと薬剤の蓄積を別々に数える
 
@@ -187,10 +187,9 @@ CD4 系と CD8 系など、参照データ内で親子関係を確認できる�
 
 ## 上部パネルを操作の順序に沿って分ける
 
-上部パネルは、左2/5に疾患の選択、右3/5に薬剤の条件、発現の判定、表示方法、更新ボタンを配置する。
+上部パネルは、左2/5に Comparison scope の疾患選択、右3/5に Drug evidence、Expression criteria、Display と Update を上から配置する。
 疾患群の一覧は常時表示し、各群は個別に開閉できるようにする。
 一覧の高さには上限を設け、長くなった部分は一覧内でスクロールする。
-狭い画面では疾患の選択を先頭に縦に並べる。
 対象と判定条件を決めてから、その結果を標的数と薬剤数のどちらで見るかを選べるようにする。
 各項目はいつでも編集でき、`Update` を押すと上部パネルの設定をまとめて適用する。
 入力中は比較図と詳細を保持し、未反映の変更があることをボタンの隣に表示する。
@@ -215,17 +214,14 @@ CD4 系と CD8 系など、参照データ内で親子関係を確認できる�
 | --- | --- |
 | Drug evidence | 臨床段階、モダリティ |
 | Expression criteria | 発現基準、最低 CPM、CELLEX の閾値 |
-| Comparison scope | 疾患、細胞の大分類と細分類 |
+| Comparison scope | 疾患 |
 | Display | 標的／薬剤、実数／割合 |
 
 最低 CPM はすべての発現基準に共通とし、CELLEX の閾値は Fixed CPM + CELLEX specificity を選んだときだけ操作できるようにする。
 基準を切り替えても入力済みの閾値は保持する。
 比較対象を選ぶ欄は折りたたまず常に表示する。
-広い画面では上段に Drug evidence と Expression criteria、下段に Comparison scope と Display を横に並べる。
-幅の比率は上段を2対3、下段を2対1とし、比較対象の選択欄を広く取る。
-狭い画面では4つの区分をこの順序で縦一列に並べる。
-Drug evidence、Expression criteria、Comparison scope の項目は広い画面で横に並べ、Display の View と Measure は縦に並べる。
-狭い画面では各区分の項目も縦に並べる。
+広い画面では各区分の項目を横に並べ、Display の View と Measure も横に置く。
+狭い画面では Comparison scope、Drug evidence、Expression criteria、Display、Update の順に縦一列に並べ、各区分の項目も縦に並べる。
 
 ## 説明を判断に使う場所へ置く
 
@@ -262,7 +258,7 @@ Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケー�
 - [Open Targets: baseline expression](https://github.com/opentargets/platform-docs/blob/main/target/baseline-expression.md)：pseudobulk、ドナー間要約、CELLEX の定義。
 - [Open Targets: clinical report](https://platform-docs.opentargets.org/drug/clinical-report)：臨床段階、元資料、品質管理。
 - [Open Targets: drugs and clinical candidates](https://platform-docs.opentargets.org/disease-or-phenotype/drugs)：疾患内の最高段階と撤回歴の承認到達への集約。
-- `fetch_data.py`：実際の取得項目と検証、`atlas.py`：集計規則、`app.py`：表示。
+- `autoimmune_atlas/refresh.py`：実際の取得項目と検証、`autoimmune_atlas/aggregation.py`：集計規則、`autoimmune_atlas/ui/`：表示。
 
 設計の変更理由と検証結果は、[作業計画](plans/2026-09-22-cell-support.md)にも記録する。
 

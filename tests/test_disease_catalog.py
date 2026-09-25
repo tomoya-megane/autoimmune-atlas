@@ -2,7 +2,7 @@
 
 import unittest
 
-from disease_catalog import (
+from autoimmune_atlas.disease_catalog import (
     DISEASE_GROUPS,
     SCOPE_ROOTS,
     disease_catalog,
