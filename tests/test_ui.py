@@ -1171,8 +1171,11 @@ class CallbackTests(unittest.TestCase):
             for node in layout["props"]["children"]
             if node.get("props", {}).get("className") == "panel controls"
         )
-        groups = controls["props"]["children"][0]
-        scope = groups["props"]["children"][2]
+        self.assertEqual(
+            controls["props"]["children"][0]["props"]["children"], "Settings panel"
+        )
+        groups = controls["props"]["children"][1]
+        scope = groups["props"]["children"][0]
         scope_controls = scope["props"]["children"][1]
         self.assertEqual(scope_controls["type"], "Div")
         self.assertEqual(
@@ -1188,8 +1191,11 @@ class CallbackTests(unittest.TestCase):
                 for group in groups["props"]["children"]
                 if "filter-group" in group["props"].get("className", "").split()
             ],
-            ["Drug evidence", "Expression criteria", "Comparison scope", "Display"],
+            ["Comparison scope", "Drug evidence", "Expression criteria", "Display"],
         )
+        browser = scope_controls["props"]["children"][0]["props"]["children"][2]
+        self.assertEqual(browser["type"], "Div")
+        self.assertEqual(browser["props"]["children"][0]["type"], "H4")
         self.assertFalse(self.components["specificity"]["disabled"])
 
     def test_specificity_input_follows_rule_and_keeps_value(self) -> None:

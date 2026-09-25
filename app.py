@@ -313,9 +313,9 @@ def disease_selector(snapshot, selected):
                 multi=True,
                 searchable=True,
             ),
-            html.Details(
+            html.Div(
                 [
-                    html.Summary("Browse disease groups"),
+                    html.H4("Browse disease groups"),
                     html.Div(groups, className="disease-tree"),
                 ],
                 className="disease-browser",
@@ -1465,8 +1465,23 @@ def dashboard_layout(snapshot) -> html.Main:
             ),
             html.Section(
                 [
+                    html.H2("Settings panel"),
                     html.Div(
                         [
+                            html.Div(
+                                [
+                                    html.H3("Comparison scope"),
+                                    html.Div(
+                                        [
+                                            disease_selector(
+                                                snapshot, default_diseases
+                                            ),
+                                        ],
+                                        className="control-grid scope-controls",
+                                    ),
+                                ],
+                                className="filter-group scope-group",
+                            ),
                             html.Section(
                                 [
                                     html.H3("Drug evidence"),
@@ -1594,20 +1609,6 @@ def dashboard_layout(snapshot) -> html.Main:
                                     ),
                                 ],
                                 className="filter-group",
-                            ),
-                            html.Div(
-                                [
-                                    html.H3("Comparison scope"),
-                                    html.Div(
-                                        [
-                                            disease_selector(
-                                                snapshot, default_diseases
-                                            ),
-                                        ],
-                                        className="control-grid scope-controls",
-                                    ),
-                                ],
-                                className="filter-group scope-group",
                             ),
                             html.Section(
                                 [
