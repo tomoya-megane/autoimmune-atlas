@@ -10,13 +10,13 @@ Python の Dash と Plotly を使う。
 
 ## コード構成
 
-起動とデータ更新の入口だけをリポジトリ直下に置き、処理の実体は `autoimmune_atlas/` にまとめている。
+起動とデータ更新の入口だけをリポジトリ直下に置き、処理の実体は `backend/` にまとめている。
 集計、データ取得、画面表示のどこを読むべきかを、ファイル名から判断できる構成である。
 
 ```text
 app.py                         Dash アプリの起動
 fetch_data.py                  公開 API からのデータ更新
-autoimmune_atlas/
+backend/
 ├── aggregation.py             薬剤、標的、細胞型の集計
 ├── disease_catalog.py         対象疾患と表示順の定義
 ├── refresh.py                 公開 API の取得、正規化、保存

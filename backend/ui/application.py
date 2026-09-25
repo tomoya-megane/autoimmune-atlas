@@ -4,8 +4,8 @@ from pathlib import Path
 
 from dash import Dash
 
-from autoimmune_atlas.ui.callbacks import register_callbacks
-from autoimmune_atlas.ui.layout import dashboard_layout, unavailable_layout
+from backend.ui.callbacks import register_callbacks
+from backend.ui.layout import dashboard_layout, unavailable_layout
 
 
 def create_app(

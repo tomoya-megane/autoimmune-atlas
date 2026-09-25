@@ -5,10 +5,10 @@ from datetime import datetime, timedelta, timezone
 
 from dash import dcc, html
 
-from autoimmune_atlas import aggregation as atlas
-from autoimmune_atlas.disease_catalog import ordered_disease_ids
-from autoimmune_atlas.ui.components import disease_selector, info_tip
-from autoimmune_atlas.ui.config import (
+from backend import aggregation as atlas
+from backend.disease_catalog import ordered_disease_ids
+from backend.ui.components import disease_selector, info_tip
+from backend.ui.config import (
     DEFAULT_EXPRESSION_THRESHOLD,
     DEFAULT_SPECIFICITY_THRESHOLD,
     METHOD_LABELS,

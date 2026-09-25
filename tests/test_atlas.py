@@ -6,14 +6,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from autoimmune_atlas.aggregation import (
+from backend.aggregation import (
     cell_catalog,
     expression_metadata,
     expression_state,
     filtered_records,
     summarize,
 )
-from autoimmune_atlas.refresh import (
+from backend.refresh import (
     _extract_mechanisms,
     extract_expression,
     normalize_drugs,
@@ -571,7 +571,7 @@ class ImportTests(unittest.TestCase):
         self.assertIn("MONDO_0003346", ids)
         self.assertNotIn("AIDS_ARTERITIS", ids)
         self.assertEqual(ids.count("B"), 1)
-        with patch("autoimmune_atlas.refresh.SCOPE_ROOTS", (("MISSING", True),)):
+        with patch("backend.refresh.SCOPE_ROOTS", (("MISSING", True),)):
             with self.assertRaises(ValueError):
                 resolve_disease_ids(fake_query)
 

@@ -145,7 +145,7 @@ lichen planus の下位語には lichenoid drug reaction が、psoriasis の下�
 
 ## 起点はコードとスナップショットで管理する
 
-起点と下位語を含めるかどうかは、`autoimmune_atlas/disease_catalog.py` の `SCOPE_ROOTS` に定義している。
-`autoimmune_atlas/refresh.py` は起点ごとの対象語を集めて和集合を作り、起点の一覧とともにスナップショットへ保存する。
-閲覧用の群と各群の起点は、`autoimmune_atlas/disease_catalog.py` の `DISEASE_GROUPS` に定義している。
+起点と下位語を含めるかどうかは、`backend/disease_catalog.py` の `SCOPE_ROOTS` に定義している。
+`backend/refresh.py` は起点ごとの対象語を集めて和集合を作り、起点の一覧とともにスナップショットへ保存する。
+閲覧用の群と各群の起点は、`backend/disease_catalog.py` の `DISEASE_GROUPS` に定義している。
 対象を保守するときは、表の採否と `SCOPE_ROOTS`、全疾患の配置先、独立して表示する疾患を確認し、`tests/test_disease_catalog.py` の回帰テストも更新する。

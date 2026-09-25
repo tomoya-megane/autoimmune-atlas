@@ -8,9 +8,9 @@ from textwrap import wrap
 import plotly.graph_objects as go
 from scipy.cluster.hierarchy import leaves_list, linkage
 
-from autoimmune_atlas import aggregation as atlas
-from autoimmune_atlas.ui.components import _ordered_cell_ids
-from autoimmune_atlas.ui.config import (
+from backend import aggregation as atlas
+from backend.ui.components import _ordered_cell_ids
+from backend.ui.config import (
     DEFAULT_EXPRESSION_THRESHOLD,
     DEFAULT_SPECIFICITY_THRESHOLD,
 )

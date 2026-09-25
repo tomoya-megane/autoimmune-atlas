@@ -2,8 +2,8 @@
 
 from dash import dcc, html
 
-from autoimmune_atlas import aggregation as atlas
-from autoimmune_atlas.disease_catalog import disease_catalog, ordered_disease_ids
+from backend import aggregation as atlas
+from backend.disease_catalog import disease_catalog, ordered_disease_ids
 
 
 def info_tip(key: str, label: str, description: str):

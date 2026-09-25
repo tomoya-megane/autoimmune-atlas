@@ -5,15 +5,15 @@ from functools import lru_cache
 
 from dash import ALL, Dash, Input, Output, State, ctx, html, no_update
 
-from autoimmune_atlas import aggregation as atlas
-from autoimmune_atlas.disease_catalog import disease_catalog, ordered_disease_ids
-from autoimmune_atlas.ui.components import (
+from backend import aggregation as atlas
+from backend.disease_catalog import disease_catalog, ordered_disease_ids
+from backend.ui.components import (
     _disease_checklist_sections,
     _evidence_table,
     heatmap_row_controls,
     info_tip,
 )
-from autoimmune_atlas.ui.config import (
+from backend.ui.config import (
     DEFAULT_EXPRESSION_THRESHOLD,
     DEFAULT_SPECIFICITY_THRESHOLD,
     METHOD_LABELS,
@@ -21,7 +21,7 @@ from autoimmune_atlas.ui.config import (
     SOURCE_PAGE_SIZE,
     STAGE_LABELS,
 )
-from autoimmune_atlas.ui.figures import (
+from backend.ui.figures import (
     _measure_fields,
     build_figure,
     disease_label_lines,
@@ -29,7 +29,7 @@ from autoimmune_atlas.ui.figures import (
     expression_view,
     heatmap_cell_ids,
 )
-from autoimmune_atlas.ui.layout import detail_panel
+from backend.ui.layout import detail_panel
 
 
 def _effective_number(value, default, label, maximum=None):

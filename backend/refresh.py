@@ -14,12 +14,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from autoimmune_atlas.aggregation import (
+from backend.aggregation import (
     DRUG_TYPE_TO_MODALITY,
     STAGE_FILTERS,
     cell_catalog,
 )
-from autoimmune_atlas.disease_catalog import SCOPE_ROOTS
+from backend.disease_catalog import SCOPE_ROOTS
 
 API_HOST = "api.platform.opentargets.org"
 API_PATH = "/api/v4/graphql"

@@ -13,9 +13,9 @@ from unittest.mock import patch
 
 from dash import html
 
-from autoimmune_atlas import aggregation as atlas
-from autoimmune_atlas import refresh, snapshot
-from autoimmune_atlas.ui import (
+from backend import aggregation as atlas
+from backend import refresh, snapshot
+from backend.ui import (
     application,
     callbacks,
     components,
@@ -763,9 +763,7 @@ class ApplicationPathTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as directory:
                 os.chdir(directory)
-                with patch(
-                    "autoimmune_atlas.snapshot.load_snapshot", return_value=None
-                ):
+                with patch("backend.snapshot.load_snapshot", return_value=None):
                     namespace = runpy.run_path(
                         str(entrypoint), run_name="app_path_test"
                     )
