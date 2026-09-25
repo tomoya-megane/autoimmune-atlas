@@ -1,0 +1,192 @@
+"""スナップショットと集計結果の共有データ型。"""
+
+from typing import Literal, NotRequired, TypedDict
+
+
+class Reference(TypedDict):
+    source: str
+    ids: list[str]
+    urls: list[str]
+
+
+class DrugRecord(TypedDict):
+    disease_id: str
+    disease: str
+    drug_id: str
+    drug: str
+    canonical_drug_id: str
+    canonical_drug: str
+    modality: NotRequired[str]
+    drug_type: str
+    stage: str
+    target_id: str | None
+    target: str | None
+    mechanism: str | None
+    action_types: NotRequired[list[str]]
+    references: list[Reference]
+
+
+class FilteredRecord(DrugRecord):
+    canonical_stage: str
+
+
+class EvidenceRecord(FilteredRecord):
+    cell_id: str
+    cell: str
+    cpm: float
+    specificity_score: float | None
+    target_median: float | None
+    evidence: str
+    note: str
+
+
+class TargetRecord(TypedDict):
+    target_id: NotRequired[str | None]
+    target: NotRequired[str | None]
+
+
+class EvidenceBase(FilteredRecord):
+    group_cell_id: str
+    group_cell: str
+    references_json: str
+
+
+class EvidenceTableRow(EvidenceBase):
+    evidence_cell_id: str
+    evidence_cell: str
+    cpm: float | None
+    specificity_score: float | None
+    target_median: float | None
+    support_state: Literal["positive", "negative", "unknown", "unmapped"]
+    contributing: bool
+
+
+class Disease(TypedDict):
+    id: str
+    name: str
+    parent_ids: NotRequired[list[str]]
+    status: str
+    unclassified_stages: NotRequired[int]
+
+
+class CatalogDisease(TypedDict):
+    id: str
+    name: str
+    parent_ids: NotRequired[list[str]]
+
+
+class ExpressionRow(TypedDict):
+    cell_id: str
+    cell: str
+    median: float | None
+    specificity_score: NotRequired[float | None]
+    parent_id: NotRequired[str | None]
+    parent: NotRequired[str | None]
+    ancestor_ids: NotRequired[list[str]]
+
+
+class ExpressionMetadata(ExpressionRow):
+    target_median: float | None
+
+
+class ExpressionStateInput(TypedDict):
+    median: float | None
+    target_median: NotRequired[float | None]
+    specificity_score: NotRequired[float | None]
+
+
+class RootIdentity(TypedDict):
+    id: str
+    name: str
+
+
+class SnapshotRoot(RootIdentity):
+    include_descendants: bool
+    count: int
+
+
+class DataVersion(TypedDict):
+    year: str
+    month: str
+    iteration: str | int | None
+
+
+class Snapshot(TypedDict):
+    schema: int
+    root: str | RootIdentity
+    roots: NotRequired[list[SnapshotRoot]]
+    data_version: NotRequired[DataVersion]
+    retrieved_at: str
+    source: str
+    diseases: list[Disease]
+    records: list[DrugRecord]
+    expression: dict[str, list[ExpressionRow]]
+
+
+class AggregationSnapshot(TypedDict):
+    schema: int
+    diseases: NotRequired[list[Disease]]
+    records: NotRequired[list[DrugRecord]]
+    expression: NotRequired[dict[str, list[ExpressionRow]]]
+
+
+class CoreSnapshot(TypedDict):
+    schema: int
+    diseases: list[Disease]
+    records: list[DrugRecord]
+    expression: dict[str, list[ExpressionRow]]
+
+
+class DiseaseCatalogInput(TypedDict):
+    diseases: list[CatalogDisease]
+
+
+class CellMembership(TypedDict):
+    id: str
+    name: str
+    group_id: str
+    group_name: str
+    ancestor_ids: tuple[str, ...]
+
+
+class CellCatalogEntry(TypedDict):
+    id: str
+    name: str
+    members: list[str]
+    ontology_id: NotRequired[str]
+    cell_level: NotRequired[str]
+
+
+class DiseaseFamily(TypedDict):
+    id: str
+    label: str
+    diseases: list[CatalogDisease]
+
+
+class DiseaseCatalogGroup(TypedDict):
+    id: str
+    label: str
+    families: list[DiseaseFamily]
+
+
+class SummaryRow(TypedDict):
+    disease_id: str
+    disease: str
+    cell_id: str
+    cell: str
+    ontology_id: str
+    cell_level: str
+    count: int | None
+    percent: float | None
+    denominator: int
+    unknown: int
+    unmapped_drugs: int
+    status: str
+    records: list[EvidenceRecord]
+    drug_count: int | None
+    drug_percent: float | None
+    drug_denominator: int
+    unknown_drugs: int
+    total_drugs: int
+    mapped_drugs: int
+    member_cell_ids: list[str]

@@ -8,6 +8,7 @@ from backend.disease_catalog import (
     disease_catalog,
     ordered_disease_ids,
 )
+from backend.models import CatalogDisease, DiseaseCatalogInput
 
 
 class ScopeRootTests(unittest.TestCase):
@@ -26,7 +27,7 @@ class ScopeRootTests(unittest.TestCase):
 
 class DiseaseCatalogTests(unittest.TestCase):
     def test_groups_and_families_follow_names_with_other_last(self):
-        diseases = [
+        diseases: list[CatalogDisease] = [
             {
                 "id": "MONDO_0007915",
                 "name": "systemic lupus erythematosus",
@@ -41,7 +42,7 @@ class DiseaseCatalogTests(unittest.TestCase):
             },
             {"id": "OTHER", "name": "unclassified term", "parent_ids": []},
         ]
-        snapshot = {"diseases": diseases}
+        snapshot: DiseaseCatalogInput = {"diseases": diseases}
         catalog = disease_catalog(snapshot)
         self.assertEqual(
             [group["id"] for group in catalog],
@@ -65,7 +66,7 @@ class DiseaseCatalogTests(unittest.TestCase):
     def test_nearest_family_keeps_psoriatic_arthritis_separate_and_all_terms_available(
         self,
     ):
-        diseases = [
+        diseases: list[CatalogDisease] = [
             {
                 "id": "EFO_0009459",
                 "name": "ACPA-positive rheumatoid arthritis",

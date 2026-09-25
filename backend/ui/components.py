@@ -1,21 +1,49 @@
 """Dash の再利用可能な画面部品。"""
 
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from typing import Literal, TypedDict
+
 from dash import dcc, html
+from dash.development.base_component import Component
 
 from backend import aggregation as atlas
 from backend.disease_catalog import disease_catalog, ordered_disease_ids
+from backend.models import (
+    CatalogDisease,
+    DiseaseCatalogGroup,
+    DiseaseFamily,
+    FilteredRecord,
+    Snapshot,
+)
 
 
-def info_tip(key: str, label: str, description: str):
+class DiseaseSection(TypedDict):
+    """同じ選択欄に表示する疾患の区分。"""
+
+    id: str
+    diseases: list[CatalogDisease]
+    node: str | None
+    kind: Literal["self", "children"]
+
+
+def info_tip(key: str, label: str, description: str) -> html.Span:
     """操作対象の近くに、キーボードでも読める説明を置く。"""
     tip_id = f"{key}-tip"
     return html.Span(
         [
             html.Button(
-                html.Span(className="ui-icon icon-info", **{"aria-hidden": "true"}),
+                html.Span(
+                    className="ui-icon icon-info",
+                    **{  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
+                        "aria-hidden": "true"
+                    },
+                ),
                 type="button",
                 className="info-button",
-                **{"aria-label": f"About {label}", "aria-describedby": tip_id},
+                **{  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
+                    "aria-label": f"About {label}",
+                    "aria-describedby": tip_id,
+                },
             ),
             html.Span(description, id=tip_id, role="tooltip", className="info-content"),
         ],
@@ -23,33 +51,39 @@ def info_tip(key: str, label: str, description: str):
     )
 
 
-def cell_catalog(snapshot: dict, level: str = "group") -> list[tuple[str, str]]:
+def cell_catalog(snapshot: Snapshot, level: str = "group") -> list[tuple[str, str]]:
     """公開関数が返す細胞カタログを選択欄向けに整える。"""
     return [(row["id"], row["name"]) for row in atlas.cell_catalog(snapshot, level)]
 
 
-def _ordered_cell_ids(snapshot: dict, level: str, cell_ids) -> list[str]:
-    selected = set(cell_ids or [])
+def ordered_cell_ids(
+    snapshot: Snapshot, level: str, cell_ids: Iterable[str] | None
+) -> list[str]:
+    selected = set(cell_ids or ())
     return [
         cell_id for cell_id, _ in cell_catalog(snapshot, level) if cell_id in selected
     ]
 
 
-def _disease_tree(family):
+def _disease_tree(
+    family: DiseaseFamily,
+) -> tuple[list[str], dict[str, list[str]]]:
     """ファミリー内の親子関係を、各語が 1 つの親の下にだけ現れる木にする。
 
     複数の親を持つ語は、より深い親の下に置き、同じ深さなら名前順で決める。
     親子が循環して根から届かない語は、最上位に置いて失わない。
     戻り値は (最上位の語の一覧, 語 ID → 子の一覧)。
     """
-    members = {d["id"]: d for d in family["diseases"]}
-    parents_of = {
+    members: dict[str, CatalogDisease] = {
+        disease["id"]: disease for disease in family["diseases"]
+    }
+    parents_of: dict[str, list[str]] = {
         did: [p for p in d.get("parent_ids", []) if p in members and p != did]
         for did, d in members.items()
     }
-    depth = {}
+    depth: dict[str, int] = {}
 
-    def node_depth(did, trail=()):
+    def node_depth(did: str, trail: tuple[str, ...] = ()) -> int:
         if did not in depth:
             parents = [p for p in parents_of[did] if p not in trail]
             depth[did] = (
@@ -59,23 +93,23 @@ def _disease_tree(family):
             )
         return depth[did]
 
-    def by_name(did):
+    def by_name(did: str) -> tuple[str, str]:
         return members[did]["name"].casefold(), did
 
-    parent = {}
+    parent: dict[str, str] = {}
     for did in sorted(members, key=by_name):
         if parents_of[did]:
             parent[did] = min(
                 parents_of[did], key=lambda p: (-node_depth(p), *by_name(p))
             )
 
-    def reaches_top(did, trail=()):
+    def reaches_top(did: str, trail: tuple[str, ...] = ()) -> bool:
         return did not in parent or (
             did not in trail and reaches_top(parent[did], trail + (did,))
         )
 
-    children = {did: [] for did in members}
-    top = []
+    children: dict[str, list[str]] = {did: [] for did in members}
+    top: list[str] = []
     for did in sorted(members, key=by_name):
         if did in parent and reaches_top(did):
             children[parent[did]].append(did)
@@ -86,7 +120,7 @@ def _disease_tree(family):
     return top, children
 
 
-def _disease_checklist_sections(family):
+def disease_checklist_sections(family: DiseaseFamily) -> list[DiseaseSection]:
     """疾患本体と各階層の選択欄を、描画と同期で同じ範囲に分ける。
 
     子を持つ語は、ファミリーと同じ形にする。
@@ -98,11 +132,11 @@ def _disease_checklist_sections(family):
     members = {d["id"]: d for d in family["diseases"]}
     root = family["id"] if family["id"] in members else None
 
-    def section_id(prefix, node):
+    def section_id(prefix: str, node: str) -> str:
         suffix = "" if node == root else f"-{node}"
         return f"{prefix}-{family['id']}{suffix}"
 
-    sections = [
+    sections: list[DiseaseSection] = [
         {
             "id": f"disease-family-{family['id']}",
             "diseases": [members[d] for d in top if d == root or not children[d]],
@@ -136,18 +170,20 @@ def _disease_checklist_sections(family):
     return sections
 
 
-def disease_selector(snapshot, selected):
+def disease_selector(snapshot: Snapshot, selected: Iterable[str] | None) -> html.Div:
     """検索欄と、群から開けるチェック欄を同じ選択へ結び付ける。"""
-    catalog = disease_catalog(snapshot)
-    options, groups = [], []
+    catalog: list[DiseaseCatalogGroup] = disease_catalog(snapshot)
+    selected_ids = set(selected or ())
+    options: list[dict[str, str]] = []
+    groups: list[Component] = []
     for group in catalog:
-        families = []
+        families: list[Component] = []
         for family in group["families"]:
             choices = [
                 {"label": d["name"], "value": d["id"]} for d in family["diseases"]
             ]
             options.extend(choices)
-            sections = _disease_checklist_sections(family)
+            sections = disease_checklist_sections(family)
             top, children = _disease_tree(family)
             root = (
                 family["id"]
@@ -157,23 +193,27 @@ def disease_selector(snapshot, selected):
             by_kind = {(s["kind"], s["node"]): s for s in sections}
             names = {d["id"]: d["name"] for d in family["diseases"]}
 
-            def descendant_count(node):
+            def descendant_count(node: str) -> int:
                 return sum(1 + descendant_count(c) for c in children[node])
 
-            def checklist(section):
+            def checklist(section: DiseaseSection) -> dcc.Checklist:
                 return dcc.Checklist(
                     id=section["id"],
                     options=[
                         {"label": d["name"], "value": d["id"]}
                         for d in section["diseases"]
                     ],
-                    value=[d["id"] for d in section["diseases"] if d["id"] in selected],
+                    value=[
+                        disease["id"]
+                        for disease in section["diseases"]
+                        if disease["id"] in selected_ids
+                    ],
                     className="disease-checklist",
                 )
 
-            def render_details(node):
+            def render_details(node: str) -> html.Details:
                 """子を持つ語の details。葉のチェック欄と、子を持つ子の入れ子を並べる。"""
-                inner = []
+                inner: list[Component] = []
                 if ("children", node) in by_kind:
                     inner.append(checklist(by_kind[("children", node)]))
                 inner.extend(render_node(c) for c in children[node] if children[c])
@@ -186,7 +226,7 @@ def disease_selector(snapshot, selected):
                     ]
                 )
 
-            def render_node(node):
+            def render_node(node: str) -> html.Details:
                 """本体のチェック欄と details を、ファミリーと同じ形で包む。"""
                 return html.Details(
                     [
@@ -200,7 +240,7 @@ def disease_selector(snapshot, selected):
                     ]
                 )
 
-            top_items = [checklist(sections[0])]
+            top_items: list[Component] = [checklist(sections[0])]
             if root and children[root]:
                 top_items.append(render_details(root))
             top_items.extend(render_node(d) for d in top if children[d] and d != root)
@@ -243,7 +283,7 @@ def disease_selector(snapshot, selected):
             dcc.Dropdown(
                 id="diseases",
                 options=options,
-                value=ordered_disease_ids(snapshot, selected),
+                value=ordered_disease_ids(snapshot, list(selected_ids)),
                 multi=True,
                 searchable=True,
             ),
@@ -259,7 +299,12 @@ def disease_selector(snapshot, selected):
     )
 
 
-def heatmap_row_controls(names, cell_ids, expanded, kind):
+def heatmap_row_controls(
+    names: Mapping[str, str],
+    cell_ids: Iterable[str],
+    expanded: Collection[str],
+    kind: str,
+) -> list[html.Button | html.Div]:
     """図の各行に揃えた、キーボードでも操作できる行見出し。"""
     return [
         html.Button(
@@ -273,7 +318,9 @@ def heatmap_row_controls(names, cell_ids, expanded, kind):
             },
             n_clicks=0,
             title=("Collapse " if cell_id in expanded else "Expand ") + names[cell_id],
-            **{"aria-expanded": "true" if cell_id in expanded else "false"},
+            **{  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
+                "aria-expanded": "true" if cell_id in expanded else "false"
+            },
         )
         if cell_id.startswith("group:")
         else html.Div(
@@ -283,13 +330,14 @@ def heatmap_row_controls(names, cell_ids, expanded, kind):
     ]
 
 
-def _reference_links(record):
-    links = []
-    if record.get("target_id"):
+def reference_links(record: FilteredRecord) -> html.Div | str:
+    links: list[html.A] = []
+    target_id = record.get("target_id")
+    if target_id:
         links.append(
             html.A(
                 "Open Targets target",
-                href="https://platform.opentargets.org/target/" + record["target_id"],
+                href="https://platform.opentargets.org/target/" + target_id,
                 target="_blank",
                 rel="noreferrer",
             )
@@ -324,7 +372,7 @@ def _reference_links(record):
                 rel="noreferrer",
             )
         )
-    children = []
+    children: list[Component] = []
     for index, item in enumerate(links):
         if index:
             children.append(html.Br())
@@ -332,7 +380,7 @@ def _reference_links(record):
     return html.Div(children) if children else "—"
 
 
-def _evidence_table(records):
+def evidence_table(records: Sequence[FilteredRecord]) -> html.Div:
     headers = (
         "Canonical drug",
         "Original drug",
@@ -356,7 +404,7 @@ def _evidence_table(records):
             "Left: stage of this original drug in this disease. Right: highest stage across original forms of the same canonical drug in this disease, used for filtering.",
         ),
     }
-    body = []
+    body: list[html.Tr] = []
     for record in records:
         actions, mechanism = (
             ", ".join(record.get("action_types") or []),
@@ -379,7 +427,7 @@ def _evidence_table(records):
                         f"{record.get('target') or '—'} ({record.get('target_id') or '—'})"
                     ),
                     html.Td(f"{actions or '—'} / {mechanism}"),
-                    html.Td(_reference_links(record)),
+                    html.Td(reference_links(record)),
                 ]
             )
         )

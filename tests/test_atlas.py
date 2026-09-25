@@ -4,6 +4,7 @@ import math
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Callable
 from unittest.mock import patch
 
 from backend.aggregation import (
@@ -13,16 +14,25 @@ from backend.aggregation import (
     filtered_records,
     summarize,
 )
+from backend.models import (
+    AggregationSnapshot,
+    CoreSnapshot,
+    ExpressionRow,
+    ExpressionStateInput,
+)
 from backend.refresh import (
-    _extract_mechanisms,
+    ClinicalCandidate,
+    ExpressionApiRow,
+    MechanismApiRow,
     extract_expression,
+    extract_mechanisms,
     normalize_drugs,
     resolve_disease_ids,
     save_snapshot,
 )
 
 
-def _snapshot() -> dict:
+def _snapshot() -> CoreSnapshot:
     return {
         "schema": 2,
         "diseases": [
@@ -32,6 +42,7 @@ def _snapshot() -> dict:
         "records": [
             {
                 "disease_id": "D1",
+                "disease": "Disease one",
                 "drug_id": "A-SALT",
                 "drug": "alpha salt",
                 "canonical_drug_id": "A",
@@ -47,6 +58,7 @@ def _snapshot() -> dict:
             },
             {
                 "disease_id": "D1",
+                "disease": "Disease one",
                 "drug_id": "A",
                 "drug": "alpha",
                 "canonical_drug_id": "A",
@@ -60,6 +72,7 @@ def _snapshot() -> dict:
             },
             {
                 "disease_id": "D1",
+                "disease": "Disease one",
                 "drug_id": "B",
                 "drug": "beta",
                 "canonical_drug_id": "B",
@@ -73,6 +86,7 @@ def _snapshot() -> dict:
             },
             {
                 "disease_id": "D1",
+                "disease": "Disease one",
                 "drug_id": "U",
                 "drug": "unknown",
                 "canonical_drug_id": "U",
@@ -86,6 +100,7 @@ def _snapshot() -> dict:
             },
             {
                 "disease_id": "D2",
+                "disease": "Disease two",
                 "drug_id": "A",
                 "drug": "alpha",
                 "canonical_drug_id": "A",
@@ -294,7 +309,9 @@ class AtlasTests(unittest.TestCase):
         )
         self.assertEqual((row["count"], row["unknown"]), (1, 1))
         self.assertEqual((row["drug_count"], row["unknown_drugs"]), (1, 1))
-        self.assertAlmostEqual(row["percent"], 100 / 3)
+        percent = row["percent"]
+        assert percent is not None
+        self.assertAlmostEqual(percent, 100 / 3)
         self.assertEqual(row["drug_percent"], 50)
 
     def test_unmapped_drug_does_not_change_known_percentages(self) -> None:
@@ -402,7 +419,11 @@ class AtlasTests(unittest.TestCase):
             if r["disease_id"] == "D1" and r["cell_id"] == "T4"
         )
         self.assertIn("G1", {record["target_id"] for record in row["records"]})
-        at_threshold = {"median": 0.5, "target_median": 0.5, "specificity_score": 0.75}
+        at_threshold: ExpressionStateInput = {
+            "median": 0.5,
+            "target_median": 0.5,
+            "specificity_score": 0.75,
+        }
         for method in ("fixed", "relative", "specificity"):
             self.assertTrue(expression_state(at_threshold, 0.5, method, 0.75))
         self.assertFalse(expression_state({"median": 0.49}, 0.5, "fixed"))
@@ -428,11 +449,12 @@ class AtlasTests(unittest.TestCase):
         )
 
     def test_catalog_uses_lineage_group_priority_and_keeps_every_cell(self) -> None:
-        rows = [
+        rows: list[ExpressionRow] = [
             {
                 "cell_id": "CD8_EFFECTOR",
                 "cell": "A CD8 effector",
                 "median": 1,
+                "specificity_score": None,
                 "parent_id": "OTHER",
                 "parent": "Other",
                 "ancestor_ids": ["CL_0000084", "CD8"],
@@ -441,6 +463,7 @@ class AtlasTests(unittest.TestCase):
                 "cell_id": "UNKNOWN_Z",
                 "cell": "Zeta cell",
                 "median": 1,
+                "specificity_score": None,
                 "parent_id": "UNKNOWN_Z",
                 "parent": "Zeta group",
                 "ancestor_ids": [],
@@ -449,6 +472,7 @@ class AtlasTests(unittest.TestCase):
                 "cell_id": "CD4_MEMORY",
                 "cell": "A CD4 memory",
                 "median": 1,
+                "specificity_score": None,
                 "parent_id": "OTHER",
                 "parent": "Other",
                 "ancestor_ids": ["CL_0000084", "CD4"],
@@ -457,6 +481,7 @@ class AtlasTests(unittest.TestCase):
                 "cell_id": "B",
                 "cell": "B cell",
                 "median": 1,
+                "specificity_score": None,
                 "parent_id": "CL_0000945",
                 "parent": "B lineage",
                 "ancestor_ids": ["CL_0000945"],
@@ -465,6 +490,7 @@ class AtlasTests(unittest.TestCase):
                 "cell_id": "CD8",
                 "cell": "CD8 T cell",
                 "median": 1,
+                "specificity_score": None,
                 "parent_id": "OTHER",
                 "parent": "Other",
                 "ancestor_ids": ["CL_0000084"],
@@ -473,6 +499,7 @@ class AtlasTests(unittest.TestCase):
                 "cell_id": "UNKNOWN_A",
                 "cell": "Alpha cell",
                 "median": 1,
+                "specificity_score": None,
                 "parent_id": "UNKNOWN_A",
                 "parent": "Alpha group",
                 "ancestor_ids": [],
@@ -481,12 +508,18 @@ class AtlasTests(unittest.TestCase):
                 "cell_id": "CD4",
                 "cell": "CD4 T cell",
                 "median": 1,
+                "specificity_score": None,
                 "parent_id": "OTHER",
                 "parent": "Other",
                 "ancestor_ids": ["CL_0000084"],
             },
         ]
-        snapshot = {"schema": 2, "expression": {"G": rows}}
+        snapshot: AggregationSnapshot = {
+            "schema": 2,
+            "diseases": [],
+            "records": [],
+            "expression": {"G": rows},
+        }
 
         groups = cell_catalog(snapshot, "group")
         cells = cell_catalog(snapshot, "cell")
@@ -516,14 +549,20 @@ class AtlasTests(unittest.TestCase):
             cell_catalog(snapshot)
 
     def test_invalid_modes_and_nonfinite_thresholds_fail(self) -> None:
-        for kwargs in (
-            {"stage": "late"},
-            {"method": "guess"},
-            {"level": "organ"},
-            {"specificity_threshold": math.inf},
-        ):
-            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
-                summarize(snapshot=_snapshot(), modality="all", threshold=0.5, **kwargs)
+        invalid_calls: tuple[tuple[str, Callable[[], object]], ...] = (
+            ("stage", lambda: summarize(_snapshot(), "all", 0.5, stage="late")),
+            ("method", lambda: summarize(_snapshot(), "all", 0.5, method="guess")),
+            ("level", lambda: summarize(_snapshot(), "all", 0.5, level="organ")),
+            (
+                "specificity_threshold",
+                lambda: summarize(
+                    _snapshot(), "all", 0.5, specificity_threshold=math.inf
+                ),
+            ),
+        )
+        for name, call in invalid_calls:
+            with self.subTest(parameter=name), self.assertRaises(ValueError):
+                call()
         with self.assertRaises(ValueError):
             summarize(_snapshot(), "all", math.nan)
         with self.assertRaises(ValueError):
@@ -543,7 +582,7 @@ class ImportTests(unittest.TestCase):
             "MONDO_0003346": ["AIDS_ARTERITIS", "B"],
         }
 
-        def fake_query(query: str, variables: dict) -> dict:
+        def fake_query(_query: str, variables: dict[str, str]) -> dict[str, object]:
             root_id = variables["id"]
             if root_id not in tree:
                 return (
@@ -602,7 +641,7 @@ class ImportTests(unittest.TestCase):
             "oligosaccharide",
             "unknown",
         )
-        rows = [
+        rows: list[ClinicalCandidate] = [
             {
                 "maxClinicalStage": "PHASE_1",
                 "drug": {
@@ -623,7 +662,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(drugs[1]["canonical_drug_id"], "1")
 
     def test_withdrawal_is_not_stored_but_approval_and_phase_four_are(self) -> None:
-        rows = [
+        rows: list[ClinicalCandidate] = [
             {
                 "maxClinicalStage": stage,
                 "drug": {
@@ -640,7 +679,7 @@ class ImportTests(unittest.TestCase):
         )
 
     def test_duplicate_drug_rows_are_rejected(self) -> None:
-        row = {
+        row: ClinicalCandidate = {
             "maxClinicalStage": "PHASE_1",
             "drug": {
                 "id": "A",
@@ -653,7 +692,7 @@ class ImportTests(unittest.TestCase):
             normalize_drugs([row, row])
 
     def test_expression_keeps_specificity_parent_and_ancestors(self) -> None:
-        base = {
+        base: ExpressionApiRow = {
             "datasourceId": "tabula_sapiens",
             "unit": "CPM(pseudobulk sum[counts])",
             "median": 2.0,
@@ -692,14 +731,19 @@ class ImportTests(unittest.TestCase):
             ),
             [],
         )
-        for key, value in (("median", -1), ("specificity_score", 1.1)):
+        invalid_rows: tuple[tuple[str, ExpressionApiRow], ...] = (
+            ("median", {**base, "median": -1}),
+            ("specificity_score", {**base, "specificity_score": 1.1}),
+        )
+        for key, invalid_row in invalid_rows:
             with self.subTest(key=key), self.assertRaises(ValueError):
-                extract_expression([{**base, key: value}])
+                extract_expression([invalid_row])
+        invalid_unit: ExpressionApiRow = {**base, "unit": "TPM"}
         with self.assertRaisesRegex(ValueError, "単位"):
-            extract_expression([{**base, "unit": "TPM"}])
+            extract_expression([invalid_unit])
 
     def test_mechanism_references_are_deduplicated(self) -> None:
-        row = {
+        row: MechanismApiRow = {
             "mechanismOfAction": "blocks",
             "actionType": "BLOCKER",
             "targets": [{"id": "G1", "approvedSymbol": "GENE1"}],
@@ -709,7 +753,7 @@ class ImportTests(unittest.TestCase):
             ],
         }
         self.assertEqual(
-            _extract_mechanisms([row]),
+            extract_mechanisms([row]),
             [
                 {
                     "target_id": "G1",

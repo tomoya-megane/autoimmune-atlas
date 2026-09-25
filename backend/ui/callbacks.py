@@ -1,15 +1,19 @@
 """Dash アプリのコールバック。"""
 
 import math
+from collections.abc import Collection, Sequence
 from functools import lru_cache
+from typing import TypedDict, cast
 
+import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs] - Plotly に型スタブがない。
 from dash import ALL, Dash, Input, Output, State, ctx, html, no_update
 
 from backend import aggregation as atlas
 from backend.disease_catalog import disease_catalog, ordered_disease_ids
+from backend.models import Snapshot, SummaryRow
 from backend.ui.components import (
-    _disease_checklist_sections,
-    _evidence_table,
+    disease_checklist_sections,
+    evidence_table,
     heatmap_row_controls,
     info_tip,
 )
@@ -22,17 +26,69 @@ from backend.ui.config import (
     STAGE_LABELS,
 )
 from backend.ui.figures import (
-    _measure_fields,
+    Measure,
     build_figure,
     disease_label_lines,
     expression_figure,
     expression_view,
     heatmap_cell_ids,
+    measure_fields,
 )
 from backend.ui.layout import detail_panel
 
+type NumberInput = int | float | str | None
+type ParameterValue = str | int | float | list[str] | None
 
-def _effective_number(value, default, label, maximum=None):
+AppliedParameters = TypedDict(
+    "AppliedParameters",
+    {
+        "measure": Measure,
+        "modality": str,
+        "stage": str,
+        "method": str,
+        "threshold": NumberInput,
+        "specificity": NumberInput,
+        "diseases": list[str],
+        "heatmap-view": str,
+    },
+)
+
+
+class SourceContext(TypedDict):
+    disease_id: str
+    modality: str
+    stage: str
+    threshold: float
+    method: str
+    specificity: float
+
+
+class ClickPoint(TypedDict, total=False):
+    customdata: list[str] | tuple[str, ...]
+
+
+class ClickData(TypedDict):
+    points: list[ClickPoint]
+
+
+class CellToggleId(TypedDict):
+    type: str
+    kind: str
+    cell: str
+
+
+def _applied_parameters(values: tuple[ParameterValue, ...]) -> AppliedParameters:
+    """Dash の設定値をコールバック間で共有する形にする。"""
+    # Dash の各 control が値の型を固定するが、callback デコレーターからはその型を取得できない。
+    return cast(AppliedParameters, cast(object, dict(zip(PARAMETER_IDS, values))))
+
+
+def _effective_number(
+    value: NumberInput,
+    default: float,
+    label: str,
+    maximum: float | None = None,
+) -> tuple[float, str | None]:
     """空欄には初期値を使い、不正値は理由を示して初期値へ戻す。"""
     if value is None or value == "":
         return default, None
@@ -56,7 +112,9 @@ def _effective_number(value, default, label, maximum=None):
     return number, None
 
 
-def effective_filters(threshold, specificity):
+def effective_filters(
+    threshold: NumberInput, specificity: NumberInput
+) -> tuple[float, float, list[str]]:
     """実際に集計へ渡す閾値と入力エラーを返す。"""
     minimum, minimum_error = _effective_number(
         threshold, DEFAULT_EXPRESSION_THRESHOLD, "minimum CPM"
@@ -71,23 +129,23 @@ def effective_filters(threshold, specificity):
     )
 
 
-def effective_threshold(threshold) -> float:
+def effective_threshold(threshold: NumberInput) -> float:
     """後方互換用に、適用される最低 CPM だけを返す。"""
     return effective_filters(threshold, DEFAULT_SPECIFICITY_THRESHOLD)[0]
 
 
 def visible_rows(
-    snapshot,
-    modality,
-    threshold,
-    disease_ids,
-    cell_ids,
+    snapshot: Snapshot,
+    modality: str,
+    threshold: NumberInput,
+    disease_ids: Sequence[str] | None,
+    cell_ids: Sequence[str] | None,
     *,
-    stage="phase3",
-    method="fixed",
-    specificity=DEFAULT_SPECIFICITY_THRESHOLD,
-    level="group",
-):
+    stage: str = "phase3",
+    method: str = "fixed",
+    specificity: NumberInput = DEFAULT_SPECIFICITY_THRESHOLD,
+    level: str = "group",
+) -> list[SummaryRow]:
     """backend の集計結果を現在の表示範囲へ絞る。"""
     minimum, specificity_value, _ = effective_filters(threshold, specificity)
     return atlas.summarize(
@@ -98,12 +156,17 @@ def visible_rows(
         method=method,
         specificity_threshold=specificity_value,
         level=level,
-        cell_ids=cell_ids or [],
-        disease_ids=disease_ids or [],
+        cell_ids=list(cell_ids or ()),
+        disease_ids=list(disease_ids or ()),
     )
 
 
-def resolve_disease_selection(triggered_id, click_data, disease_id, visible_ids):
+def resolve_disease_selection(
+    triggered_id: str | dict[str, str] | None,
+    click_data: ClickData | None,
+    disease_id: str | None,
+    visible_ids: Collection[str],
+) -> str | None:
     """表示中の疾患に限って、クリックまたは選択欄を受け付ける。"""
     selection = disease_id
     if (
@@ -117,18 +180,24 @@ def resolve_disease_selection(triggered_id, click_data, disease_id, visible_ids)
     return selection if selection in visible_ids else None
 
 
-def register_callbacks(application: Dash, snapshot: dict) -> None:
+def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
     """schema 2 dashboard のコールバックを登録する。"""
     heatmap_catalog = atlas.cell_catalog(snapshot, "mixed")
     heatmap_names = {cell["id"]: cell["name"] for cell in heatmap_catalog}
     heatmap_groups = {
-        cell["id"] for cell in heatmap_catalog if cell["cell_level"] == "group"
+        cell["id"] for cell in heatmap_catalog if cell.get("cell_level") == "group"
     }
 
     @lru_cache(maxsize=1)
     def comparison_rows(
-        modality, minimum, disease_ids, cell_ids, stage, method, specificity
-    ):
+        modality: str,
+        minimum: float,
+        disease_ids: tuple[str, ...],
+        cell_ids: tuple[str, ...],
+        stage: str,
+        method: str,
+        specificity: float,
+    ) -> list[SummaryRow]:
         # ponytail: retain one filter combination per app; enlarge only for concurrent users.
         return visible_rows(
             snapshot,
@@ -142,28 +211,31 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             level="mixed",
         )
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("expanded-cell-groups", "data"),
         Input({"type": "heatmap-cell-toggle", "kind": ALL, "cell": ALL}, "n_clicks"),
         State("expanded-cell-groups", "data"),
         prevent_initial_call=True,
     )
-    def toggle_cell_group(_clicks, expanded):
+    def toggle_cell_group(
+        _clicks: list[int | None], expanded: list[str] | None
+    ) -> object:
         # Newly rendered buttons have zero clicks; only user clicks toggle a group.
-        triggered = ctx.triggered_id
+        triggered = cast(CellToggleId | str | None, ctx.triggered_id)
+        inputs_list = cast(list[list[dict[str, object]]], ctx.inputs_list)
         if not isinstance(triggered, dict) or not any(
-            item["id"] == triggered and item.get("value") for item in ctx.inputs_list[0]
+            item["id"] == triggered and item.get("value") for item in inputs_list[0]
         ):
             return no_update
         cell_id = triggered["cell"]
         valid = heatmap_groups
         if cell_id not in valid:
             return no_update
-        expanded = set(expanded or []) & valid
-        expanded.symmetric_difference_update([cell_id])
-        return sorted(expanded)
+        expanded_set = set(expanded or ()) & valid
+        expanded_set.symmetric_difference_update([cell_id])
+        return sorted(expanded_set)
 
-    application.callback(
+    application.callback(  # pyright: ignore[reportUnknownMemberType] - Dash の callback メソッドの型が不完全である。
         Output("expanded-expression-groups", "data"),
         Input({"type": "expression-cell-toggle", "kind": ALL, "cell": ALL}, "n_clicks"),
         State("expanded-expression-groups", "data"),
@@ -171,7 +243,14 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
     )(toggle_cell_group)
 
     @lru_cache(maxsize=1)
-    def expression_base(disease, modality, stage, threshold, method, specificity):
+    def expression_base(
+        disease: str,
+        modality: str,
+        stage: str,
+        threshold: float,
+        method: str,
+        specificity: float,
+    ) -> go.Figure:
         # ponytail: retain one selected disease; enlarge only for concurrent users.
         records = [
             record
@@ -187,14 +266,16 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             grouped=True,
         )
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("expression-heatmap", "figure"),
         Output("expression-heatmap", "style"),
         Output("expression-row-controls", "children"),
         Input("source-context", "data"),
         Input("expanded-expression-groups", "data"),
     )
-    def update_expression(context, expanded):
+    def update_expression(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        context: SourceContext | None, expanded: list[str] | None
+    ) -> tuple[object, object, object]:
         if not context:
             return no_update, no_update, no_update
         base = expression_base(
@@ -211,36 +292,42 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             )
         )
         figure = expression_view(base, heatmap_catalog, expanded or [])
+        heatmap = cast(go.Heatmap, figure.data[0])
+        x_values = cast(tuple[object, ...] | None, heatmap.x)
         cells = heatmap_cell_ids(
-            snapshot, heatmap_groups, expanded, catalog=heatmap_catalog
+            snapshot, tuple(heatmap_groups), expanded, catalog=heatmap_catalog
         )
         return (
             figure,
             {
-                "minWidth": f"{max(640, 320 + 28 * len(figure.data[0].x))}px",
-                "height": f"{figure.layout.height}px",
+                "minWidth": f"{max(640, 320 + 28 * len(x_values if x_values is not None else ()))}px",
+                "height": f"{figure.layout.height}px",  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
             },
             heatmap_row_controls(heatmap_names, cells, expanded or [], "expression"),
         )
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("applied-parameters", "data"),
         Input("update-button", "n_clicks"),
         *[State(item, "value") for item in PARAMETER_IDS],
         prevent_initial_call=True,
     )
-    def apply_parameters(_clicks, *values):
-        return dict(zip(PARAMETER_IDS, values))
+    def apply_parameters(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        _clicks: int | None, *values: ParameterValue
+    ) -> AppliedParameters:
+        return _applied_parameters(values)
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("update-status", "children"),
         Input("applied-parameters", "data"),
         *[Input(item, "value") for item in PARAMETER_IDS],
     )
-    def parameter_status(applied, *values):
+    def parameter_status(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        applied: AppliedParameters, *values: ParameterValue
+    ) -> str:
         return (
             "Settings applied."
-            if dict(zip(PARAMETER_IDS, values)) == applied
+            if _applied_parameters(values) == applied
             else "Changes not applied. Click Update."
         )
 
@@ -248,25 +335,28 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         section
         for group in disease_catalog(snapshot)
         for family in group["families"]
-        for section in _disease_checklist_sections(family)
+        for section in disease_checklist_sections(family)
     ]
     family_ids = [section["id"] for section in families]
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("diseases", "value"),
         *[Output(item, "value") for item in family_ids],
         Input("diseases", "value"),
         *[Input(item, "value") for item in family_ids],
     )
-    def sync_disease_selection(selected, *family_values):
-        selected = set(selected or [])
-        if ctx.triggered_id in family_ids:
-            index = family_ids.index(ctx.triggered_id)
+    def sync_disease_selection(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        selected: list[str] | None, *family_values: list[str] | None
+    ) -> list[list[str]]:
+        selected_set = set(selected or ())
+        triggered_id = cast(str | dict[str, str] | None, ctx.triggered_id)
+        if isinstance(triggered_id, str) and triggered_id in family_ids:
+            index = family_ids.index(triggered_id)
             members = {d["id"] for d in families[index]["diseases"]}
-            selected = (selected - members) | (
+            selected_set = (selected_set - members) | (
                 set(family_values[index] or []) & members
             )
-        ordered = ordered_disease_ids(snapshot, selected)
+        ordered = ordered_disease_ids(snapshot, list(selected_set))
         return [
             ordered,
             *[
@@ -275,20 +365,26 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             ],
         ]
 
-    @application.callback(Output("specificity", "disabled"), Input("method", "value"))
-    def toggle_specificity(method):
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
+        Output("specificity", "disabled"), Input("method", "value")
+    )
+    def toggle_specificity(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        method: str | None,
+    ) -> bool:
         return method != "specificity"
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("target-heatmap-panel", "hidden"),
         Output("drug-heatmap-panel", "hidden"),
         Input("applied-parameters", "data"),
     )
-    def select_heatmap(applied):
+    def select_heatmap(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        applied: AppliedParameters,
+    ) -> tuple[bool, bool]:
         view = applied["heatmap-view"]
         return view == "drug", view != "drug"
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("target-heatmap", "figure"),
         Output("drug-heatmap", "figure"),
         Output("target-heatmap", "style"),
@@ -301,24 +397,37 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         Input("applied-parameters", "data"),
         Input("expanded-cell-groups", "data"),
     )
-    def update_figures(applied, expanded):
-        (
-            measure,
-            modality,
-            stage,
-            method,
-            threshold,
-            specificity,
-            disease_ids,
-        ) = (applied[key] for key in PARAMETER_IDS[:-1])
+    def update_figures(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        applied: AppliedParameters, expanded: list[str] | None
+    ) -> tuple[
+        go.Figure,
+        go.Figure,
+        dict[str, str],
+        dict[str, str],
+        html.Div,
+        list[html.Button | html.Div],
+        list[html.Button | html.Div],
+        dict[str, str],
+        dict[str, str],
+    ]:
+        measure = applied["measure"]
+        modality = applied["modality"]
+        stage = applied["stage"]
+        method = applied["method"]
+        threshold = applied["threshold"]
+        specificity = applied["specificity"]
+        disease_ids = applied["diseases"]
         cell_ids = heatmap_groups
         minimum, specificity_value, errors = effective_filters(threshold, specificity)
         disease_ids = ordered_disease_ids(snapshot, disease_ids)
         scale_cell_ids = heatmap_cell_ids(
-            snapshot, cell_ids, heatmap_groups, catalog=heatmap_catalog
+            snapshot,
+            tuple(cell_ids),
+            tuple(heatmap_groups),
+            catalog=heatmap_catalog,
         )
         cell_ids = heatmap_cell_ids(
-            snapshot, cell_ids, expanded, catalog=heatmap_catalog
+            snapshot, tuple(cell_ids), expanded, catalog=heatmap_catalog
         )
         scale_rows = comparison_rows(
             modality,
@@ -350,21 +459,25 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             for kind in ("target", "drug")
         )
         for figure in (target_figure, drug_figure):
-            figure.update_layout(
+            figure.update_layout(  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
                 height=top_margin + 70 + 28 * max(1, len(cell_ids)),
                 margin={"l": 240, "r": right_margin, "t": top_margin, "b": 70},
             )
-            figure.update_xaxes(automargin=False, tickangle=-45)
-            figure.update_yaxes(title=None, automargin=False, fixedrange=True)
-            figure.update_traces(
+            figure.update_xaxes(  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
+                automargin=False, tickangle=-45
+            )
+            figure.update_yaxes(  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
+                title=None, automargin=False, fixedrange=True
+            )
+            figure.update_traces(  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
                 colorbar_len=min(240, max(28, 28 * len(cell_ids))),
                 selector={"type": "heatmap"},
             )
         target_missing = sum(
-            row[_measure_fields("target", measure)[0]] is None for row in rows
+            row[measure_fields("target", measure)[0]] is None for row in rows
         )
         drug_missing = sum(
-            row[_measure_fields("drug", measure)[0]] is None for row in rows
+            row[measure_fields("drug", measure)[0]] is None for row in rows
         )
         condition = f"median CPM ≥ {minimum:g}"
         if method == "relative":
@@ -408,7 +521,7 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             {"top": f"{top_margin}px"},
         )
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("detail-disease", "options"),
         Output("detail-disease", "value"),
         Input("applied-parameters", "data"),
@@ -416,10 +529,15 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         Input("drug-heatmap", "clickData"),
         State("detail-disease", "value"),
     )
-    def update_detail_selector(applied, target_click, drug_click, current_disease):
+    def update_detail_selector(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        applied: AppliedParameters,
+        target_click: ClickData | None,
+        drug_click: ClickData | None,
+        current_disease: str | None,
+    ) -> tuple[list[dict[str, str]], str | None]:
         disease_ids = ordered_disease_ids(snapshot, applied["diseases"])
         disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}
-        triggered = ctx.triggered_id
+        triggered = cast(str | dict[str, str] | None, ctx.triggered_id)
         click_data = (
             target_click
             if triggered == "target-heatmap"
@@ -439,21 +557,20 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             selected or next(iter(disease_ids), None),
         )
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("details", "children"),
         Input("detail-disease", "value"),
         Input("applied-parameters", "data"),
     )
-    def update_details(detail_disease, applied):
-        (
-            _measure,
-            modality,
-            stage,
-            method,
-            threshold,
-            specificity,
-            disease_ids,
-        ) = (applied[key] for key in PARAMETER_IDS[:-1])
+    def update_details(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        detail_disease: str | None, applied: AppliedParameters
+    ) -> html.Div:
+        modality = applied["modality"]
+        stage = applied["stage"]
+        method = applied["method"]
+        threshold = applied["threshold"]
+        specificity = applied["specificity"]
+        disease_ids = applied["diseases"]
         minimum, specificity_value, _ = effective_filters(threshold, specificity)
         selected = detail_disease if detail_disease in disease_ids else None
         rows = atlas.summarize(
@@ -477,12 +594,14 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
             specificity=specificity_value,
         )
 
-    @application.callback(
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("source-records-page", "children"),
         Input("source-page", "value"),
         Input("source-context", "data"),
     )
-    def show_source_records(page, context):
+    def show_source_records(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+        page: int | None, context: SourceContext | None
+    ) -> html.Div | None:
         if not context:
             return None
         records = [
@@ -507,6 +626,6 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
                     role="status",
                     className="matrix-note",
                 ),
-                _evidence_table(records[start:end]),
+                evidence_table(records[start:end]),
             ]
         )

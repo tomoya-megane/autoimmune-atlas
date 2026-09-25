@@ -19,6 +19,7 @@ fetch_data.py                  公開 API からのデータ更新
 backend/
 ├── aggregation.py             薬剤、標的、細胞型の集計
 ├── disease_catalog.py         対象疾患と表示順の定義
+├── models.py                  スナップショットと集計結果の共有データ型
 ├── refresh.py                 公開 API の取得、正規化、保存
 ├── snapshot.py                保存済みデータの読み込みと検証
 └── ui/
@@ -184,6 +185,12 @@ pixi run test
 ```
 
 テストは成分と標的の重複除去、疾患内の臨床段階、3種類の発現基準、大分類、欠測、画面の応答を確認する。
+型は basedpyright で検査する。
+
+```bash
+pixi run typecheck
+```
+
 ツールチップの位置調整と Escape キーの処理は、Node.js がある環境で次のコマンドから検証できる。
 
 ```bash

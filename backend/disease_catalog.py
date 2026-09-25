@@ -9,6 +9,14 @@
 
 from collections import deque
 
+from backend.models import (
+    CatalogDisease,
+    DiseaseCatalogGroup,
+    DiseaseCatalogInput,
+    DiseaseFamily,
+    Snapshot,
+)
+
 # 対象疾患の起点。(ID, 下位語を含めるか)。先頭が基底の autoimmune disease。
 # 下位語を含めない語は、下位語に遺伝性や感染性の疾患が混ざるので本体だけを入れる。
 SCOPE_ROOTS = (
@@ -255,36 +263,41 @@ UNCLASSIFIED_IDS = {
 }  # Hailey-Hailey disease, MASS syndrome
 
 
-def disease_catalog(snapshot):
+def disease_catalog(
+    snapshot: Snapshot | DiseaseCatalogInput,
+) -> list[DiseaseCatalogGroup]:
     """全疾患を一度ずつ収める。親情報や分類先がない用語も失わない。"""
-    diseases = {d["id"]: d for d in snapshot["diseases"]}
+    diseases: dict[str, CatalogDisease] = {
+        disease["id"]: disease for disease in snapshot["diseases"]
+    }
     roots = [root for _, _, ids in DISEASE_GROUPS for root in ids if root in diseases]
     rank = {root: i for i, root in enumerate(roots)}
-    families = {root: [] for root in roots}
-    other = []
+    families: dict[str, list[CatalogDisease]] = {root: [] for root in roots}
+    other: list[CatalogDisease] = []
     for disease in diseases.values():
         if disease["id"] in UNCLASSIFIED_IDS:
             other.append(disease)
             continue
-        distances, queue = {}, deque([(disease["id"], 0)])
+        distances: dict[str, int] = {}
+        queue: deque[tuple[str, int]] = deque([(disease["id"], 0)])
         while queue:
             node, distance = queue.popleft()
             if node in distances:
                 continue
             distances[node] = distance
-            queue.extend(
-                (parent, distance + 1)
-                for parent in diseases.get(node, {}).get("parent_ids", [])
+            parent_ids = (
+                diseases[node].get("parent_ids", []) if node in diseases else []
             )
+            queue.extend((parent, distance + 1) for parent in parent_ids)
         candidates = [root for root in roots if root in distances]
         if candidates:
             root = min(candidates, key=lambda item: (distances[item], rank[item]))
             families[root].append(disease)
         else:
             other.append(disease)
-    groups = []
+    groups: list[DiseaseCatalogGroup] = []
     for group_id, label, ids in DISEASE_GROUPS:
-        entries = [
+        entries: list[DiseaseFamily] = [
             {
                 "id": root,
                 "label": diseases[root]["name"],
@@ -326,13 +339,15 @@ def disease_catalog(snapshot):
     return groups
 
 
-def ordered_disease_ids(snapshot, selected):
+def ordered_disease_ids(
+    snapshot: Snapshot | DiseaseCatalogInput, selected: list[str] | None
+) -> list[str]:
     """チェック順に依存せず、閲覧用の群とファミリーの順に並べる。"""
-    selected = set(selected or [])
+    selected_ids = set(selected or [])
     return [
         d["id"]
         for group in disease_catalog(snapshot)
         for family in group["families"]
         for d in family["diseases"]
-        if d["id"] in selected
+        if d["id"] in selected_ids
     ]

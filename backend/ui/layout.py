@@ -1,12 +1,16 @@
 """Dash アプリの画面構成。"""
 
 import math
+from collections.abc import Collection, Iterable, Sequence
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from dash import dcc, html
+from dash.development.base_component import Component
 
 from backend import aggregation as atlas
 from backend.disease_catalog import ordered_disease_ids
+from backend.models import Snapshot, SummaryRow
 from backend.ui.components import disease_selector, info_tip
 from backend.ui.config import (
     DEFAULT_EXPRESSION_THRESHOLD,
@@ -17,9 +21,14 @@ from backend.ui.config import (
 )
 
 
-def choose_defaults(items, terms, limit, preferred_ids=None) -> list[str]:
+def choose_defaults(
+    items: Sequence[tuple[str, str]],
+    terms: Iterable[str],
+    limit: int,
+    preferred_ids: Collection[str] | None = None,
+) -> list[str]:
     """名前と実データの有無から、存在する項目だけを初期選択する。"""
-    selected = []
+    selected: list[str] = []
     names = {item_id: name.casefold() for item_id, name in items}
     for term in terms:
         exact = next(
@@ -46,24 +55,29 @@ def format_data_version(value: object) -> str:
     """Open Targets の版を画面で使える短い文字列にする。"""
     if not isinstance(value, dict):
         return str(value or "")
+    version = cast(dict[str, object], value)
     return ".".join(
         str(part)
-        for part in (value.get("year"), value.get("month"), value.get("iteration"))
+        for part in (
+            version.get("year"),
+            version.get("month"),
+            version.get("iteration"),
+        )
         if part is not None
     )
 
 
 def detail_panel(
-    rows,
-    selection,
-    snapshot=None,
+    rows: Sequence[SummaryRow],
+    selection: str | None,
+    snapshot: Snapshot | None = None,
     *,
-    modality="all",
-    stage="phase3",
-    threshold=DEFAULT_EXPRESSION_THRESHOLD,
-    method="fixed",
-    specificity=DEFAULT_SPECIFICITY_THRESHOLD,
-):
+    modality: str = "all",
+    stage: str = "phase3",
+    threshold: float = DEFAULT_EXPRESSION_THRESHOLD,
+    method: str = "fixed",
+    specificity: float = DEFAULT_SPECIFICITY_THRESHOLD,
+) -> html.Div:
     """選択した疾患の連続発現と元記録を表示する。"""
     if selection is None:
         return html.Div(
@@ -90,7 +104,7 @@ def detail_panel(
         for record in atlas.filtered_records(snapshot, modality, stage)
         if record["disease_id"] == row["disease_id"]
     ]
-    source_context = {
+    source_context: dict[str, str | float] = {
         "disease_id": row["disease_id"],
         "modality": modality,
         "stage": stage,
@@ -187,7 +201,7 @@ def detail_panel(
     )
 
 
-def unavailable_layout(error=None) -> html.Main:
+def unavailable_layout(error: Exception | None = None) -> html.Main:
     """データ未取得または再取得が必要な状態を説明する。"""
     title = "No data loaded yet" if error is None else "Data refresh required"
     return html.Main(
@@ -209,7 +223,7 @@ def unavailable_layout(error=None) -> html.Main:
     )
 
 
-def dashboard_layout(snapshot) -> html.Main:
+def dashboard_layout(snapshot: Snapshot) -> html.Main:
     """schema 2 のデータから dashboard の初期画面を作る。"""
     diseases = [(row["id"], row["name"]) for row in snapshot["diseases"]]
     default_diseases = choose_defaults(
@@ -241,11 +255,16 @@ def dashboard_layout(snapshot) -> html.Main:
         {"label": label, "value": value} for label, value in atlas.DRUG_TYPE_MODALITIES
     ]
 
-    def control(label, component, description=None):
-        title = html.Label(label, htmlFor=component.id)
+    def control(
+        label: str,
+        component_id: str,
+        component: dcc.Dropdown,
+        description: str | None = None,
+    ) -> html.Div:
+        title: Component = html.Label(label, htmlFor=component_id)
         if description:
             title = html.Div(
-                [title, info_tip(component.id, label.lower(), description)],
+                [title, info_tip(component_id, label.lower(), description)],
                 className="label-help",
             )
         return html.Div([title, component], className="control")
@@ -285,7 +304,9 @@ def dashboard_layout(snapshot) -> html.Main:
                     ),
                 ],
                 className="app-bar",
-                **{"aria-label": "Main navigation"},
+                **{  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
+                    "aria-label": "Main navigation"
+                },
             ),
             html.Header(
                 [
@@ -359,7 +380,9 @@ def dashboard_layout(snapshot) -> html.Main:
                             ),
                         ],
                         className="source-bar",
-                        **{"aria-label": "Snapshot data"},
+                        **{  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
+                            "aria-label": "Snapshot data"
+                        },
                     ),
                 ],
                 className="hero",
@@ -436,6 +459,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                     ),
                                     control(
                                         "Drug modality",
+                                        "modality",
                                         dcc.Dropdown(
                                             id="modality",
                                             options=modality_options,
@@ -452,6 +476,7 @@ def dashboard_layout(snapshot) -> html.Main:
                                     html.H3("Expression criteria"),
                                     control(
                                         "Expression rule",
+                                        "method",
                                         dcc.Dropdown(
                                             id="method",
                                             options=[
@@ -718,6 +743,7 @@ def dashboard_layout(snapshot) -> html.Main:
                         [
                             control(
                                 "Disease",
+                                "detail-disease",
                                 dcc.Dropdown(id="detail-disease", clearable=False),
                             )
                         ],

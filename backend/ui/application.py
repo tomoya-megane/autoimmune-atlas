@@ -4,12 +4,13 @@ from pathlib import Path
 
 from dash import Dash
 
+from backend.models import Snapshot
 from backend.ui.callbacks import register_callbacks
 from backend.ui.layout import dashboard_layout, unavailable_layout
 
 
 def create_app(
-    snapshot: dict | None,
+    snapshot: Snapshot | None,
     error: Exception | None = None,
     *,
     assets_folder: str | Path,

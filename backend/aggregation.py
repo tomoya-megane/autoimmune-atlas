@@ -6,6 +6,22 @@ import math
 from collections import defaultdict
 from statistics import median
 
+from backend.models import (
+    AggregationSnapshot,
+    CellCatalogEntry,
+    CellMembership,
+    CoreSnapshot,
+    DrugRecord,
+    EvidenceRecord,
+    ExpressionMetadata,
+    ExpressionStateInput,
+    FilteredRecord,
+    Snapshot,
+    SummaryRow,
+)
+
+type SnapshotInput = Snapshot | CoreSnapshot | AggregationSnapshot
+
 DRUG_TYPE_MODALITIES = (
     ("Small molecule", "small_molecule"),
     ("Antibody", "antibody"),
@@ -80,12 +96,12 @@ CELL_GROUP_ORDER = (
 CELL_GROUP_RANK = {cell_id: rank for rank, cell_id in enumerate(CELL_GROUP_ORDER)}
 
 
-def _validate_snapshot(snapshot: dict) -> None:
+def _validate_snapshot(snapshot: SnapshotInput) -> None:
     if snapshot.get("schema") != 2:
         raise ValueError("snapshot must use schema 2")
 
 
-def _record_modality(row: dict) -> str:
+def _record_modality(row: DrugRecord) -> str:
     try:
         return DRUG_TYPE_TO_MODALITY[row["drug_type"]]
     except KeyError as error:
@@ -93,16 +109,18 @@ def _record_modality(row: dict) -> str:
 
 
 def filtered_records(
-    snapshot: dict, modality: str = "all", stage: str = "phase3"
-) -> list[dict]:
+    snapshot: SnapshotInput,
+    modality: str = "all",
+    stage: str = "phase3",
+) -> list[FilteredRecord]:
     """疾患内の有効成分ごとの最高段階を使って元記録を絞る。"""
     _validate_snapshot(snapshot)
     if modality != "all" and modality not in DRUG_TYPE_TO_MODALITY.values():
         raise ValueError(f"未対応のモダリティ: {modality}")
     if stage not in STAGE_FILTERS:
         raise ValueError(f"未対応の臨床段階フィルター: {stage}")
-    candidates = []
-    maximum = {}
+    candidates: list[DrugRecord] = []
+    maximum: dict[tuple[str, str], str] = {}
     for row in snapshot.get("records", []):
         row_modality = _record_modality(row)
         clinical_stage = row.get("stage")
@@ -127,8 +145,10 @@ def filtered_records(
     ]
 
 
-def _cell_memberships(snapshot: dict) -> dict[str, dict]:
-    cells = {}
+def _cell_memberships(
+    snapshot: SnapshotInput,
+) -> dict[str, CellMembership]:
+    cells: dict[str, CellMembership] = {}
     for rows in snapshot.get("expression", {}).values():
         for row in rows:
             cell_id = row["cell_id"]
@@ -138,7 +158,7 @@ def _cell_memberships(snapshot: dict) -> dict[str, dict]:
             else:
                 group_id = row.get("parent_id") or cell_id
                 group_name = row.get("parent") or row["cell"]
-            definition = {
+            definition: CellMembership = {
                 "id": cell_id,
                 "name": row["cell"],
                 "group_id": group_id,
@@ -151,14 +171,14 @@ def _cell_memberships(snapshot: dict) -> dict[str, dict]:
     return cells
 
 
-def _lineage_order(cells: dict[str, dict], members: list[str]) -> list[str]:
+def _lineage_order(cells: dict[str, CellMembership], members: list[str]) -> list[str]:
     """観測された祖先だけを使い、親を子より先に一度ずつ並べる。"""
     member_set = set(members)
 
-    def key(cell_id):
+    def key(cell_id: str) -> tuple[str, str]:
         return cells[cell_id]["name"].casefold(), cell_id
 
-    parents = {}
+    parents: dict[str, str] = {}
     for cell_id in members:
         candidates = member_set.intersection(cells[cell_id]["ancestor_ids"])
         closest = [
@@ -172,12 +192,13 @@ def _lineage_order(cells: dict[str, dict], members: list[str]) -> list[str]:
         ]
         if closest:
             parents[cell_id] = min(closest, key=key)
-    children = defaultdict(list)
+    children: defaultdict[str, list[str]] = defaultdict(list)
     for child, parent in parents.items():
         children[parent].append(child)
-    ordered, seen = [], set()
+    ordered: list[str] = []
+    seen: set[str] = set()
 
-    def visit(cell_id):
+    def visit(cell_id: str) -> None:
         if cell_id in seen:
             return
         seen.add(cell_id)
@@ -194,13 +215,15 @@ def _lineage_order(cells: dict[str, dict], members: list[str]) -> list[str]:
     return ordered
 
 
-def cell_catalog(snapshot: dict, level: str = "group") -> list[dict]:
+def cell_catalog(
+    snapshot: SnapshotInput, level: str = "group"
+) -> list[CellCatalogEntry]:
     """細胞型または大分類と、所属する元細胞 ID を返す。"""
     _validate_snapshot(snapshot)
     if level not in {"group", "cell", "mixed"}:
         raise ValueError(f"未対応の細胞分類レベル: {level}")
     cells = _cell_memberships(snapshot)
-    groups = {}
+    groups: dict[str, CellCatalogEntry] = {}
     for item in cells.values():
         group = groups.setdefault(
             item["group_id"],
@@ -222,7 +245,7 @@ def cell_catalog(snapshot: dict, level: str = "group") -> list[dict]:
     if level == "group":
         return ordered_groups
     if level == "mixed":
-        mixed = []
+        mixed: list[CellCatalogEntry] = []
         for group in ordered_groups:
             mixed.append(
                 {
@@ -254,19 +277,22 @@ def cell_catalog(snapshot: dict, level: str = "group") -> list[dict]:
     ]
 
 
-def expression_metadata(snapshot: dict) -> dict[tuple[str, str], dict]:
+def expression_metadata(
+    snapshot: SnapshotInput,
+) -> dict[tuple[str, str], ExpressionMetadata]:
     """各標的・細胞の発現値と、全参照細胞から求めた標的内中央値を返す。"""
     _validate_snapshot(snapshot)
     all_cells = set(_cell_memberships(snapshot))
-    result = {}
+    result: dict[tuple[str, str], ExpressionMetadata] = {}
     for target_id, rows in snapshot.get("expression", {}).items():
         by_cell = {row["cell_id"]: row for row in rows}
-        values = [row.get("median") for row in rows]
+        values = [row["median"] for row in rows]
+        numeric_values = [value for value in values if value is not None]
         target_median = (
-            median(values)
+            median(numeric_values)
             if set(by_cell) == all_cells
             and values
-            and all(value is not None for value in values)
+            and len(numeric_values) == len(values)
             else None
         )
         for row in rows:
@@ -275,10 +301,10 @@ def expression_metadata(snapshot: dict) -> dict[tuple[str, str], dict]:
 
 
 def expression_state(
-    metadata: dict | None,
-    threshold: float,
+    metadata: ExpressionMetadata | ExpressionStateInput | None,
+    threshold: object,
     method: str,
-    specificity_threshold: float = 0.5,
+    specificity_threshold: object = 0.5,
 ) -> bool | None:
     """一つの標的・細胞について陽性、陰性、未知を返す。"""
     if method not in {"fixed", "relative", "specificity"}:
@@ -301,20 +327,23 @@ def expression_state(
 
 
 def _expression_state(
-    metadata: dict | None, threshold: float, method: str, specificity_threshold: float
+    metadata: ExpressionMetadata | ExpressionStateInput | None,
+    threshold: float,
+    method: str,
+    specificity_threshold: float,
 ) -> bool | None:
-    if metadata is None or metadata.get("median") is None:
+    if metadata is None:
         return None
-    if metadata["median"] < threshold:
+    value = metadata["median"]
+    if value is None:
+        return None
+    if value < threshold:
         return False
     if method == "fixed":
         return True
     if method == "relative":
-        return (
-            None
-            if metadata["target_median"] is None
-            else metadata["median"] >= metadata["target_median"]
-        )
+        target_median = metadata.get("target_median")
+        return None if target_median is None else value >= target_median
     score = metadata.get("specificity_score")
     return None if score is None else score >= specificity_threshold
 
@@ -327,7 +356,7 @@ def _aggregate(states: list[bool | None]) -> bool | None:
     return None
 
 
-def _percent(positives: set, unknown: set, denominator: int) -> float | None:
+def _percent(positives: set[str], unknown: set[str], denominator: int) -> float | None:
     if not denominator:
         return None
     if positives:
@@ -336,17 +365,17 @@ def _percent(positives: set, unknown: set, denominator: int) -> float | None:
 
 
 def summarize(
-    snapshot: dict,
+    snapshot: SnapshotInput,
     modality: str,
-    threshold: float,
+    threshold: object,
     *,
     stage: str = "phase3",
     method: str = "fixed",
-    specificity_threshold: float = 0.5,
+    specificity_threshold: object = 0.5,
     level: str = "group",
     cell_ids: list[str] | None = None,
     disease_ids: list[str] | None = None,
-) -> list[dict]:
+) -> list[SummaryRow]:
     """疾患・細胞または全元細胞の標的数と有効成分数を三値判定で集計する。"""
     if method not in {"fixed", "relative", "specificity"}:
         raise ValueError(f"未対応の発現判定方法: {method}")
@@ -366,11 +395,11 @@ def summarize(
         or not 0 <= specificity_threshold <= 1
     ):
         raise ValueError("特異性閾値は 0 以上 1 以下の有限の数値にしてください")
-    records_by_disease = defaultdict(list)
+    records_by_disease: defaultdict[str, list[FilteredRecord]] = defaultdict(list)
     for row in filtered_records(snapshot, modality, stage):
         records_by_disease[row["disease_id"]].append(row)
     metadata = expression_metadata(snapshot)
-    catalog = (
+    catalog: list[CellCatalogEntry] = (
         [
             {
                 "id": "all",
@@ -385,14 +414,14 @@ def summarize(
         selected_cells = set(cell_ids)
         catalog = [cell for cell in catalog if cell["id"] in selected_cells]
     selected_diseases = None if disease_ids is None else set(disease_ids)
-    output = []
+    output: list[SummaryRow] = []
     for disease in snapshot.get("diseases", []):
         if selected_diseases is not None and disease["id"] not in selected_diseases:
             continue
         records = records_by_disease[disease["id"]]
         targets = {row["target_id"] for row in records if row["target_id"]}
-        drug_targets = defaultdict(set)
-        drugs = set()
+        drug_targets: defaultdict[str, set[str]] = defaultdict(set)
+        drugs: set[str] = set()
         for row in records:
             drug_id = row["canonical_drug_id"]
             drugs.add(drug_id)
@@ -433,68 +462,70 @@ def summarize(
             unknown_drugs = {
                 drug for drug, state in drug_states.items() if state is None
             }
-            selected = []
+            selected: list[EvidenceRecord] = []
             for row in records:
                 target = row["target_id"]
                 if target not in positive_targets:
                     continue
                 for member in cell["members"]:
                     item = metadata.get((target, member))
-                    if (
+                    if item is not None and (
                         _expression_state(
                             item, threshold, method, specificity_threshold
                         )
                         is True
                     ):
+                        cpm = item["median"]
+                        if cpm is None:
+                            continue
                         selected.append(
                             {
                                 **row,
                                 "cell_id": member,
                                 "cell": item["cell"],
-                                "cpm": item["median"],
+                                "cpm": cpm,
                                 "specificity_score": item.get("specificity_score"),
                                 "target_median": item["target_median"],
                                 "evidence": "https://platform.opentargets.org/target/"
                                 + target,
-                                "note": f"Tabula Sapiens / median {item['median']:g} CPM",
+                                "note": f"Tabula Sapiens / median {cpm:g} CPM",
                             }
                         )
             complete = disease.get("status") == "ready"
             incomplete = bool(unknown_targets or unknown_drugs or unmapped_drugs)
             target_count = len(positive_targets) if complete else None
             drug_count = len(positive_drugs) if complete else None
-            output.append(
-                {
-                    "disease_id": disease["id"],
-                    "disease": disease["name"],
-                    "cell_id": cell["id"],
-                    "cell": cell["name"],
-                    "ontology_id": cell.get("ontology_id", cell["id"]),
-                    "cell_level": cell.get("cell_level", level),
-                    "count": target_count,
-                    "percent": _percent(positive_targets, unknown_targets, len(targets))
-                    if complete
-                    else None,
-                    "denominator": len(targets),
-                    "unknown": len(unknown_targets),
-                    "unmapped_drugs": len(unmapped_drugs),
-                    "status": "unavailable"
-                    if not complete
-                    else "partial"
-                    if incomplete
-                    else "complete",
-                    "records": selected,
-                    "drug_count": drug_count,
-                    "drug_percent": _percent(
-                        positive_drugs, unknown_drugs, len(mapped_drugs)
-                    )
-                    if complete
-                    else None,
-                    "drug_denominator": len(mapped_drugs),
-                    "unknown_drugs": len(unknown_drugs),
-                    "total_drugs": len(drugs),
-                    "mapped_drugs": len(mapped_drugs),
-                    "member_cell_ids": cell["members"],
-                }
-            )
+            summary: SummaryRow = {
+                "disease_id": disease["id"],
+                "disease": disease["name"],
+                "cell_id": cell["id"],
+                "cell": cell["name"],
+                "ontology_id": cell.get("ontology_id", cell["id"]),
+                "cell_level": cell.get("cell_level", level),
+                "count": target_count,
+                "percent": _percent(positive_targets, unknown_targets, len(targets))
+                if complete
+                else None,
+                "denominator": len(targets),
+                "unknown": len(unknown_targets),
+                "unmapped_drugs": len(unmapped_drugs),
+                "status": "unavailable"
+                if not complete
+                else "partial"
+                if incomplete
+                else "complete",
+                "records": selected,
+                "drug_count": drug_count,
+                "drug_percent": _percent(
+                    positive_drugs, unknown_drugs, len(mapped_drugs)
+                )
+                if complete
+                else None,
+                "drug_denominator": len(mapped_drugs),
+                "unknown_drugs": len(unknown_drugs),
+                "total_drugs": len(drugs),
+                "mapped_drugs": len(mapped_drugs),
+                "member_cell_ids": cell["members"],
+            }
+            output.append(summary)
     return output
