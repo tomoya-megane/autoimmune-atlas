@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from statistics import mean, pstdev
+from textwrap import wrap
 
 import plotly.graph_objects as go
 from dash import ALL, Dash, Input, Output, State, ctx, dcc, html, no_update
@@ -21,7 +22,7 @@ BASE_DIR = Path(__file__).parent
 SNAPSHOT_PATH = BASE_DIR / "data" / "snapshot.json"
 DEFAULT_EXPRESSION_THRESHOLD = 0.5
 DEFAULT_SPECIFICITY_THRESHOLD = 0.5
-SOURCE_PAGE_SIZE = 20
+SOURCE_PAGE_SIZE = 10
 PARAMETER_IDS = (
     "measure",
     "modality",
@@ -384,7 +385,7 @@ def heatmap_row_controls(names, cell_ids, expanded, kind):
 
 
 def format_data_version(value: object) -> str:
-    """Open Targets の版を画面と CSV で使える短い文字列にする。"""
+    """Open Targets の版を画面で使える短い文字列にする。"""
     if not isinstance(value, dict):
         return str(value or "")
     return ".".join(
@@ -524,6 +525,13 @@ def _hover_text(row: dict, measure: str, kind: str) -> str:
     )
 
 
+def disease_label_lines(name):
+    """長い疾患名を単語とハイフン付きの語を保って折り返す。"""
+    return wrap(name, width=32, break_long_words=False, break_on_hyphens=False) or [
+        name
+    ]
+
+
 def build_figure(
     rows, disease_ids, cell_ids, measure, kind="target", *, scale_rows=None
 ) -> go.Figure:
@@ -621,7 +629,16 @@ def build_figure(
         legend={"orientation": "h", "y": -0.08, "yanchor": "top", "x": 0},
         hoverlabel={"align": "left"},
     )
-    figure.update_xaxes(tickangle=-45, side="top", title="Disease", automargin=True)
+    labels = [disease_names.get(item, item) for item in disease_ids]
+    figure.update_xaxes(
+        tickangle=-45,
+        side="top",
+        title="Disease",
+        automargin=True,
+        tickmode="array",
+        tickvals=labels,
+        ticktext=["<br>".join(disease_label_lines(name)) for name in labels],
+    )
     figure.update_yaxes(autorange="reversed", title="Cell type")
     return figure
 
@@ -1109,191 +1126,6 @@ def detail_panel(
     )
 
 
-def export_rows(
-    rows,
-    measure,
-    *,
-    modality_filter="all",
-    stage_filter="phase3",
-    method="fixed",
-    expression_threshold=DEFAULT_EXPRESSION_THRESHOLD,
-    specificity_threshold=DEFAULT_SPECIFICITY_THRESHOLD,
-    level="group",
-    snapshot=None,
-):
-    """集計、元薬剤記録、発現根拠を重複させず一つの CSV に並べる。"""
-    snapshot = snapshot or {}
-    base = {
-        "row_type": "",
-        "disease_id": "",
-        "disease": "",
-        "group_cell_id": "",
-        "group_cell": "",
-        "ontology_cell_id": "",
-        "evidence_cell_id": "",
-        "evidence_cell": "",
-        "measure": measure,
-        "modality_filter": modality_filter,
-        "stage_filter": stage_filter,
-        "method": method,
-        "minimum_cpm": expression_threshold,
-        "specificity_threshold": specificity_threshold,
-        "level": level,
-        "data_version": format_data_version(snapshot.get("data_version")),
-        "retrieved_at": snapshot.get("retrieved_at", ""),
-        "source": snapshot.get("source", ""),
-        "expression_source": "Tabula Sapiens",
-        "expression_unit": "CPM(pseudobulk sum[counts])",
-        "expression_summary": "donor median",
-        "target_display": "",
-        "target_count": "",
-        "target_percent": "",
-        "target_denominator": "",
-        "unknown_targets": "",
-        "drug_display": "",
-        "drug_count": "",
-        "drug_percent": "",
-        "drug_denominator": "",
-        "unknown_drugs": "",
-        "mapped_drugs": "",
-        "total_drugs": "",
-        "unmapped_drugs": "",
-        "status": "",
-        "support_state": "",
-        "contributing": "",
-        "canonical_drug_id": "",
-        "canonical_drug": "",
-        "drug_id": "",
-        "drug": "",
-        "drug_type": "",
-        "original_stage": "",
-        "canonical_stage": "",
-        "target_id": "",
-        "target": "",
-        "mechanism": "",
-        "action_types": "",
-        "raw_cpm": "",
-        "specificity_score": "",
-        "target_relative_median": "",
-        "references": "",
-    }
-    output = []
-    for row in rows:
-        output.append(
-            {
-                **base,
-                "row_type": "summary",
-                "disease_id": row["disease_id"],
-                "disease": row["disease"],
-                "group_cell_id": row["cell_id"],
-                "group_cell": row["cell"],
-                "ontology_cell_id": row.get("ontology_id", row["cell_id"]),
-                "level": row.get("cell_level", level),
-                "target_display": _display_value(row, measure),
-                "target_count": row["count"],
-                "target_percent": row["percent"],
-                "target_denominator": row["denominator"],
-                "unknown_targets": row["unknown"],
-                "drug_display": _display_value(row, measure, "drug"),
-                "drug_count": row["drug_count"],
-                "drug_percent": row["drug_percent"],
-                "drug_denominator": row["drug_denominator"],
-                "unknown_drugs": row["unknown_drugs"],
-                "mapped_drugs": row["mapped_drugs"],
-                "total_drugs": row["total_drugs"],
-                "unmapped_drugs": row["unmapped_drugs"],
-                "status": row["status"],
-                "support_state": "summary",
-            }
-        )
-    if snapshot.get("schema") != 2:
-        return output
-    selected_diseases = {row["disease_id"] for row in rows}
-    records = [
-        record
-        for record in atlas.filtered_records(snapshot, modality_filter, stage_filter)
-        if record["disease_id"] in selected_diseases
-    ]
-    for record in records:
-        output.append(
-            {
-                **base,
-                "row_type": "source_record",
-                "disease_id": record["disease_id"],
-                "disease": record["disease"],
-                "support_state": "unmapped"
-                if not record.get("target_id")
-                else "source_record",
-                "canonical_drug_id": record.get("canonical_drug_id", ""),
-                "canonical_drug": record.get("canonical_drug", ""),
-                "drug_id": record.get("drug_id", ""),
-                "drug": record.get("drug", ""),
-                "drug_type": record.get("drug_type", ""),
-                "original_stage": record.get("stage", ""),
-                "canonical_stage": record.get("canonical_stage", ""),
-                "target_id": record.get("target_id", ""),
-                "target": record.get("target", ""),
-                "mechanism": record.get("mechanism", ""),
-                "action_types": "|".join(record.get("action_types") or []),
-                "references": json.dumps(
-                    record.get("references") or [], ensure_ascii=False, sort_keys=True
-                ),
-            }
-        )
-    metadata = atlas.expression_metadata(snapshot)
-    cell_names = {
-        item["id"]: item["name"] for item in atlas.cell_catalog(snapshot, "cell")
-    }
-    cell_rank = {cell_id: rank for rank, cell_id in enumerate(cell_names)}
-    targets_by_disease = {}
-    for record in records:
-        if record.get("target_id"):
-            targets_by_disease.setdefault(record["disease_id"], {})[
-                record["target_id"]
-            ] = record.get("target") or record["target_id"]
-    for row in rows:
-        for target_id, target in targets_by_disease.get(row["disease_id"], {}).items():
-            for member in sorted(row["member_cell_ids"], key=cell_rank.__getitem__):
-                item = metadata.get((target_id, member))
-                state = atlas.expression_state(
-                    item, expression_threshold, method, specificity_threshold
-                )
-                output.append(
-                    {
-                        **base,
-                        "row_type": "expression_evidence",
-                        "disease_id": row["disease_id"],
-                        "disease": row["disease"],
-                        "group_cell_id": row["cell_id"],
-                        "group_cell": row["cell"],
-                        "evidence_cell_id": member,
-                        "ontology_cell_id": row.get("ontology_id", row["cell_id"]),
-                        "level": row.get("cell_level", level),
-                        "evidence_cell": item.get(
-                            "cell", cell_names.get(member, member)
-                        )
-                        if item
-                        else cell_names.get(member, member),
-                        "support_state": "positive"
-                        if state is True
-                        else "negative"
-                        if state is False
-                        else "unknown",
-                        "contributing": state is True,
-                        "target_id": target_id,
-                        "target": target,
-                        "raw_cpm": item.get("median", "") if item else "",
-                        "specificity_score": item.get("specificity_score", "")
-                        if item
-                        else "",
-                        "target_relative_median": item.get("target_median", "")
-                        if item
-                        else "",
-                    }
-                )
-    return output
-
-
 def unavailable_layout(error=None) -> html.Main:
     """データ未取得または再取得が必要な状態を説明する。"""
     title = "No data loaded yet" if error is None else "Data refresh required"
@@ -1710,23 +1542,9 @@ def dashboard_layout(snapshot) -> html.Main:
                                     info_tip(
                                         "comparison",
                                         "cell-type comparison",
-                                        "Click a cell group to expand or collapse its source cells. A group counts the union of qualifying targets or drugs across its members; CPM values are never added or averaged. Heatmap cells show confirmed support without a ≥ mark; hover and CSV values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.",
+                                        "Click a cell group to expand or collapse its source cells. A group counts the union of qualifying targets or drugs across its members; CPM values are never added or averaged. Heatmap cells show confirmed support without a ≥ mark; hover values mark lower bounds. × can mean unavailable disease data, unresolved target or expression data, or no eligible percentage denominator. A zero count means no qualifying targets or drugs under the rule.",
                                     ),
                                 ]
-                            ),
-                            html.Div(
-                                [
-                                    html.Button(
-                                        "Download CSV", id="download-button", n_clicks=0
-                                    ),
-                                    info_tip(
-                                        "csv",
-                                        "CSV download",
-                                        "CSV uses the settings last applied with Update, matching the displayed results. It includes summaries, expression values and source drug records.",
-                                    ),
-                                    dcc.Download(id="download"),
-                                ],
-                                className="download-actions",
                             ),
                         ],
                         className="section-heading",
@@ -1988,17 +1806,13 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
         )
         rows = [row for row in scale_rows if row["cell_id"] in cell_ids]
         names = {row["id"]: row["name"] for row in snapshot["diseases"]}
-        top_margin = max(
-            130,
-            math.ceil(max((len(names.get(d, d)) for d in disease_ids), default=0) * 4.5)
-            + 35,
-        )
-        right_margin = max(
-            90,
-            math.ceil(len(names.get(disease_ids[-1], disease_ids[-1])) * 4.5)
-            if disease_ids
-            else 0,
-        )
+        label_extents = [
+            max(map(len, lines)) * 4.5 + (len(lines) - 1) * 12
+            for d in disease_ids
+            for lines in [disease_label_lines(names.get(d, d))]
+        ]
+        top_margin = max(130, math.ceil(max(label_extents, default=0)) + 35)
+        right_margin = max(90, math.ceil(label_extents[-1]) if label_extents else 0)
         target_figure, drug_figure = (
             build_figure(
                 rows,
@@ -2171,58 +1985,6 @@ def register_callbacks(application: Dash, snapshot: dict) -> None:
                 _evidence_table(records[start:end]),
             ]
         )
-
-    @application.callback(
-        Output("download", "data"),
-        Input("download-button", "n_clicks"),
-        State("applied-parameters", "data"),
-        State("expanded-cell-groups", "data"),
-        prevent_initial_call=True,
-    )
-    def download_csv(_clicks, applied, expanded):
-        (
-            measure,
-            modality,
-            stage,
-            method,
-            threshold,
-            specificity,
-            disease_ids,
-        ) = (applied[key] for key in PARAMETER_IDS[:-1])
-        cell_ids = heatmap_groups
-        minimum, specificity_value, _ = effective_filters(threshold, specificity)
-        cell_ids = heatmap_cell_ids(
-            snapshot, cell_ids, expanded, catalog=heatmap_catalog
-        )
-        rows = visible_rows(
-            snapshot,
-            modality,
-            minimum,
-            disease_ids,
-            cell_ids,
-            stage=stage,
-            method=method,
-            specificity=specificity_value,
-            level="mixed",
-        )
-        content = "\ufeff" + atlas.to_csv(
-            export_rows(
-                rows,
-                measure,
-                modality_filter=modality,
-                stage_filter=stage,
-                method=method,
-                expression_threshold=minimum,
-                specificity_threshold=specificity_value,
-                level="mixed",
-                snapshot=snapshot,
-            )
-        )
-        return {
-            "content": content,
-            "filename": "autoimmune-drug-cell-matrix.csv",
-            "type": "text/csv;charset=utf-8",
-        }
 
 
 def create_app(snapshot: dict | None, error: Exception | None = None) -> Dash:

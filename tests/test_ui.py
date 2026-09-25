@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import math
 import tempfile
@@ -279,6 +277,22 @@ class FigureTests(unittest.TestCase):
         self.assertEqual(app._display_value(row, "count", "drug"), "≥1")
         self.assertEqual(app._display_value(row, "percent", "drug"), "25.0%")
 
+    def test_long_disease_ticks_wrap_without_changing_data(self) -> None:
+        name = "anti-neutrophil cytoplasmic antibody-associated vasculitis"
+        rows = [summary(disease=name), summary(disease_id="D2", disease="Short name")]
+        for kind in ("target", "drug"):
+            figure = app.build_figure(rows, ["D1", "D2"], ["C1"], "count", kind)
+            self.assertEqual(
+                list(figure.layout.xaxis.ticktext),
+                [
+                    "anti-neutrophil cytoplasmic<br>antibody-associated vasculitis",
+                    "Short name",
+                ],
+            )
+            self.assertEqual(list(figure.data[0].x), [name, "Short name"])
+            self.assertEqual(figure.data[0].customdata[0][0], ["D1", "C1"])
+            self.assertEqual(figure.layout.xaxis.tickangle, -45)
+
     def test_heatmap_cells_omit_lower_bound_mark_but_keep_hover_and_values(
         self,
     ) -> None:
@@ -376,11 +390,6 @@ class FigureTests(unittest.TestCase):
         percent = app.build_figure([row], ["D1"], ["C1"], "percent")
         self.assertIsNone(percent.data[0].z[0][0])
         self.assertIn("No value (see hover)", [trace.name for trace in percent.data])
-        exported = app.export_rows([row], "count")[0]
-        self.assertEqual((exported["target_count"], exported["drug_count"]), (0, 0))
-        self.assertEqual(
-            (exported["target_display"], exported["drug_display"]), ("≥0", "≥0")
-        )
 
     def test_no_value_hover_distinguishes_unavailable_from_empty_denominator(
         self,
@@ -403,7 +412,7 @@ class FigureTests(unittest.TestCase):
 
 
 class EvidenceTests(unittest.TestCase):
-    """詳細と CSV が陽性以外の元記録も保持する。"""
+    """詳細が陽性以外の元記録も保持する。"""
 
     def test_source_links_only_show_open_targets_pages(self) -> None:
         links = str(app._reference_links(fixture()["records"][0]))
@@ -603,7 +612,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(abs(labels.index("A (A)") - labels.index("C (C)")), 1)
         self.assertEqual(abs(labels.index("B (B)") - labels.index("D (D)")), 1)
 
-    def test_continuous_expression_shows_all_cells_and_csv_keeps_member_order(
+    def test_continuous_expression_shows_all_cells(
         self,
     ) -> None:
         row = {
@@ -624,46 +633,6 @@ class EvidenceTests(unittest.TestCase):
             list(figure.data[0].y),
             ["CD8-positive T cell", "memory B cell", "naive B cell"],
         )
-        exported = app.export_rows([row], "count", snapshot=self.snapshot)
-        self.assertEqual(
-            [
-                item["evidence_cell_id"]
-                for item in exported
-                if item["row_type"] == "expression_evidence"
-            ][:2],
-            ["CL_B_ONE", "CL_B_TWO"],
-        )
-
-    def test_all_states_and_source_cells_are_exported(self) -> None:
-        exported = app.export_rows(self.rows, "count", snapshot=self.snapshot)
-        self.assertTrue(
-            {"positive", "negative", "unknown", "unmapped"}.issubset(
-                {row["support_state"] for row in exported}
-            )
-        )
-        self.assertEqual(
-            {row["row_type"] for row in exported},
-            {"summary", "source_record", "expression_evidence"},
-        )
-        self.assertTrue(
-            all(
-                row["group_cell_id"] == "CL_B_GROUP"
-                for row in exported
-                if row["row_type"] != "source_record"
-            )
-        )
-        self.assertIn("CL_B_ONE", {row["evidence_cell_id"] for row in exported})
-        self.assertEqual({row["minimum_cpm"] for row in exported}, {0.5})
-        self.assertTrue(
-            all("target_count" in row and "drug_count" in row for row in exported)
-        )
-        self.assertEqual(
-            {row["expression_source"] for row in exported}, {"Tabula Sapiens"}
-        )
-        content = atlas.to_csv(exported)
-        parsed = list(csv.DictReader(io.StringIO(content)))
-        risky = next(row for row in parsed if row["drug_id"] == "DRUG_FORM_1")
-        self.assertEqual(risky["drug"], "'=alpha salt")
 
     def test_selection_rejects_stale_click_and_accepts_either_heatmap(self) -> None:
         stale = {"points": [{"customdata": ["OLD", "CELL"]}]}
@@ -706,7 +675,7 @@ class InputTests(unittest.TestCase):
 
 
 class CallbackTests(unittest.TestCase):
-    """HTTP 経由で 階層選択、2図、詳細、CSV の callback を確認する。"""
+    """HTTP 経由で 階層選択、2図、詳細の callback を確認する。"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -795,7 +764,6 @@ class CallbackTests(unittest.TestCase):
             ("detail-disease", "value"): "MONDO_RA_TEST",
             ("target-heatmap", "clickData"): None,
             ("drug-heatmap", "clickData"): None,
-            ("download-button", "n_clicks"): 1,
             ("update-button", "n_clicks"): 1,
             ("heatmap-view", "value"): "target",
             ("expanded-cell-groups", "data"): [],
@@ -805,7 +773,7 @@ class CallbackTests(unittest.TestCase):
         }
         return values
 
-    def test_expand_cells_preserves_scale_and_exports_visible_rows(self):
+    def test_expand_cells_preserves_scale(self):
         values = self._values()
         before = self._post("target-heatmap.figure", values, "applied-parameters.data")
         values[("expanded-cell-groups", "data")] = ["group:CL_B_GROUP"]
@@ -821,8 +789,6 @@ class CallbackTests(unittest.TestCase):
             self.assertGreater(len(new["y"]), len(old["y"]))
             self.assertEqual((old["zmin"], old["zmax"]), (new["zmin"], new["zmax"]))
             self.assertEqual(old["z"][0], new["z"][0])
-        download = self._post("download.data", values, "download-button.n_clicks")
-        self.assertIn("CL_B_ONE", download["download"]["data"]["content"])
         values[("expanded-cell-groups", "data")] = []
         collapsed = self._post(
             "target-heatmap.figure", values, "expanded-cell-groups.data"
@@ -902,7 +868,7 @@ class CallbackTests(unittest.TestCase):
             self.assertEqual(summarize.call_args.args[2], 123)
             self.assertIsNone(result["target-heatmap"]["figure"]["data"][0]["z"][1][0])
 
-    def test_update_applies_parameters_together_and_csv_uses_displayed_settings(
+    def test_update_applies_parameters_together(
         self,
     ) -> None:
         values = self._values()
@@ -920,17 +886,6 @@ class CallbackTests(unittest.TestCase):
             "target-heatmap.figure", values, "applied-parameters.data"
         )
         self.assertEqual(before, unchanged)
-        exported = self._post("download.data", values, "download-button.n_clicks")
-        rows = list(
-            csv.DictReader(
-                io.StringIO(exported["download"]["data"]["content"].lstrip("\ufeff"))
-            )
-        )
-        self.assertEqual({row["minimum_cpm"] for row in rows}, {"0.5"})
-        self.assertEqual(
-            {row["group_cell_id"] for row in rows if row["row_type"] == "summary"},
-            {"group:" + atlas.T_CELL_ID, "group:CL_B_GROUP"},
-        )
         applied = self._post(
             "applied-parameters.data", values, "update-button.n_clicks"
         )
@@ -955,14 +910,6 @@ class CallbackTests(unittest.TestCase):
             "Filtered drug records for rheumatoid arthritis",
             json.dumps(details, ensure_ascii=False),
         )
-        exported = self._post("download.data", values, "download-button.n_clicks")
-        rows = list(
-            csv.DictReader(
-                io.StringIO(exported["download"]["data"]["content"].lstrip("\ufeff"))
-            )
-        )
-        self.assertEqual({row["minimum_cpm"] for row in rows}, {"2.0"})
-        self.assertEqual({row["measure"] for row in rows}, {"count"})
         status = self._post("update-status.children", values, "applied-parameters.data")
         self.assertEqual(status["update-status"]["children"], "Settings applied.")
         parameter_ids = {
@@ -980,7 +927,6 @@ class CallbackTests(unittest.TestCase):
             "detail-disease.options",
             "details.children",
             "target-heatmap-panel.hidden",
-            "download.data",
         ):
             callback = self.application.callback_map[self._callback_key(output)]
             self.assertFalse(
@@ -1159,6 +1105,11 @@ class CallbackTests(unittest.TestCase):
         )
         self.assertNotIn("level", self.components)
         self.assertNotIn("detail-cell", self.components)
+        self.assertNotIn("download-button", self.components)
+        self.assertNotIn("download", self.components)
+        self.assertFalse(
+            any("download" in key for key in self.application.callback_map)
+        )
         self.assertNotIn("cells", self.components)
         self.assertNotIn("cells", app.PARAMETER_IDS)
         self.assertEqual(
@@ -1340,52 +1291,7 @@ class CallbackTests(unittest.TestCase):
             ["MONDO_RA_TEST"],
         )
 
-    def test_expanded_csv_preserves_row_ids_and_group_evidence(self) -> None:
-        values = self._values()
-        values[("expanded-cell-groups", "data")] = ["group:CL_B_GROUP"]
-        figures = self._post_applied("target-heatmap.figure", values)
-        self.assertEqual(
-            figures["target-heatmap"]["figure"]["data"][0]["y"],
-            ["T cell (group)", "B cell (group)", "memory B cell", "naive B cell"],
-        )
-        downloaded = self._post("download.data", values, "download-button.n_clicks")
-        exported = list(
-            csv.DictReader(
-                io.StringIO(downloaded["download"]["data"]["content"].lstrip("\ufeff"))
-            )
-        )
-        summaries = {
-            row["group_cell_id"]: row
-            for row in exported
-            if row["row_type"] == "summary"
-        }
-        self.assertEqual(
-            {
-                key: (row["ontology_cell_id"], row["level"])
-                for key, row in summaries.items()
-            },
-            {
-                "group:" + atlas.T_CELL_ID: (atlas.T_CELL_ID, "group"),
-                "group:CL_B_GROUP": ("CL_B_GROUP", "group"),
-                "CL_B_ONE": ("CL_B_ONE", "cell"),
-                "CL_B_TWO": ("CL_B_TWO", "cell"),
-            },
-        )
-        evidence = [row for row in exported if row["row_type"] == "expression_evidence"]
-        self.assertEqual(
-            {row["evidence_cell_id"] for row in evidence if row["level"] == "group"},
-            {"CL_T_ONE", "CL_B_ONE", "CL_B_TWO"},
-        )
-        self.assertEqual(
-            {row["evidence_cell_id"] for row in evidence if row["level"] == "cell"},
-            {"CL_B_ONE", "CL_B_TWO"},
-        )
-        sources = [row for row in exported if row["row_type"] == "source_record"]
-        self.assertEqual(
-            len(sources), len(atlas.filtered_records(self.snapshot, "all", "phase3"))
-        )
-
-    def test_details_from_both_clicks_and_csv(self) -> None:
+    def test_details_from_both_clicks(self) -> None:
         values = self._values()
         click = {"points": [{"customdata": ["MONDO_RA_TEST", "group:CL_B_GROUP"]}]}
         for heatmap in ("target-heatmap", "drug-heatmap"):
@@ -1397,26 +1303,6 @@ class CallbackTests(unittest.TestCase):
                 "Relative expression of targets across all source cell types", rendered
             )
             self.assertIn("Filtered drug records for rheumatoid arthritis", rendered)
-
-        downloaded = self._post("download.data", values, "download-button.n_clicks")
-        exported = list(
-            csv.DictReader(
-                io.StringIO(downloaded["download"]["data"]["content"].lstrip("\ufeff"))
-            )
-        )
-        self.assertTrue(exported)
-        self.assertEqual({row["minimum_cpm"] for row in exported}, {"0.5"})
-        self.assertEqual({row["specificity_threshold"] for row in exported}, {"0.5"})
-        self.assertEqual({row["stage_filter"] for row in exported}, {"phase3"})
-        self.assertTrue(
-            {"positive", "negative", "unknown", "unmapped"}.issubset(
-                {row["support_state"] for row in exported}
-            )
-        )
-        self.assertEqual(
-            {row["row_type"] for row in exported},
-            {"summary", "source_record", "expression_evidence"},
-        )
 
 
 if __name__ == "__main__":

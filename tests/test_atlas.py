@@ -1,7 +1,5 @@
 """取得と集計の臨床段階、重複、欠測、細胞分類を検証する。"""
 
-import csv
-import io
 import math
 import unittest
 from pathlib import Path
@@ -14,7 +12,6 @@ from atlas import (
     expression_state,
     filtered_records,
     summarize,
-    to_csv,
 )
 from fetch_data import (
     _extract_mechanisms,
@@ -535,13 +532,6 @@ class AtlasTests(unittest.TestCase):
             summarize(_snapshot(), "all", 0.5, specificity_threshold=1.1)
         with self.assertRaises(ValueError):
             filtered_records(_snapshot(), "other", "phase3")
-
-    def test_csv_preserves_unicode_and_neutralizes_formulas(self) -> None:
-        content = to_csv([{"薬剤": "=1+1", "細胞": "B細胞", "数": None}])
-        self.assertEqual(
-            next(csv.DictReader(io.StringIO(content))),
-            {"薬剤": "'=1+1", "細胞": "B細胞", "数": ""},
-        )
 
 
 class ImportTests(unittest.TestCase):

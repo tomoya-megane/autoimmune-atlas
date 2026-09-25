@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
 import math
 from collections import defaultdict
 from statistics import median
@@ -500,23 +498,3 @@ def summarize(
                 }
             )
     return output
-
-
-def to_csv(rows: list[dict]) -> str:
-    """欠測を空欄にし、表計算ソフトで数式と解釈される文字列を保護する。"""
-    if not rows:
-        return ""
-    output = io.StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=list(rows[0]))
-    writer.writeheader()
-    for row in rows:
-        writer.writerow(
-            {
-                key: "'" + value
-                if isinstance(value, str)
-                and value.lstrip().startswith(("=", "+", "-", "@"))
-                else value
-                for key, value in row.items()
-            }
-        )
-    return output.getvalue()
