@@ -309,14 +309,12 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
             html.Nav(
                 [
                     html.A(
-                        "Autoimmune Target Expression Atlas",
+                        "Autoimmune Atlas",
                         href="#",
                         className="app-brand",
                     ),
                     html.Div(
                         [
-                            html.A("Comparison", href="#comparison"),
-                            html.A("Details", href="#evidence"),
                             html.A(
                                 "Open Targets",
                                 href=source,

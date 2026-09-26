@@ -19,7 +19,7 @@ def create_app(
     # 元記録の操作部は、選択した詳細を描画するときに追加する。
     application = Dash(
         __name__,
-        title="Autoimmune Target Expression Atlas",
+        title="Autoimmune Atlas",
         suppress_callback_exceptions=True,
         assets_folder=str(assets_folder),
     )
