@@ -192,6 +192,9 @@ pixi run test
 pixi run typecheck
 ```
 
+Ruff の共通設定は `../../mycompany/00_settings/ruff-base.toml` にある。
+`ruff.toml` がこの相対パスを読み込むため、整形と静的解析には `mycompany` リポジトリをこの配置に置く必要がある。
+
 ツールチップの位置調整と Escape キーの処理は、Node.js がある環境で次のコマンドから検証できる。
 
 ```bash

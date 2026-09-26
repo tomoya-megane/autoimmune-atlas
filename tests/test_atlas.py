@@ -2,9 +2,9 @@
 
 import math
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable
 from unittest.mock import patch
 
 from backend.aggregation import (
@@ -610,9 +610,11 @@ class ImportTests(unittest.TestCase):
         self.assertIn("MONDO_0003346", ids)
         self.assertNotIn("AIDS_ARTERITIS", ids)
         self.assertEqual(ids.count("B"), 1)
-        with patch("backend.refresh.SCOPE_ROOTS", (("MISSING", True),)):
-            with self.assertRaises(ValueError):
-                resolve_disease_ids(fake_query)
+        with (
+            patch("backend.refresh.SCOPE_ROOTS", (("MISSING", True),)),
+            self.assertRaises(ValueError),
+        ):
+            resolve_disease_ids(fake_query)
 
     def test_phase_one_drugs_and_parent_molecule_are_preserved(self) -> None:
         kinds = (

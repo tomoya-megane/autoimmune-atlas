@@ -924,7 +924,7 @@ class EvidenceTests(unittest.TestCase):
 
         def marked_cells(figure: object) -> set[tuple[str, str]]:
             marks = _scatter(figure, "Meets expression rule")
-            return set(zip(marks.x, marks.y))
+            return set(zip(marks.x, marks.y, strict=True))
 
         self.assertEqual(
             marked_cells(fixed),
@@ -978,7 +978,7 @@ class EvidenceTests(unittest.TestCase):
         metadata: dict[tuple[str, str], ExpressionStateInput] = {
             (target, cell): {"median": value}
             for target, values in profiles.items()
-            for cell, value in zip(cells, values)
+            for cell, value in zip(cells, values, strict=True)
         }
         records: list[TargetRecord] = [
             {"target_id": target, "target": target}

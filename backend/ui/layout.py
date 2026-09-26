@@ -282,6 +282,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                 ordered_disease_ids(snapshot, default_diseases),
                 "target",
             ),
+            strict=True,
         )
     )
     return html.Main(

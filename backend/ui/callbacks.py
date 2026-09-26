@@ -80,7 +80,10 @@ class CellToggleId(TypedDict):
 def _applied_parameters(values: tuple[ParameterValue, ...]) -> AppliedParameters:
     """Dash の設定値をコールバック間で共有する形にする。"""
     # Dash の各 control が値の型を固定するが、callback デコレーターからはその型を取得できない。
-    return cast(AppliedParameters, cast(object, dict(zip(PARAMETER_IDS, values))))
+    return cast(
+        AppliedParameters,
+        cast(object, dict(zip(PARAMETER_IDS, values, strict=True))),
+    )
 
 
 def _effective_number(

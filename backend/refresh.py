@@ -11,7 +11,7 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 from urllib.parse import urlparse
@@ -562,7 +562,7 @@ def main() -> None:
         "root": ROOT_ID,
         "roots": roots,
         "data_version": version,
-        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+        "retrieved_at": datetime.now(UTC).isoformat(),
         "source": f"https://{API_HOST}{API_PATH}",
         "diseases": sorted(diseases, key=lambda d: d["name"]),
         "records": list(records.values()),

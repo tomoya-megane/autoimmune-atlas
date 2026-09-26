@@ -170,6 +170,91 @@ def disease_checklist_sections(family: DiseaseFamily) -> list[DiseaseSection]:
     return sections
 
 
+def _disease_family_selector(
+    family: DiseaseFamily, selected_ids: set[str]
+) -> tuple[list[dict[str, str]], Component]:
+    """1つの疾患ファミリーの選択肢と階層表示を組み立てる。"""
+    choices = [
+        {"label": disease["name"], "value": disease["id"]}
+        for disease in family["diseases"]
+    ]
+    sections = disease_checklist_sections(family)
+    top, children = _disease_tree(family)
+    root = (
+        family["id"]
+        if family["id"] in {disease["id"] for disease in family["diseases"]}
+        else None
+    )
+    by_kind = {(section["kind"], section["node"]): section for section in sections}
+    names = {disease["id"]: disease["name"] for disease in family["diseases"]}
+
+    def descendant_count(node: str) -> int:
+        return sum(1 + descendant_count(child) for child in children[node])
+
+    def checklist(section: DiseaseSection) -> dcc.Checklist:
+        return dcc.Checklist(
+            id=section["id"],
+            options=[
+                {"label": disease["name"], "value": disease["id"]}
+                for disease in section["diseases"]
+            ],
+            value=[
+                disease["id"]
+                for disease in section["diseases"]
+                if disease["id"] in selected_ids
+            ],
+            className="disease-checklist",
+        )
+
+    def render_details(node: str) -> html.Details:
+        """子を持つ語の details。葉のチェック欄と、子を持つ子の入れ子を並べる。"""
+        inner: list[Component] = []
+        if ("children", node) in by_kind:
+            inner.append(checklist(by_kind[("children", node)]))
+        inner.extend(render_node(child) for child in children[node] if children[child])
+        return html.Details(
+            [
+                html.Summary(f"{names[node]} details ({descendant_count(node)} terms)"),
+                html.Div(inner, className="disease-families"),
+            ]
+        )
+
+    def render_node(node: str) -> html.Details:
+        """本体のチェック欄と details を、ファミリーと同じ形で包む。"""
+        return html.Details(
+            [
+                html.Summary(f"{names[node]} ({1 + descendant_count(node)} terms)"),
+                html.Div(
+                    [checklist(by_kind[("self", node)]), render_details(node)],
+                    className="disease-families",
+                ),
+            ]
+        )
+
+    top_items: list[Component] = [checklist(sections[0])]
+    if root and children[root]:
+        top_items.append(render_details(root))
+    top_items.extend(
+        render_node(node) for node in top if children[node] and node != root
+    )
+    contents = (
+        top_items[0]
+        if len(top_items) == 1
+        else html.Div(top_items, className="disease-families")
+    )
+    component = (
+        html.Details(
+            [
+                html.Summary(f"{family['label']} ({len(choices)} terms)"),
+                contents,
+            ]
+        )
+        if len(choices) > 1
+        else contents
+    )
+    return choices, component
+
+
 def disease_selector(snapshot: Snapshot, selected: Iterable[str] | None) -> html.Div:
     """検索欄と、群から開けるチェック欄を同じ選択へ結び付ける。"""
     catalog: list[DiseaseCatalogGroup] = disease_catalog(snapshot)
@@ -179,86 +264,9 @@ def disease_selector(snapshot: Snapshot, selected: Iterable[str] | None) -> html
     for group in catalog:
         families: list[Component] = []
         for family in group["families"]:
-            choices = [
-                {"label": d["name"], "value": d["id"]} for d in family["diseases"]
-            ]
+            choices, component = _disease_family_selector(family, selected_ids)
             options.extend(choices)
-            sections = disease_checklist_sections(family)
-            top, children = _disease_tree(family)
-            root = (
-                family["id"]
-                if family["id"] in {d["id"] for d in family["diseases"]}
-                else None
-            )
-            by_kind = {(s["kind"], s["node"]): s for s in sections}
-            names = {d["id"]: d["name"] for d in family["diseases"]}
-
-            def descendant_count(node: str) -> int:
-                return sum(1 + descendant_count(c) for c in children[node])
-
-            def checklist(section: DiseaseSection) -> dcc.Checklist:
-                return dcc.Checklist(
-                    id=section["id"],
-                    options=[
-                        {"label": d["name"], "value": d["id"]}
-                        for d in section["diseases"]
-                    ],
-                    value=[
-                        disease["id"]
-                        for disease in section["diseases"]
-                        if disease["id"] in selected_ids
-                    ],
-                    className="disease-checklist",
-                )
-
-            def render_details(node: str) -> html.Details:
-                """子を持つ語の details。葉のチェック欄と、子を持つ子の入れ子を並べる。"""
-                inner: list[Component] = []
-                if ("children", node) in by_kind:
-                    inner.append(checklist(by_kind[("children", node)]))
-                inner.extend(render_node(c) for c in children[node] if children[c])
-                return html.Details(
-                    [
-                        html.Summary(
-                            f"{names[node]} details ({descendant_count(node)} terms)"
-                        ),
-                        html.Div(inner, className="disease-families"),
-                    ]
-                )
-
-            def render_node(node: str) -> html.Details:
-                """本体のチェック欄と details を、ファミリーと同じ形で包む。"""
-                return html.Details(
-                    [
-                        html.Summary(
-                            f"{names[node]} ({1 + descendant_count(node)} terms)"
-                        ),
-                        html.Div(
-                            [checklist(by_kind[("self", node)]), render_details(node)],
-                            className="disease-families",
-                        ),
-                    ]
-                )
-
-            top_items: list[Component] = [checklist(sections[0])]
-            if root and children[root]:
-                top_items.append(render_details(root))
-            top_items.extend(render_node(d) for d in top if children[d] and d != root)
-            contents = (
-                top_items[0]
-                if len(top_items) == 1
-                else html.Div(top_items, className="disease-families")
-            )
-            families.append(
-                html.Details(
-                    [
-                        html.Summary(f"{family['label']} ({len(choices)} terms)"),
-                        contents,
-                    ]
-                )
-                if len(choices) > 1
-                else contents
-            )
+            families.append(component)
         groups.append(
             html.Details(
                 [
