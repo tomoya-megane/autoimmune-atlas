@@ -237,7 +237,7 @@ def query_api(
             if not isinstance(data, dict):
                 raise RuntimeError("Open Targets: data must be an object")
             return cast(dict[str, object], data)
-        except OSError, http.client.HTTPException, ValueError, RuntimeError:
+        except (OSError, http.client.HTTPException, ValueError, RuntimeError):
             if attempt == 2:
                 raise
             time.sleep(attempt + 1)

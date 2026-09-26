@@ -2,6 +2,7 @@
 
 自己免疫疾患ごとに、臨床開発された薬剤の標的遺伝子がどの細胞型で発現するかを比較するローカルアプリ。
 Python の Dash と Plotly を使う。
+実行環境には Python 3.13 を使う。
 集計規則と判断理由は[設計ノート](docs/design.md)に記録する。
 
 画面構成は Open Targets の [Associations on the Fly](https://platform-docs.opentargets.org/web-interface/associations-on-the-fly) を参考にしている。

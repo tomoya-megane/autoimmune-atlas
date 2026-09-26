@@ -94,7 +94,7 @@ def _effective_number(
         return default, None
     try:
         number = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default, f"Invalid {label}; using {default:g}."
     if (
         isinstance(value, bool)
