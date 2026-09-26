@@ -276,7 +276,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Input("source-context", "data"),
         Input("expanded-expression-groups", "data"),
     )
-    def update_expression(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def update_expression(
         context: SourceContext | None, expanded: list[str] | None
     ) -> tuple[object, object, object]:
         if not context:
@@ -315,7 +315,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         *[State(item, "value") for item in PARAMETER_IDS],
         prevent_initial_call=True,
     )
-    def apply_parameters(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def apply_parameters(
         _clicks: int | None, *values: ParameterValue
     ) -> AppliedParameters:
         return _applied_parameters(values)
@@ -325,9 +325,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Input("applied-parameters", "data"),
         *[Input(item, "value") for item in PARAMETER_IDS],
     )
-    def parameter_status(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
-        applied: AppliedParameters, *values: ParameterValue
-    ) -> str:
+    def parameter_status(applied: AppliedParameters, *values: ParameterValue) -> str:
         return (
             "Settings applied."
             if _applied_parameters(values) == applied
@@ -348,7 +346,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Input("diseases", "value"),
         *[Input(item, "value") for item in family_ids],
     )
-    def sync_disease_selection(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def sync_disease_selection(
         selected: list[str] | None, *family_values: list[str] | None
     ) -> list[list[str]]:
         selected_set = set(selected or ())
@@ -371,7 +369,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
     @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("specificity", "disabled"), Input("method", "value")
     )
-    def toggle_specificity(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def toggle_specificity(
         method: str | None,
     ) -> bool:
         return method != "specificity"
@@ -381,7 +379,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Output("drug-heatmap-panel", "hidden"),
         Input("applied-parameters", "data"),
     )
-    def select_heatmap(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def select_heatmap(
         applied: AppliedParameters,
     ) -> tuple[bool, bool]:
         view = applied["heatmap-view"]
@@ -400,7 +398,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Input("applied-parameters", "data"),
         Input("expanded-cell-groups", "data"),
     )
-    def update_figures(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def update_figures(
         applied: AppliedParameters, expanded: list[str] | None
     ) -> tuple[
         go.Figure,
@@ -532,7 +530,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Input("drug-heatmap", "clickData"),
         State("detail-disease", "value"),
     )
-    def update_detail_selector(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def update_detail_selector(
         applied: AppliedParameters,
         target_click: ClickData | None,
         drug_click: ClickData | None,
@@ -565,7 +563,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Input("detail-disease", "value"),
         Input("applied-parameters", "data"),
     )
-    def update_details(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def update_details(
         detail_disease: str | None, applied: AppliedParameters
     ) -> html.Div:
         modality = applied["modality"]
@@ -602,7 +600,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Input("source-page", "value"),
         Input("source-context", "data"),
     )
-    def show_source_records(  # pyright: ignore[reportUnusedFunction] - Dash に登録して呼び出す。
+    def show_source_records(
         page: int | None, context: SourceContext | None
     ) -> html.Div | None:
         if not context:
