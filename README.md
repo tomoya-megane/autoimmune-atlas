@@ -35,6 +35,40 @@ data/                          取得済みスナップショット
 tests/                         集計、画面、取得処理のテスト
 ```
 
+## 開発環境
+
+clone 後に、このリポジトリだけで環境を構築できる。
+
+```bash
+pixi install
+```
+
+作業の完了前に、整形、lint、型検査、Python と JavaScript のテストをまとめて実行する。
+
+```bash
+pixi run check
+```
+
+すべてのタスクが成功した状態を、変更完了の基準とする。
+共通の検査基準は、それぞれのリポジトリ内に保持し、隣のリポジトリを実行時に参照しない。
+基準を変えるときは、もう一方にも適用できる変更かを確認し、各リポジトリで個別に更新して検査する。
+もう一方を参照できない場合は、こちらの作業を進め、未反映の項目を変更の説明に残す。
+
+| 共通に保つもの | このリポジトリの保存先 |
+| --- | --- |
+| Ruff の基本ルール、Python の対象版、整形幅 | `ruff.toml` |
+| basedpyright の診断設定 | `pyrightconfig.json` |
+| Markdown のルール | `.markdownlint-cli2.jsonc` の `config` |
+
+型検査の共通項目は `typeCheckingMode = recommended`、`reportUnusedCallResult = false`、`reportImplicitStringConcatenation = false` である。
+仮想環境の指定、検索パス、除外対象は各リポジトリで定める。
+Markdown を変更したときは `pixi run lint-markdown` で点検する。
+
+実行環境、設定、基本点検はこのリポジトリだけで完結する。
+スキルは複製せず、`../../mycompany/` を参照できるときだけ、作業に該当する `SKILL.md` を読んで使う。
+参照できない場合も起動と基本点検は行えるが、スキルが必要で代わりの方法がない作業には制約が残る。
+その場合は、利用できないスキルと制約を報告する。
+
 ## 起動
 
 `data/` は大容量のため Git で追跡しない。
@@ -187,16 +221,4 @@ pixi run test
 
 テストは成分と標的の重複除去、疾患内の臨床段階、3種類の発現基準、大分類、欠測、画面の応答を確認する。
 型は basedpyright で検査する。
-
-```bash
-pixi run typecheck
-```
-
-Ruff の共通設定は `../../mycompany/00_settings/ruff-base.toml` にある。
-`ruff.toml` がこの相対パスを読み込むため、整形と静的解析には `mycompany` リポジトリをこの配置に置く必要がある。
-
-ツールチップの位置調整と Escape キーの処理は、Node.js がある環境で次のコマンドから検証できる。
-
-```bash
-node tests/test_help.cjs
-```
+ツールチップの位置調整と Escape キーの処理は、`pixi run check` が Node.js で検証する。

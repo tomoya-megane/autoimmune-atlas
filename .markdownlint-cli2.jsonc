@@ -1,0 +1,37 @@
+// markdownlint-cli2 の設定。全ルールを起点にし、合わないものを名指しで外す。
+// ルールは mycompany と揃え、対象ファイルはこのリポジトリ内で指定する。
+{
+  "config": {
+    "default": true,
+
+    // 一文一行の規約と両立しない。
+    "MD013": false,
+
+    // callout の記法と衝突する 3 つ。
+    // 連続する callout のあいだの空行（MD028）、callout の中の一覧（MD032）とコードブロック（MD031）を、
+    // どれも誤りとする。blockquote の中だけ外す指定は無いので、ルールごと外す。
+    "MD028": false,
+    "MD031": false,
+    "MD032": false,
+
+    // 論文ノートの有意性の星印（**、***）を、強調の書きかけと読む。
+    "MD037": false,
+
+    // 本文の入れ子の一覧は 4 スペースが多数派である。
+    "MD007": { "indent": 4 },
+
+    // frontmatter の title を見出しと数えない。倉庫の入口ノートが title を持つ。
+    "MD025": { "front_matter_title": "" },
+    "MD041": { "front_matter_title": "" },
+
+    // 同じ見出しは、親が違えば許す。全文訳は構造化抄録と本文で Results を繰り返す。
+    // Obsidian の [[ノート#見出し]] は最初の 1 つにしか届かないので、リンクで指す節は重ねない。
+    "MD024": { "siblings_only": true },
+
+    // Markdown に上付きと下付きの記法が無く、表のセルの中で改行する手段も <br> しかない。
+    "MD033": { "allowed_elements": ["sup", "sub", "br"] }
+  },
+
+  "globs": ["**/*.md"],
+  "ignores": [".pixi/**", ".git/**", ".cache/**", ".agents/**", ".remember/**", "node_modules/**"]
+}

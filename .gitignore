@@ -1,7 +1,16 @@
-# pixi working directory
+# 認証情報
+.env
+
+# macOS のメタデータ
+.DS_Store
+
+# pixi が構築する環境
 .pixi/
-# Ruffの解析キャッシュ
+
+# ツールのキャッシュ
 .cache/
+
+# Python のバイトコード
 __pycache__/
 *.pyc
 

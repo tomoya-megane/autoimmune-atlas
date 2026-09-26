@@ -1,2 +1,8 @@
-extend = "../../mycompany/00_settings/ruff-base.toml"
+# 共通の検査基準を、このリポジトリ内に保持する。更新手順は README.md にある。
+target-version = "py313"
+line-length = 88
+extend-exclude = [".pixi", ".agents"]
 cache-dir = ".cache/ruff"
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM", "RUF100"]
