@@ -94,6 +94,204 @@ CELL_GROUP_ORDER = (
     "CL_0000015",
 )
 CELL_GROUP_RANK = {cell_id: rank for rank, cell_id in enumerate(CELL_GROUP_ORDER)}
+# 表示専用の分類・状態順。ancestor_ids には関係型がないため発生系列には使わない。
+CELL_DISPLAY_ORDER = {
+    # T cell: source; CD4 naive/activated; CD8 naive/activated; other lineages; thymocytes
+    "CL_0000084": (
+        "CL_0000084",
+        "CL_0000624",
+        "CL_0000895",
+        "CL_0000896",
+        "CL_0000625",
+        "CL_0000900",
+        "CL_0000906",
+        "CL_0000798",
+        "CL_0000815",
+        "CL_0000814",
+        "CL_0000893",
+        "CL_0000810",
+        "CL_0000811",
+    ),
+    # B lineage: B cell; plasma cell
+    "CL_0000945": ("CL_0000236", "CL_0000786"),
+    # Innate lymphoid: source; natural killer cell
+    "CL_0001065": ("CL_0001065", "CL_0000623"),
+    # Myeloid: source; monocytes; macrophages; mast cell
+    "CL_0000766": (
+        "CL_0000766",
+        "CL_0000576",
+        "CL_0000860",
+        "CL_0002393",
+        "CL_0000875",
+        "CL_0000235",
+        "CL_0000864",
+        "CL_0000129",
+        "CL_0009038",
+        "CL_0000097",
+    ),
+    # Dendritic: myeloid; Langerhans; plasmacytoid
+    "CL_0000451": ("CL_0000782", "CL_0000453", "CL_0000784"),
+    # Granulocyte: source; neutrophil; basophil
+    "CL_0000094": ("CL_0000094", "CL_0000775", "CL_0000767"),
+    # Hematopoietic: source; precursors; leukocytes
+    "CL_0000988": (
+        "CL_0000988",
+        "CL_0008001",
+        "CL_0000049",
+        "CL_0000738",
+        "CL_0000113",
+    ),
+    # Erythroid: progenitor; erythrocyte
+    "CL_0000764": ("CL_0000038", "CL_0000232"),
+    # Stem cells: hematopoietic; mesenchymal; tissue-specific
+    "CL_0000034": (
+        "CL_0000037",
+        "CL_0000134",
+        "CL_0002570",
+        "CL_0008011",
+        "CL_0009116",
+        "CL_0000646",
+    ),
+    # Stromal: source; ovarian stromal; theca
+    "CL_0000499": ("CL_0000499", "CL_0002132", "CL_0000503"),
+    # Fibroblast: source; tissue fibroblasts; stellate; thymic; structural
+    "CL_0000057": (
+        "CL_0000057",
+        "CL_4028006",
+        "CL_4006000",
+        "CL_0002548",
+        "CL_0000632",
+        "CL_0002410",
+        "CL_0009078",
+        "CL_0009079",
+        "CL_0002363",
+        "CL_0000388",
+    ),
+    # Connective tissue: source; adventitial; pericyte; myofibroblast
+    "CL_0002320": ("CL_0002320", "CL_0002503", "CL_0000669", "CL_0000186"),
+    # Contractile: generic; skeletal; cardiac; smooth; mural
+    "CL_0000183": (
+        "CL_0000187",
+        "CL_0000189",
+        "CL_0000190",
+        "CL_0002673",
+        "CL_0002129",
+        "CL_2000046",
+        "CL_0000192",
+        "CL_0002598",
+        "CL_0002366",
+        "CL_0000359",
+        "CL_0019018",
+        "CL_0008034",
+    ),
+    # Endothelial: source; blood vascular; lymphatic; organ-specific
+    "CL_0000115": (
+        "CL_0000115",
+        "CL_0002139",
+        "CL_1000413",
+        "CL_1000412",
+        "CL_0002144",
+        "CL_1000414",
+        "CL_0002543",
+        "CL_0002585",
+        "CL_0002138",
+        "CL_0010008",
+        "CL_1001572",
+    ),
+    # Epithelial: source; intestinal renewal and absorptive families
+    "CL_0000066": (
+        "CL_0000066",
+        "CL_0009043",
+        "CL_0009011",
+        "CL_0009017",
+        "CL_0009012",
+        "CL_4030026",
+        "CL_0002071",
+        "CL_1000339",
+        "CL_1000340",
+        "CL_1000341",
+        "CL_1000342",
+        # Goblet; enteroendocrine; glandular secretory; tuft; other digestive
+        "CL_1000320",
+        "CL_1000495",
+        "CL_0002370",
+        "CL_1000329",
+        "CL_0000164",
+        "CL_0000504",
+        "CL_0009006",
+        "CL_0002279",
+        "CL_0000171",
+        "CL_0000169",
+        "CL_0000150",
+        "CL_0009009",
+        "CL_1000343",
+        "CL_0000622",
+        "CL_0002623",
+        "CL_0002064",
+        "CL_0000317",
+        "CL_0019032",
+        "CL_0009041",
+        "CL_0002088",
+        "CL_0000182",
+        # Respiratory ciliated; club; ionocyte; alveolar
+        "CL_0000067",
+        "CL_1000271",
+        "CL_0002145",
+        "CL_0000158",
+        "CL_0005006",
+        "CL_0017000",
+        "CL_0002062",
+        "CL_0002063",
+        # Duct; prostate; ocular; renal; reproductive; thymic; other epithelia
+        "CL_0000068",
+        "CL_0002538",
+        "CL_0002079",
+        "CL_0002326",
+        "CL_0002481",
+        "CL_0002341",
+        "CL_0002340",
+        "CL_1000432",
+        "CL_0000575",
+        "CL_0002586",
+        "CL_0002518",
+        "CL_0002149",
+        "CL_2000064",
+        "CL_0002365",
+        "CL_0009075",
+        "CL_0009076",
+        "CL_0000077",
+        "CL_0000185",
+        "CL_1001428",
+        "CL_0000240",
+        "CL_0002316",
+        "CL_0000209",
+        "CL_0000846",
+        "CL_0009005",
+    ),
+    # Secretory: mucus and serous; endocrine; platelet
+    "CL_0000151": (
+        "CL_0000319",
+        "CL_1000331",
+        "CL_1000330",
+        "CL_0000178",
+        "CL_0000233",
+    ),
+    # Neuron: source; retinal; pancreatic D
+    "CL_0000540": ("CL_0000540", "CL_0000287", "CL_0000748", "CL_0000173"),
+    # Glial: source; radial/Mueller; enteric; Schwann
+    "CL_0000125": (
+        "CL_0000125",
+        "CL_0000681",
+        "CL_0000636",
+        "CL_4040002",
+        "CL_0002573",
+    ),
+    # Single observed melanocyte and female germ cell
+    "CL_0000148": ("CL_0000148",),
+    "CL_0000021": ("CL_0000023",),
+    # Male germ cell: source; spermatogonium; spermatocyte; spermatid
+    "CL_0000015": ("CL_0000015", "CL_0000020", "CL_0000017", "CL_0000018"),
+}
 
 
 def _validate_snapshot(snapshot: SnapshotInput) -> None:
@@ -171,12 +369,24 @@ def _cell_memberships(
     return cells
 
 
-def _lineage_order(cells: dict[str, CellMembership], members: list[str]) -> list[str]:
-    """観測された祖先だけを使い、親を子より先に一度ずつ並べる。"""
+def _lineage_order(
+    cells: dict[str, CellMembership], group_id: str, members: list[str]
+) -> list[str]:
+    """観測された祖先で親子をまとめ、既知の細胞型を表示順に並べる。"""
     member_set = set(members)
+    display_rank = {
+        cell_id: rank
+        for rank, cell_id in enumerate(CELL_DISPLAY_ORDER.get(group_id, ()))
+    }
 
-    def key(cell_id: str) -> tuple[str, str]:
+    def parent_key(cell_id: str) -> tuple[str, str]:
         return cells[cell_id]["name"].casefold(), cell_id
+
+    def display_key(cell_id: str) -> tuple[int, str, str]:
+        return (
+            display_rank.get(cell_id, len(display_rank)),
+            *parent_key(cell_id),
+        )
 
     parents: dict[str, str] = {}
     for cell_id in members:
@@ -191,7 +401,7 @@ def _lineage_order(cells: dict[str, CellMembership], members: list[str]) -> list
             )
         ]
         if closest:
-            parents[cell_id] = min(closest, key=key)
+            parents[cell_id] = min(closest, key=parent_key)
     children: defaultdict[str, list[str]] = defaultdict(list)
     for child, parent in parents.items():
         children[parent].append(child)
@@ -203,14 +413,14 @@ def _lineage_order(cells: dict[str, CellMembership], members: list[str]) -> list
             return
         seen.add(cell_id)
         ordered.append(cell_id)
-        for child in sorted(children[cell_id], key=key):
+        for child in sorted(children[cell_id], key=display_key):
             visit(child)
 
     for cell_id in sorted(
-        (cell_id for cell_id in members if cell_id not in parents), key=key
+        (cell_id for cell_id in members if cell_id not in parents), key=display_key
     ):
         visit(cell_id)
-    for cell_id in sorted(members, key=key):
+    for cell_id in sorted(members, key=display_key):
         visit(cell_id)
     return ordered
 
@@ -241,7 +451,7 @@ def cell_catalog(
         ),
     )
     for group in ordered_groups:
-        group["members"] = _lineage_order(cells, group["members"])
+        group["members"] = _lineage_order(cells, group["id"], group["members"])
     if level == "group":
         return ordered_groups
     if level == "mixed":

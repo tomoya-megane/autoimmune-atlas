@@ -542,6 +542,121 @@ class AtlasTests(unittest.TestCase):
         self.assertEqual(cell_catalog(snapshot, "group"), groups)
         self.assertEqual(cell_catalog(snapshot, "cell"), cells)
 
+    def test_catalog_uses_curated_cell_state_order_with_lineage_fallback(self) -> None:
+        definitions: list[tuple[str, str, str, str, list[str]]] = [
+            (
+                "CL_0000896",
+                "activated CD4-positive, alpha-beta T cell",
+                "CL_0000624",
+                "CD4-positive, alpha-beta T cell",
+                ["CL_0000084", "CL_0000624"],
+            ),
+            (
+                "CL_0000232",
+                "erythrocyte",
+                "CL_0000764",
+                "erythroid lineage cell",
+                ["CL_0000764"],
+            ),
+            (
+                "CL_0000018",
+                "spermatid",
+                "CL_0000015",
+                "male germ cell",
+                ["CL_0000015"],
+            ),
+            (
+                "CL_0000624",
+                "CD4-positive, alpha-beta T cell",
+                "CL_0000084",
+                "T cell",
+                ["CL_0000084"],
+            ),
+            (
+                "CL_9999999",
+                "future CD4 subtype",
+                "CL_0000624",
+                "CD4-positive, alpha-beta T cell",
+                ["CL_0000084", "CL_0000624"],
+            ),
+            (
+                "CL_0000020",
+                "spermatogonium",
+                "CL_0000015",
+                "male germ cell",
+                ["CL_0000015"],
+            ),
+            ("CL_0000084", "T cell", "CL_0000084", "T cell", []),
+            (
+                "CL_0000038",
+                "erythroid progenitor cell",
+                "CL_0000764",
+                "erythroid lineage cell",
+                ["CL_0000764"],
+            ),
+            (
+                "CL_0000895",
+                "naive thymus-derived CD4-positive, alpha-beta T cell",
+                "CL_0000624",
+                "CD4-positive, alpha-beta T cell",
+                ["CL_0000084", "CL_0000624"],
+            ),
+            (
+                "CL_0000015",
+                "male germ cell",
+                "CL_0000015",
+                "male germ cell",
+                [],
+            ),
+            (
+                "CL_0000017",
+                "spermatocyte",
+                "CL_0000015",
+                "male germ cell",
+                ["CL_0000015"],
+            ),
+        ]
+        rows: list[ExpressionRow] = [
+            {
+                "cell_id": cell_id,
+                "cell": name,
+                "median": 1,
+                "specificity_score": None,
+                "parent_id": parent_id,
+                "parent": parent,
+                "ancestor_ids": ancestors,
+            }
+            for cell_id, name, parent_id, parent, ancestors in definitions
+        ]
+        snapshot: AggregationSnapshot = {
+            "schema": 2,
+            "diseases": [],
+            "records": [],
+            "expression": {"G": rows},
+        }
+
+        groups = {group["id"]: group["members"] for group in cell_catalog(snapshot)}
+
+        self.assertEqual(
+            groups["CL_0000084"],
+            [
+                "CL_0000084",
+                "CL_0000624",
+                "CL_0000895",
+                "CL_0000896",
+                "CL_9999999",
+            ],
+        )
+        self.assertEqual(groups["CL_0000764"], ["CL_0000038", "CL_0000232"])
+        self.assertEqual(
+            groups["CL_0000015"],
+            ["CL_0000015", "CL_0000020", "CL_0000017", "CL_0000018"],
+        )
+        self.assertCountEqual(
+            [cell_id for members in groups.values() for cell_id in members],
+            [cell_id for cell_id, *_ in definitions],
+        )
+
     def test_group_membership_must_be_consistent_across_targets(self) -> None:
         snapshot = _snapshot()
         snapshot["expression"]["G2"][0]["ancestor_ids"] = []
