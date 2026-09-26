@@ -873,6 +873,20 @@ class EvidenceTests(unittest.TestCase):
             if trace.name == "Meets expression rule":
                 self.assertNotIn("B cell (group)", trace.y)
 
+    def test_expression_view_fixes_x_range_to_heatmap_cell_edges(self):
+        figure = figures.expression_figure(
+            self.snapshot, self.snapshot["records"], grouped=True
+        )
+        catalog = atlas.cell_catalog(self.snapshot, "mixed")
+
+        for expanded in ([], ["group:CL_B_GROUP"]):
+            view = figures.expression_view(figure, catalog, expanded)
+            xaxis = _figure(view).layout.xaxis
+            axis_range = xaxis.range
+            assert axis_range is not None
+            self.assertEqual(list(axis_range), [-0.5, 1.5])
+            self.assertFalse(xaxis.autorange)
+
     def test_group_expression_is_missing_when_all_members_are_missing(self):
         for item in self.snapshot["expression"]["ENSG_TARGET_2"]:
             item["median"] = None

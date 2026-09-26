@@ -71,6 +71,7 @@ class _FigureOps(Protocol):
 
 
 class _HeatmapData(Protocol):
+    x: Sequence[str] | None
     y: Sequence[str] | None
     z: Sequence[Sequence[int | float | None]] | None
     hovertext: Sequence[Sequence[str]] | None
@@ -635,10 +636,13 @@ def expression_view(
         if trace.hovertext is not None:
             trace.hovertext = [trace.hovertext[i] for i in keep]
     count = max(1, len(indices))
+    target_count = max(1, len(heatmap.x or ()))
     figure_ops.update_layout(
         height=110 + 60 + 28 * count, margin=dict(l=280, r=40, t=110, b=60)
     )
-    figure_ops.update_xaxes(automargin=False)
+    figure_ops.update_xaxes(
+        range=[-0.5, target_count - 0.5], autorange=False, automargin=False
+    )
     figure_ops.update_yaxes(
         range=[count - 0.5, -0.5],
         autorange=False,
