@@ -190,3 +190,21 @@ class SummaryRow(TypedDict):
     total_drugs: int
     mapped_drugs: int
     member_cell_ids: list[str]
+
+
+class GeneAssociation(TypedDict):
+    target_id: str
+    target: str
+    score: float
+    datasource_scores: dict[str, float]
+
+
+class GeneticsSnapshot(TypedDict):
+    schema: int
+    data_version: DataVersion
+    retrieved_at: str
+    source: str
+    score_floor: float
+    datasources: list[str]
+    associations: dict[str, list[GeneAssociation]]
+    expression: dict[str, list[ExpressionRow]]
