@@ -684,7 +684,9 @@ class FigureTests(unittest.TestCase):
         hover = target_heatmap.hovertext[1][0]
         self.assertIn("Denominator: 5", hover)
         self.assertIn("Unresolved in denominator: 1", hover)
-        self.assertIn("Drugs with known targets / all drugs: 4 / 4", hover)
+        self.assertIn(
+            "Canonical drugs with targets / all canonical drugs: 4 / 4", hover
+        )
         self.assertIn("not a measured zero", hover)
 
     def test_count_zero_with_unknown_evidence_has_no_cross(self) -> None:
@@ -717,7 +719,7 @@ class FigureTests(unittest.TestCase):
         )
         empty = summary(percent=None, denominator=0)
         self.assertIn(
-            "Disease data unavailable",
+            "Disease data not loaded",
             figures.hover_text(unavailable, "percent", "target"),
         )
         self.assertNotIn(
@@ -1350,7 +1352,7 @@ class EvidenceTests(unittest.TestCase):
         )
         panel_children = _component_list(panel)
         self.assertIn("expression-chart-type", str(panel_children[2]))
-        self.assertIn("○ Source cell meets expression rule", str(panel_children[4]))
+        self.assertIn("○ Cell type meets expression rule", str(panel_children[4]))
         self.assertIn("expression-dot-key", str(panel_children[5]))
         graph_container = _component(_component(panel_children[3]).children)
         graph_children = graph_container.children
@@ -1829,7 +1831,7 @@ class CallbackTests(unittest.TestCase):
             json.dumps(details, ensure_ascii=False),
         )
         status = self._post("update-status.children", values, "applied-parameters.data")
-        self.assertEqual(_at(status, "update-status", "children"), "Settings applied.")
+        self.assertEqual(_at(status, "update-status", "children"), "Settings applied")
         parameter_ids = {
             "threshold",
             "specificity",
@@ -2047,7 +2049,7 @@ class CallbackTests(unittest.TestCase):
         self.assertIn('"width": "11px"', dot_key)
         self.assertIn('"width": "15.5563px"', dot_key)
         self.assertIn('"width": "22px"', dot_key)
-        self.assertIn("Blank: missing CPM/CELLEX", dot_key)
+        self.assertIn("Empty cell: missing CPM or CELLEX", dot_key)
         self.assertEqual(
             _at(dot, "expression-heatmap-key", "style"), {"display": "none"}
         )
@@ -2166,7 +2168,7 @@ class CallbackTests(unittest.TestCase):
         )
         self.assertEqual(
             _at(controls, "props", "children", 0, "props", "children", 0),
-            "Settings panel",
+            "Settings",
         )
         groups = _at(controls, "props", "children", 1)
         scope = _at(groups, "props", "children", 0)
@@ -2228,9 +2230,9 @@ class CallbackTests(unittest.TestCase):
         )
         self.assertEqual(_at(result, "target-dot-key", "style"), {"display": "flex"})
         target_key = json.dumps(result["target-dot-key"], ensure_ascii=False)
-        self.assertIn("Count (scaled size)", target_key)
+        self.assertIn("Count (area)", target_key)
         self.assertIn('"width": "22px"', target_key)
-        self.assertIn("Blank: zero or unavailable", target_key)
+        self.assertIn("Empty cell: zero or missing", target_key)
         click = _json_value(
             {"points": [{"customdata": ["MONDO_RA_TEST", "group:" + atlas.T_CELL_ID]}]}
         )
@@ -2345,7 +2347,7 @@ class CallbackTests(unittest.TestCase):
         values[("method", "value")] = "relative"
         relative = self._post_applied("target-heatmap.figure", values)
         self.assertIn(
-            "full-reference target median",
+            "target-relative median",
             json.dumps(_at(relative, "matrix-note", "children"), ensure_ascii=False),
         )
 

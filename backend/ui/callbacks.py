@@ -111,7 +111,7 @@ def _effective_number(
         )
         return (
             default,
-            f"{label.capitalize()} must be finite and{bound}; using {default:g}.",
+            f"{label[0].upper() + label[1:]} must be finite and{bound}; using {default:g}.",
         )
     return number, None
 
@@ -124,7 +124,7 @@ def effective_filters(
         threshold, DEFAULT_EXPRESSION_THRESHOLD, "minimum CPM"
     )
     specificity_value, specificity_error = _effective_number(
-        specificity, DEFAULT_SPECIFICITY_THRESHOLD, "specificity threshold", 1
+        specificity, DEFAULT_SPECIFICITY_THRESHOLD, "CELLEX specificity", 1
     )
     return (
         minimum,
@@ -327,7 +327,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
                 for value, diameter in size_values
             ],
             html.Span(
-                "Blank: missing CPM/CELLEX",
+                "Empty cell: missing CPM or CELLEX",
                 className="dot-key-item",
             ),
         ]
@@ -361,9 +361,9 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
     )
     def parameter_status(applied: AppliedParameters, *values: ParameterValue) -> str:
         return (
-            "Settings applied."
+            "Settings applied"
             if _applied_parameters(values) == applied
-            else "Changes not applied. Click Update."
+            else "Changes not applied; click Update"
         )
 
     families = [
@@ -561,7 +561,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             )
         condition = f"median CPM ≥ {minimum:g}"
         if method == "relative":
-            condition += " and CPM ≥ the full-reference target median"
+            condition += " and CPM ≥ the target-relative median"
         elif method == "specificity":
             condition += f" and CELLEX specificity ≥ {specificity_value:g}"
         modality_label = (
@@ -577,11 +577,11 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             )
         )
         display = (
-            f"Dot plot: area uses a compressed Count scale; color is Percent. Zero entries are blank. Unavailable entries are blank: targets {target_missing}, drugs {drug_missing}"
+            f"Dot plot: dot area uses a compressed Count scale, color shows Percent, zero and missing entries are empty (missing: targets {target_missing}, canonical drugs {drug_missing})"
             if chart_type == "dot"
-            else f"Heatmap measure: {measure.capitalize()}. Unavailable entries shown as zero: targets {target_missing}, drugs {drug_missing}"
+            else f"Heatmap measure: {measure.capitalize()}, missing entries shown as zero (targets {target_missing}, canonical drugs {drug_missing})"
         )
-        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: all groups and expanded source cells. {display}. {len(rows)} disease–cell combinations."
+        note = f"Applied · Clinical stage: {STAGE_LABELS[stage]} · Drug modality: {modality_label} · Expression rule: {METHOD_LABELS[method]} ({condition}) · Cells: all groups and expanded cell types · {display} · {len(rows)} disease–cell combinations"
         status = html.Span(f"{len(rows)} disease–cell combinations")
         error_note = (
             html.Span(" ".join(errors), className="filter-errors", role="alert")
@@ -597,7 +597,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
                 scale_rows, "drug" if kind == "drug" else "target"
             )
             return [
-                html.Span("Count (scaled size)", className="dot-key-title"),
+                html.Span("Count (area)", className="dot-key-title"),
                 *[
                     html.Span(
                         [
@@ -614,7 +614,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
                     )
                     for value, diameter in values
                 ],
-                html.Span("Blank: zero or unavailable", className="dot-key-item"),
+                html.Span("Empty cell: zero or missing", className="dot-key-item"),
             ]
 
         key_style = {"display": "flex" if chart_type == "dot" else "none"}

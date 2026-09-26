@@ -84,7 +84,7 @@ def detail_panel(
     """選択した疾患の連続発現と元記録を表示する。"""
     if selection is None:
         return html.Div(
-            "Select a disease using the displayed heatmap or the selector above.",
+            "Select a disease in the comparison charts or the selector above.",
             className="empty-note",
         )
     row = next((item for item in rows if item["disease_id"] == selection), None)
@@ -123,19 +123,14 @@ def detail_panel(
                     f"Drug–target records for {row['disease']}",
                     info_tip(
                         "source-records",
-                        "source records",
-                        "Records match the selected disease and applied drug filters. Each row is a canonical drug–target pair; original forms such as salts are merged, and a drug with several targets appears on several rows. Expression thresholds do not filter this table. Click a column header to sort and type in the boxes under the headers to filter; ten rows are shown per page. — means unavailable information.",
+                        "drug–target records",
+                        "This table lists drug–target records for the selected disease under the applied drug filters. Each row is a canonical drug–target pair; original drug forms such as salts are merged, and a canonical drug with several targets appears on several rows. Expression rules do not filter this table. Ten rows are shown per page. — means missing. Click a column header to sort, or type in the boxes under the headers to filter.",
                     ),
                 ]
             ),
             html.Div(
                 [
                     dcc.Store(id="source-context", data=source_context),
-                    html.P(
-                        f"{len(pairs)} drug–target pairs from {len(filtered)} records",
-                        role="status",
-                        className="matrix-note",
-                    ),
                     evidence_grid(pairs),
                 ],
                 className="source-records",
@@ -146,7 +141,7 @@ def detail_panel(
                     info_tip(
                         "expression",
                         "target expression",
-                        "Healthy reference expression for known targets of the selected disease's filtered drugs. Switch between a heatmap and a dot plot without recalculating the data. Dot area represents CELLEX specificity and color is the target-wise z-score; zero and very small values use minimum-size 3 px dots. Missing CPM or CELLEX is blank. Click a group name to show its source cell types. The same reference data are used for every disease; differences between diseases reflect their drug and target sets, not expression in patients.",
+                        "This chart shows healthy reference expression for every target of the selected disease's filtered canonical drugs. The heatmap and the dot plot show the same data. In the dot plot, dot area represents CELLEX specificity and color is the target-wise z-score; zero and very small specificity values use 3 px dots, and an empty cell means missing CPM or CELLEX. The same reference data are used for every disease, so differences between diseases reflect their drug and target sets, not expression in patients. Click a cell group name to show its source cell types.",
                     ),
                     html.Fieldset(
                         [
@@ -170,8 +165,8 @@ def detail_panel(
                             "Group means",
                             info_tip(
                                 "expression-groups",
-                                "group mean expression",
-                                "Each group shows equal-weight arithmetic means across source cell types with available values: donor-median CPM in both charts and CELLEX specificity for dot size. Hover shows coverage for each measure. All missing means no group value. Group means are display-only: they never enter reference medians, z-score reference statistics, clustering, expression rules or comparison counts.",
+                                "group means",
+                                "A group mean is the equal-weight arithmetic mean across the source cell types of a cell group that have values: donor-median CPM, the median CPM across donors, in both charts and CELLEX specificity for dot size. The hover shows how many source cell types have values for each measure. A cell group whose values are all missing has no group mean. Group means are display-only: they never enter reference medians, z-score reference statistics, clustering, expression rules or comparison counts.",
                             ),
                         ],
                         className="expression-marker-key",
@@ -182,7 +177,7 @@ def detail_panel(
                             info_tip(
                                 "expression-scale",
                                 "expression colors",
-                                "Both charts use the same colors: red is higher and blue lower expression relative to the same target across all source cell types, not relative to other targets. Values are log2(1 + CPM), standardized using source-cell values only; group means use that same transformation. Targets are ordered by source-cell patterns. Expanding groups changes neither order nor color scale. Neutral color at z = 0 means reference-average log expression, not absence of expression.",
+                                "The color is the target-wise z-score, shared by both charts: red is higher and blue lower expression relative to the same target across all source cell types, not relative to other targets. Values are log2(1 + CPM), standardized over source cell types only; group means use the same transformation. Targets are ordered by their patterns across source cell types. Expanding a cell group changes neither the order nor the color scale. The neutral color at z = 0 means reference-average log expression, not absence of expression.",
                             ),
                         ],
                         className="expression-marker-key",
@@ -208,7 +203,7 @@ def detail_panel(
                 className="graph-scroll expression-graph",
             ),
             html.Small(
-                "○ Source cell meets expression rule · Gray: missing expression",
+                "○ Cell type meets expression rule · Gray: missing expression",
                 id="expression-heatmap-key",
                 className="expression-marker-key",
                 style={"display": "inline-flex"},
@@ -229,7 +224,10 @@ def unavailable_layout(error: Exception | None = None) -> html.Main:
         [
             html.Section(
                 [
-                    html.P("AUTOIMMUNE DRUG–CELL ATLAS", className="eyebrow"),
+                    html.P(
+                        "DRUG TARGETS · HEALTHY REFERENCE EXPRESSION",
+                        className="eyebrow",
+                    ),
                     html.H1(title),
                     html.P(
                         "Run the command below to download data, then restart the app."
@@ -310,11 +308,15 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
         [
             html.Nav(
                 [
-                    html.A("Autoimmune Atlas", href="#", className="app-brand"),
+                    html.A(
+                        "Autoimmune Target Expression Atlas",
+                        href="#",
+                        className="app-brand",
+                    ),
                     html.Div(
                         [
                             html.A("Comparison", href="#comparison"),
-                            html.A("Evidence", href="#evidence"),
+                            html.A("Details", href="#evidence"),
                             html.A(
                                 "Open Targets",
                                 href=source,
@@ -335,7 +337,8 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                     html.Div(
                         [
                             html.P(
-                                "AUTOIMMUNE DISEASE / DRUG TARGETS", className="eyebrow"
+                                "DRUG TARGETS · HEALTHY REFERENCE EXPRESSION",
+                                className="eyebrow",
                             ),
                             html.H1(
                                 [
@@ -343,7 +346,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                     info_tip(
                                         "overview",
                                         "the atlas",
-                                        "Snapshot totals above the settings describe all saved data, not the filtered results. Compare which drug targets meet an expression rule in healthy reference cells across diseases. Disease differences reflect eligible drug and target sets, not disease-specific expression. This does not establish treatment efficacy; disease records may include symptom or comorbidity treatment.",
+                                        "This atlas compares which drug targets meet an expression rule in healthy reference cell types across diseases. Differences between diseases reflect their eligible drug and target sets, not disease-specific expression. The snapshot totals above the settings describe all saved data, not the filtered results. The atlas does not establish treatment efficacy, and disease records may include treatments for symptoms or comorbidities.",
                                     ),
                                 ]
                             ),
@@ -413,11 +416,11 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                 [
                     html.H2(
                         [
-                            "Settings panel",
+                            "Settings",
                             info_tip(
                                 "settings",
-                                "applying settings",
-                                "Edit the settings, then click Update to apply them together. Until then, both heatmaps and disease details keep the previous settings. Group expansion, detail disease selection and table pages update immediately.",
+                                "settings",
+                                "These settings define the comparison and the disease details. Until you click Update, both charts and the disease details keep the previous settings. Cell group expansion, the detail disease and table pages update immediately. Edit the settings, then click Update to apply them together.",
                             ),
                         ]
                     ),
@@ -451,7 +454,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                                     info_tip(
                                                         "stage",
                                                         "clinical stage",
-                                                        "Filters by the highest recorded stage across original forms of a canonical drug within each disease. An earlier-stage original record may remain in the table. Approval reached can include withdrawn drugs and does not guarantee current approval.",
+                                                        "The clinical stage filter uses the highest recorded stage across the original drug forms of a canonical drug within each disease. A record of an original drug form at an earlier stage may remain in the table. Approval reached can include withdrawn drugs and does not guarantee current approval.",
                                                     ),
                                                 ],
                                                 className="label-help",
@@ -488,7 +491,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                             value="all",
                                             clearable=False,
                                         ),
-                                        "Filters original drug records by the modality recorded in Open Targets. All includes every modality; Unknown means no mapped modality.",
+                                        "The drug modality filter uses the modality that Open Targets records for each original drug form. All includes every modality; Unknown means no mapped modality.",
                                     ),
                                 ],
                                 className="filter-group",
@@ -508,7 +511,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                             value="specificity",
                                             clearable=False,
                                         ),
-                                        "Fixed CPM uses Minimum CPM alone. Target-relative median also requires expression at or above that target's median across all source cell types; incomplete reference data make that median unavailable. CELLEX also requires the selected specificity threshold. Group averages never enter these rules.",
+                                        "The expression rule decides whether a target counts as expressed in a cell type. Fixed CPM uses Minimum CPM alone. Target-relative median also requires expression at or above that target's median across all cell types in the reference; when reference data are incomplete, that median is missing and the rule is unresolved. CELLEX also requires at least the selected CELLEX specificity. Group means never enter these rules.",
                                     ),
                                     # Dash 4.4.1 は max を省略すると増減時に NaN になるため、上限なしを明示する。
                                     html.Div(
@@ -522,7 +525,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                                     info_tip(
                                                         "threshold",
                                                         "minimum CPM",
-                                                        f"Minimum donor-median CPM for an individual source cell type. Applies to every rule; group averages are not tested. Blank uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.",
+                                                        f"Minimum CPM is the lowest donor-median CPM, the median CPM across donors, that a cell type must reach. It applies to every expression rule; group means are not tested. Empty uses {DEFAULT_EXPRESSION_THRESHOLD:g} CPM.",
                                                     ),
                                                 ],
                                                 className="label-help",
@@ -549,7 +552,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                                     info_tip(
                                                         "specificity",
                                                         "CELLEX specificity",
-                                                        f"Requires the source-cell CELLEX score to be at least this value, in addition to Minimum CPM. Used only with the CELLEX rule; missing scores remain unresolved. Blank uses {DEFAULT_SPECIFICITY_THRESHOLD:g}.",
+                                                        f"CELLEX specificity is the lowest CELLEX score that a cell type must reach in addition to Minimum CPM. It is used only with the CELLEX expression rule, and a missing score leaves the rule unresolved. Empty uses {DEFAULT_SPECIFICITY_THRESHOLD:g}.",
                                                     ),
                                                 ],
                                                 className="label-help",
@@ -579,8 +582,8 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                                     "View",
                                                     info_tip(
                                                         "view",
-                                                        "heatmap view",
-                                                        "Distinct targets counts unique genes meeting the expression rule. Canonical drugs counts each parent drug once when any known target meets the rule. A group counts a target or drug once if any member cell type qualifies.",
+                                                        "view",
+                                                        "The view chooses what the comparison counts. Distinct targets counts each target that meets the expression rule once. Canonical drugs counts each canonical drug once when any of its targets meets the rule. A cell group counts a target or canonical drug once if any of its cell types qualifies.",
                                                     ),
                                                 ]
                                             ),
@@ -610,7 +613,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                                     info_tip(
                                                         "measure",
                                                         "measure",
-                                                        "For the heatmap, Count shows qualifying targets or drugs. Percent divides by all known targets, or drugs with known targets, for that disease and the applied drug filters. The dot plot uses a compressed Count size scale and Percent for color. The denominator is fixed across cell types. These are not cell proportions or probabilities of treatment benefit.",
+                                                        "The measure chooses the value that the heatmap shows. Count is the number of qualifying targets or canonical drugs. Percent divides that number by all targets, or by all canonical drugs with targets, for the disease under the applied drug filters; the denominator is the same for every cell type. In the dot plot, dot area uses a compressed Count scale and color shows Percent. These values are not cell proportions or probabilities of treatment benefit.",
                                                     ),
                                                 ]
                                             ),
@@ -644,7 +647,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                         n_clicks=0,
                                     ),
                                     html.Span(
-                                        "Settings applied.",
+                                        "Settings applied",
                                         id="update-status",
                                         role="status",
                                     ),
@@ -666,11 +669,11 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                         [
                             html.H2(
                                 [
-                                    "Compare diseases by cell type",
+                                    "Comparison by cell type",
                                     info_tip(
                                         "comparison",
-                                        "cell-type comparison",
-                                        "Compare qualifying targets or drugs across diseases. Group rows count distinct targets or drugs across their members, not average expression. The heatmap shows the selected measure. In the dot plot, size uses a compressed Count scale and color is Percent; blank means zero or unavailable. A ≥ in the hover means the result is a lower bound. Scales are separate for targets and drugs and can change when filters change. Click a group name to expand it, click a mark for disease details, and hover for counts and evidence status.",
+                                        "comparison by cell type",
+                                        "The comparison counts qualifying targets or canonical drugs for each disease and cell type. A cell group row counts distinct targets or canonical drugs across its cell types, not mean expression. The heatmap shows the selected measure. In the dot plot, dot area uses a compressed Count scale and color shows Percent; an empty cell means zero or missing. A ≥ in the hover marks a lower bound. Scales are separate for targets and canonical drugs and can change when filters change. Click a cell group name to expand it, click a cell or mark for disease details, or hover for counts and evidence status.",
                                     ),
                                 ]
                             ),
@@ -773,11 +776,11 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                         [
                             html.H2(
                                 [
-                                    "Drug records and target expression",
+                                    "Disease details",
                                     info_tip(
                                         "selection",
-                                        "selection details",
-                                        "Click a comparison heatmap cell or choose a disease below. Details update immediately within the last applied settings. Drug records show the underlying evidence; the expression map includes all known targets of those drugs, even when they do not meet the expression rule.",
+                                        "disease details",
+                                        "Disease details show the drug–target records and target expression for one disease. They update immediately within the last applied settings. The records show the underlying evidence, and the expression chart includes every target of those canonical drugs, even when it does not meet the expression rule. Click a cell or mark in the comparison charts, or choose a disease below.",
                                     ),
                                 ]
                             )

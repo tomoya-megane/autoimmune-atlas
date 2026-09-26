@@ -169,18 +169,16 @@ def display_value(row: SummaryRow, measure: Measure, kind: Kind = "target") -> s
 
 def hover_text(row: SummaryRow, measure: Measure, kind: Kind) -> str:
     value_key, unknown_key, denominator_key = measure_fields(kind, measure)
-    value = display_value(row, measure, kind) or "Not available"
-    label = "Drugs" if kind == "drug" else "Targets"
+    value = display_value(row, measure, kind) or "missing"
+    label = "Canonical drugs" if kind == "drug" else "Targets"
     if row["status"] == "unavailable":
-        assessment = "Disease data unavailable"
+        assessment = "Disease data not loaded"
     elif measure == "percent" and row.get(denominator_key, 0) == 0:
         assessment = "No eligible items in the percentage denominator"
     elif _is_lower_bound(row, measure, kind):
         assessment = "≥ is a lower bound; unresolved evidence may increase this value"
     elif row.get(value_key) is None:
-        assessment = (
-            "Support cannot be determined from available target and expression data."
-        )
+        assessment = "The expression rule is unresolved because target or expression data are missing."
     elif row[value_key] == 0:
         assessment = f"No qualifying {label.lower()} under this rule"
     else:
@@ -197,7 +195,7 @@ def hover_text(row: SummaryRow, measure: Measure, kind: Kind) -> str:
             ),
             f"Denominator: {row.get(denominator_key, 0)}",
             f"Unresolved in denominator: {row.get(unknown_key, 0)}",
-            f"Drugs with known targets / all drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
+            f"Canonical drugs with targets / all canonical drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
         )
     )
 
@@ -205,11 +203,11 @@ def hover_text(row: SummaryRow, measure: Measure, kind: Kind) -> str:
 def dot_hover_text(row: SummaryRow, kind: Kind) -> str:
     """Dot plot の面積と色を、欠測と下限を含めて一緒に説明する。"""
     _, unknown_key, denominator_key = measure_fields(kind, "percent")
-    count = display_value(row, "count", kind) or "Not available"
-    percent = display_value(row, "percent", kind) or "Not available"
-    label = "Drugs" if kind == "drug" else "Targets"
+    count = display_value(row, "count", kind) or "missing"
+    percent = display_value(row, "percent", kind) or "missing"
+    label = "Canonical drugs" if kind == "drug" else "Targets"
     if row["status"] == "unavailable":
-        assessment = "Disease data unavailable"
+        assessment = "Disease data not loaded"
     elif row.get(denominator_key, 0) == 0:
         assessment = "No eligible items in the percentage denominator"
     elif _is_lower_bound(row, "count", kind) or _is_lower_bound(row, "percent", kind):
@@ -218,9 +216,7 @@ def dot_hover_text(row: SummaryRow, kind: Kind) -> str:
         row.get(measure_fields(kind, "count")[0]) is None
         or row.get(measure_fields(kind, "percent")[0]) is None
     ):
-        assessment = (
-            "Support cannot be determined from available target and expression data."
-        )
+        assessment = "The expression rule is unresolved because target or expression data are missing."
     elif row[measure_fields(kind, "count")[0]] == 0:
         assessment = f"No qualifying {label.lower()} under this rule"
     else:
@@ -233,7 +229,7 @@ def dot_hover_text(row: SummaryRow, kind: Kind) -> str:
             assessment,
             f"Denominator: {row.get(denominator_key, 0)}",
             f"Unresolved in denominator: {row.get(unknown_key, 0)}",
-            f"Drugs with known targets / all drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
+            f"Canonical drugs with targets / all canonical drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
         )
     )
 
@@ -296,7 +292,7 @@ def build_figure(
     color_max = max(values, default=1)
     if color_min == color_max:
         color_min, color_max = 0, max(1, color_max)
-    title = "Drug" if kind == "drug" else "Target"
+    title = "Canonical drugs" if kind == "drug" else "Targets"
     figure = go.Figure(
         go.Heatmap(
             x=[disease_names.get(item, item) for item in disease_ids],
@@ -307,7 +303,7 @@ def build_figure(
             zmax=color_max,
             colorscale="Greens",
             colorbar={
-                "title": f"{title} {'share (%)' if measure == 'percent' else 'count'}",
+                "title": f"{title} {'(%)' if measure == 'percent' else '(count)'}",
                 "lenmode": "pixels",
                 "len": 240,
                 "y": 1,
@@ -440,7 +436,7 @@ def build_dot_figure(
     color_max = max(scale_percents, default=1)
     if color_min == color_max:
         color_min, color_max = 0, max(1, color_max)
-    title = "Drug" if kind == "drug" else "Target"
+    title = "Canonical drugs" if kind == "drug" else "Targets"
     has_values = bool(x)
     value_x = x if has_values else [None, None]
     value_y = y if has_values else [None, None]
@@ -467,7 +463,7 @@ def build_dot_figure(
                 "cmax": color_max,
                 "showscale": True,
                 "colorbar": {
-                    "title": f"{title} share (%)",
+                    "title": f"{title} (%)",
                     "lenmode": "pixels",
                     "len": 240,
                     "y": 1,
@@ -751,7 +747,7 @@ def expression_figure(
                         if specificity_score is not None
                         else "Mean CELLEX specificity: missing",
                         f"CELLEX-observed source cell types: {len(specificity_observed)} / {len(cell['members'])}",
-                        "Equal-weight mean across cell types with data; missing values are excluded.",
+                        "Equal-weight mean across source cell types with values; missing values are excluded.",
                         "Display only: excluded from reference medians, standardization, clustering and rule evaluation.",
                     )
                 )
@@ -881,7 +877,7 @@ def expression_figure(
     )
     if not targets:
         figure_ops.add_annotation(
-            text="No known targets in the selected scope", showarrow=False
+            text="No targets in the selected scope", showarrow=False
         )
     figure_ops.update_layout(
         template="plotly_white",
@@ -893,14 +889,12 @@ def expression_figure(
     figure_ops.update_xaxes(
         tickangle=-45,
         side="top",
-        title="Known target",
+        title="Target",
         tickvals=target_labels,
         ticktext=[target_names[t] for t in targets],
         automargin=True,
     )
-    figure_ops.update_yaxes(
-        autorange="reversed", title="Source cell type", automargin=True
-    )
+    figure_ops.update_yaxes(autorange="reversed", title="Cell type", automargin=True)
     if members:
         figure_ops.update_yaxes(range=[len(display_cells) - 0.5, -0.5], autorange=False)
     return figure

@@ -284,8 +284,8 @@ def disease_selector(snapshot: Snapshot, selected: Iterable[str] | None) -> html
                     html.Label("Diseases", htmlFor="diseases"),
                     info_tip(
                         "diseases",
-                        "disease groups",
-                        "Search by name or browse disease groups. Each checkbox selects one disease term; selecting a parent does not select its children. Click Update to apply your selection. These groups are navigation aids, not a diagnostic classification.",
+                        "diseases",
+                        "Diseases sets which diseases the comparison includes. Each checkbox selects one disease; selecting a parent does not select its children. The disease groups are navigation aids, not a diagnostic classification. Search by name or browse the disease groups, then click Update.",
                     ),
                 ],
                 className="label-help",
@@ -372,13 +372,13 @@ EVIDENCE_COLUMNS: tuple[tuple[str, str, str | None], ...] = (
     (
         "canonical_drug",
         "Canonical drug",
-        "Drug used for counting: original forms sharing Open Targets' parentMolecule are merged into one row. If no parent is recorded, the original drug is used.",
+        "The canonical drug (Open Targets parentMolecule) is the unit used for counting. Original drug forms that share a parentMolecule are merged into one row; without a parentMolecule, the original drug form is the canonical drug.",
     ),
     ("modality", "Modality", None),
     (
         "stage",
         "Canonical stage",
-        "Highest stage across original forms of the same canonical drug in this disease, used for filtering.",
+        "The highest stage across the original drug forms of the same canonical drug in this disease, used for filtering.",
     ),
     ("target", "Target", None),
     ("action_mechanism", "Action / mechanism", None),
