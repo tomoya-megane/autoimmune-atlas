@@ -651,9 +651,8 @@ def expression_figure(
     targets = _clustered_targets(targets, profiles)
     z: list[list[float | None]] = []
     hover: list[list[str]] = []
-    missing_x: list[str] = []
-    missing_y: list[str] = []
-    missing_hover: list[str] = []
+    missing_z: list[list[int | None]] = []
+    missing_hover: list[list[str]] = []
     positive_x: list[str] = []
     positive_y: list[str] = []
     positive_hover: list[str] = []
@@ -670,6 +669,8 @@ def expression_figure(
         is_group = cell.get("cell_level") == "group"
         z_row: list[float | None] = []
         hover_row: list[str] = []
+        missing_row: list[int | None] = []
+        missing_hover_row: list[str] = []
         for target_id in targets:
             label = f"{target_names[target_id]} ({target_id})"
             item = metadata.get((target_id, member))
@@ -754,14 +755,14 @@ def expression_figure(
                         "Display only: excluded from reference medians, standardization, clustering and rule evaluation.",
                     )
                 )
-            if cpm is None:
-                missing_x.append(label)
-                missing_y.append(member_names[member])
-                missing_hover.append(
-                    hover_row[-1]
-                    + "<br>Displayed as 0; expression is missing, not measured as zero."
-                )
-            elif not is_group and state is True:
+            missing_row.append(1 if cpm is None else None)
+            missing_hover_row.append(
+                hover_row[-1]
+                + "<br>Shown in gray; expression is missing, not measured as zero."
+                if cpm is None
+                else ""
+            )
+            if cpm is not None and not is_group and state is True:
                 positive_x.append(label)
                 positive_y.append(member_names[member])
                 positive_hover.append(hover_row[-1])
@@ -778,6 +779,8 @@ def expression_figure(
                 dot_custom.append([target_id, member])
         z.append(z_row)
         hover.append(hover_row)
+        missing_z.append(missing_row)
+        missing_hover.append(missing_hover_row)
     target_labels = [f"{target_names[t]} ({t})" for t in targets]
     color_limit = (
         max(
@@ -803,22 +806,26 @@ def expression_figure(
             },
             hovertext=hover,
             hovertemplate="%{hovertext}<extra></extra>",
+            hoverongaps=False,
             xgap=2,
             ygap=2,
         )
     )
     figure_ops = cast(_FigureOps, cast(object, figure))
-    if missing_x:
+    if any(value is not None for row in missing_z for value in row):
         figure_ops.add_trace(
-            go.Scatter(
-                x=missing_x,
-                y=missing_y,
-                mode="text",
-                text="0",
-                textfont={"size": 12, "color": "#263238"},
+            go.Heatmap(
+                x=target_labels,
+                y=[cell["name"] for cell in display_cells],
+                z=missing_z,
+                colorscale=[[0, "#d9d9d9"], [1, "#d9d9d9"]],
+                showscale=False,
                 name="Missing expression",
                 hovertext=missing_hover,
                 hovertemplate="%{hovertext}<extra></extra>",
+                hoverongaps=False,
+                xgap=2,
+                ygap=2,
             )
         )
     if positive_x:
@@ -920,6 +927,15 @@ def expression_view(
     if heatmap.hovertext is not None:
         heatmap.hovertext = [heatmap.hovertext[i] for i in indices]
     for trace_value in figure_ops.data[1:]:
+        if isinstance(trace_value, go.Heatmap):
+            # 欠損セルを灰色で塗る heatmap は、主 heatmap と同じ行だけ残す。
+            overlay = cast(_HeatmapData, cast(object, trace_value))
+            overlay.y = [heatmap_y[i] for i in indices]
+            if overlay.z is not None:
+                overlay.z = [overlay.z[i] for i in indices]
+            if overlay.hovertext is not None:
+                overlay.hovertext = [overlay.hovertext[i] for i in indices]
+            continue
         trace = cast(_ScatterData, trace_value)
         trace_y = trace.y if trace.y is not None else ()
         keep = [i for i, name in enumerate(trace_y) if name is None or name in names]

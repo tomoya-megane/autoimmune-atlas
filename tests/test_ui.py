@@ -179,8 +179,14 @@ def _figure(figure: object) -> FigureData:
     return cast(FigureData, figure)
 
 
-def _heatmap(figure: object) -> HeatmapTrace:
+def _heatmap(figure: object, name: str | None = None) -> HeatmapTrace:
     traces = _figure(figure).data
+    if name is not None:
+        traces = [
+            trace
+            for trace in traces
+            if hasattr(trace, "z") and cast(HeatmapTrace, trace).name == name
+        ]
     fields = (
         "colorbar",
         "customdata",
@@ -206,7 +212,7 @@ def _scatter(figure: object, name: str) -> ScatterTrace:
 
 
 def _scatters(figure: object) -> list[ScatterTrace]:
-    traces = _figure(figure).data[1:]
+    traces = [trace for trace in _figure(figure).data[1:] if not hasattr(trace, "z")]
     assert all(
         all(hasattr(trace, field) for field in ("name", "x", "y", "mode", "text"))
         for trace in traces
@@ -988,11 +994,19 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(heatmap.colorbar.len, 240)
         self.assertEqual(heatmap.colorbar.y, 1)
         self.assertEqual(heatmap.colorbar.yanchor, "top")
-        missing = _scatter(figure, "Missing expression")
-        self.assertEqual(missing.mode, "text")
-        self.assertEqual(missing.text, "0")
-        self.assertEqual(list(missing.x), ["TARGET2 (ENSG_TARGET_2)"])
-        self.assertEqual(list(missing.y), ["memory B cell"])
+        missing = _heatmap(figure, "Missing expression")
+        self.assertEqual(list(missing.x), targets)
+        self.assertEqual(list(missing.y), cells)
+        self.assertEqual(
+            {
+                (cells[row], targets[column])
+                for row, values in enumerate(missing.z)
+                for column, value in enumerate(values)
+                if value is not None
+            },
+            {("memory B cell", "TARGET2 (ENSG_TARGET_2)")},
+        )
+        self.assertIn("Shown in gray", missing.hovertext[cell_index][target2_index])
         dots = _scatter(figure, "CELLEX specificity")
         self.assertEqual(dots.mode, "markers")
         self.assertEqual(dots.marker.sizemode, "diameter")

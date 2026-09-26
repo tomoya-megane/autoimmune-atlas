@@ -216,7 +216,7 @@ def detail_panel(
                 className="graph-scroll expression-graph",
             ),
             html.Small(
-                "○ Source cell meets expression rule · Printed 0: missing expression",
+                "○ Source cell meets expression rule · Gray: missing expression",
                 id="expression-heatmap-key",
                 className="expression-marker-key",
                 style={"display": "inline-flex"},
