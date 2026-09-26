@@ -6,7 +6,7 @@ import math
 from collections import defaultdict
 from statistics import median
 
-from backend.models import (
+from autoimmune_atlas.models import (
     AggregationSnapshot,
     CellCatalogEntry,
     CellMembership,

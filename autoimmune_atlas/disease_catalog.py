@@ -9,7 +9,7 @@
 
 from collections import deque
 
-from backend.models import (
+from autoimmune_atlas.models import (
     CatalogDisease,
     DiseaseCatalogGroup,
     DiseaseCatalogInput,

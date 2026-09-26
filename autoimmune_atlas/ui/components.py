@@ -7,16 +7,16 @@ import dash_ag_grid as dag  # pyright: ignore[reportMissingTypeStubs] - dash-ag-
 from dash import dcc, html
 from dash.development.base_component import Component
 
-from backend import aggregation as atlas
-from backend.disease_catalog import disease_catalog, ordered_disease_ids
-from backend.models import (
+from autoimmune_atlas import aggregation as atlas
+from autoimmune_atlas.disease_catalog import disease_catalog, ordered_disease_ids
+from autoimmune_atlas.models import (
     CatalogDisease,
     DiseaseCatalogGroup,
     DiseaseFamily,
     FilteredRecord,
     Snapshot,
 )
-from backend.ui.config import SOURCE_PAGE_SIZE
+from autoimmune_atlas.ui.config import SOURCE_PAGE_SIZE
 
 
 class DiseaseSection(TypedDict):

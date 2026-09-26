@@ -4,8 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-from backend.snapshot import load_snapshot
-from backend.ui.application import create_app
+from autoimmune_atlas.snapshot import load_snapshot
+from autoimmune_atlas.ui.application import create_app
 
 BASE_DIR = Path(__file__).resolve().parent
 

@@ -12,17 +12,17 @@ Python の Dash と Plotly を使う。
 
 ## コード構成
 
-起動とデータ更新の入口だけをリポジトリ直下に置き、処理の実体は `backend/` にまとめている。
+起動の入口 `app.py` だけをリポジトリ直下に置き、処理の実体は `autoimmune_atlas/` パッケージにまとめている。
+データ更新は `pixi run refresh` が `autoimmune_atlas.refresh` をモジュールとして実行する。
 集計、データ取得、画面表示のどこを読むべきかを、ファイル名から判断できる構成である。
 
 ```text
 app.py                         Dash アプリの起動
-fetch_data.py                  公開 API からのデータ更新
-backend/
+autoimmune_atlas/
 ├── aggregation.py             薬剤、標的、細胞型の集計
 ├── disease_catalog.py         対象疾患と表示順の定義
 ├── models.py                  スナップショットと集計結果の共有データ型
-├── refresh.py                 公開 API の取得、正規化、保存
+├── refresh.py                 公開 API の取得、正規化、保存（python -m で実行）
 ├── snapshot.py                保存済みデータの読み込みと検証
 └── ui/
     ├── application.py         Dash アプリの組み立て
@@ -33,7 +33,13 @@ backend/
     └── layout.py              初期画面と詳細欄の配置
 assets/                        CSS、JavaScript、アイコン
 data/                          取得済みスナップショット
-tests/                         集計、画面、取得処理のテスト
+docs/                          設計ノートと対象疾患の根拠
+tests/
+├── test_aggregation.py        集計規則
+├── test_refresh.py            公開 API の取得と保存
+├── test_disease_catalog.py    対象疾患と表示順
+├── test_ui.py                 図、画面、callback
+└── test_help.cjs              ツールチップの JavaScript
 ```
 
 ## 開発環境

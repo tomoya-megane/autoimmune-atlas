@@ -8,7 +8,7 @@ version = "0.1.0"
 [tasks]
 start = "python app.py"
 dev = "python app.py --dev"
-refresh = "python fetch_data.py"
+refresh = "python -m autoimmune_atlas.refresh"
 test = "python -m unittest discover -v -s tests -t ."
 test-help = "node tests/test_help.cjs"
 format = "ruff format ."

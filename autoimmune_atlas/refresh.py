@@ -16,13 +16,13 @@ from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 from urllib.parse import urlparse
 
-from backend.aggregation import (
+from autoimmune_atlas.aggregation import (
     DRUG_TYPE_TO_MODALITY,
     STAGE_FILTERS,
     cell_catalog,
 )
-from backend.disease_catalog import SCOPE_ROOTS
-from backend.models import (
+from autoimmune_atlas.disease_catalog import SCOPE_ROOTS
+from autoimmune_atlas.models import (
     DataVersion,
     Disease,
     DrugRecord,

@@ -13,8 +13,8 @@ from scipy.cluster.hierarchy import (  # pyright: ignore[reportMissingTypeStubs]
     linkage,  # pyright: ignore[reportUnknownVariableType] -- SciPy は型を公開していない。
 )
 
-from backend import aggregation as atlas
-from backend.models import (
+from autoimmune_atlas import aggregation as atlas
+from autoimmune_atlas.models import (
     CellCatalogEntry,
     DrugRecord,
     EvidenceBase,
@@ -26,8 +26,8 @@ from backend.models import (
     SummaryRow,
     TargetRecord,
 )
-from backend.ui.components import ordered_cell_ids
-from backend.ui.config import (
+from autoimmune_atlas.ui.components import ordered_cell_ids
+from autoimmune_atlas.ui.config import (
     DEFAULT_EXPRESSION_THRESHOLD,
     DEFAULT_SPECIFICITY_THRESHOLD,
 )

@@ -12,7 +12,7 @@ MONDO は idiopathic inflammatory myopathy や lupus nephritis を自己免疫�
 起点の一覧と、1 件ごとの根拠、起点にしなかった候補は[対象疾患の起点](disease-roots.md)にある。
 自己炎症性疾患は `autoinflammatory syndrome` を起点にして含め、アレルギー性疾患は含めない。
 下位語に遺伝性や感染性の疾患が混ざる起点は、本体だけを入れる。
-起点の一覧は `backend/disease_catalog.py` の `SCOPE_ROOTS` にあり、`backend/refresh.py` が起点ごとの下位語を取って和集合を作る。
+起点の一覧は `autoimmune_atlas/disease_catalog.py` の `SCOPE_ROOTS` にあり、`autoimmune_atlas/refresh.py` が起点ごとの下位語を取って和集合を作る。
 親概念とサブタイプは混在するため、表示する疾患を選択できるようにする。
 症状や併存症に対する治療も含め、初期版では治療目的の分類を行わない。
 
@@ -23,7 +23,7 @@ MONDO は idiopathic inflammatory myopathy や lupus nephritis を自己免疫�
 複数の親を持つ語は、より深い親の下に 1 回だけ置き、同じ深さなら名前順で決める。
 2 か所に出すと、片方で外したときにもう片方と食い違う。
 本体の選択と詳細内の選択は独立させ、一方を外しても他方は残す。
-`backend/disease_catalog.py` の `DISEASE_GROUPS` に群と起点の疾患 ID を定義し、保存した `parent_ids` を辿って最も近い起点へ配置する。
+`autoimmune_atlas/disease_catalog.py` の `DISEASE_GROUPS` に群と起点の疾患 ID を定義し、保存した `parent_ids` を辿って最も近い起点へ配置する。
 距離が同じ場合は定義順を使い、一つの疾患を複数の群で重複表示しない。
 表示時は群とファミリーをそれぞれ名称順に並べ、`Other / unclassified` を最後に置く。
 起点と同じ疾患を先頭に置き、残りは名称順に並べる。
@@ -44,7 +44,7 @@ Open Targets は[複数の親と祖先を持つ疾患階層](https://community.o
 Hailey-Hailey disease と MASS syndrome は病型としての配置を保留し、`UNCLASSIFIED_IDS` で `Other / unclassified` に残す。
 親情報がない既存データや、新しく増えた分類先不明の用語も同じ欄に残し、比較対象から落とさない。
 
-`backend/refresh.py` は薬剤情報と一緒に疾患の親 ID を保存する。
+`autoimmune_atlas/refresh.py` は薬剤情報と一緒に疾患の親 ID を保存する。
 既存スナップショットには同じ Open Targets の版から親 ID だけを補い、薬剤記録と発現データは変えていない。
 分類を保守するときは、起点 ID、全疾患の配置先、独立して表示すべき疾患を確認し、`tests/test_disease_catalog.py` の回帰テストも更新する。
 
@@ -288,7 +288,7 @@ Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケー�
 - [Open Targets: baseline expression](https://github.com/opentargets/platform-docs/blob/main/target/baseline-expression.md)：pseudobulk、ドナー間要約、CELLEX の定義。
 - [Open Targets: clinical report](https://platform-docs.opentargets.org/drug/clinical-report)：臨床段階、元資料、品質管理。
 - [Open Targets: drugs and clinical candidates](https://platform-docs.opentargets.org/disease-or-phenotype/drugs)：疾患内の最高段階と撤回歴の承認到達への集約。
-- `backend/refresh.py`：実際の取得項目と検証、`backend/aggregation.py`：集計規則、`backend/ui/`：表示。
+- `autoimmune_atlas/refresh.py`：実際の取得項目と検証、`autoimmune_atlas/aggregation.py`：集計規則、`autoimmune_atlas/ui/`：表示。
 
 ## 検証と残る確認範囲
 

@@ -16,9 +16,9 @@ from unittest.mock import patch
 from flask.testing import FlaskClient
 from werkzeug.test import TestResponse
 
-from backend import aggregation as atlas
-from backend import refresh, snapshot
-from backend.models import (
+from autoimmune_atlas import aggregation as atlas
+from autoimmune_atlas import refresh, snapshot
+from autoimmune_atlas.models import (
     Disease,
     DiseaseFamily,
     DrugRecord,
@@ -29,7 +29,7 @@ from backend.models import (
     SummaryRow,
     TargetRecord,
 )
-from backend.ui import (
+from autoimmune_atlas.ui import (
     application,
     callbacks,
     components,
@@ -1472,7 +1472,9 @@ class ApplicationPathTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as directory:
                 os.chdir(directory)
-                with patch("backend.snapshot.load_snapshot", return_value=None):
+                with patch(
+                    "autoimmune_atlas.snapshot.load_snapshot", return_value=None
+                ):
                     namespace = cast(
                         dict[str, object],
                         runpy.run_path(str(entrypoint), run_name="app_path_test"),

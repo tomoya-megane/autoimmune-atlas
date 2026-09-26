@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from backend.models import Snapshot
+from autoimmune_atlas.models import Snapshot
 
 DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "snapshot.json"
 

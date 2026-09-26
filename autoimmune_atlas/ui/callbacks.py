@@ -8,22 +8,22 @@ from typing import TypedDict, cast
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs] - Plotly に型スタブがない。
 from dash import ALL, Dash, Input, Output, State, ctx, html, no_update
 
-from backend import aggregation as atlas
-from backend.disease_catalog import disease_catalog, ordered_disease_ids
-from backend.models import Snapshot, SummaryRow
-from backend.ui.components import (
+from autoimmune_atlas import aggregation as atlas
+from autoimmune_atlas.disease_catalog import disease_catalog, ordered_disease_ids
+from autoimmune_atlas.models import Snapshot, SummaryRow
+from autoimmune_atlas.ui.components import (
     disease_checklist_sections,
     heatmap_row_controls,
     info_tip,
 )
-from backend.ui.config import (
+from autoimmune_atlas.ui.config import (
     DEFAULT_EXPRESSION_THRESHOLD,
     DEFAULT_SPECIFICITY_THRESHOLD,
     METHOD_LABELS,
     PARAMETER_IDS,
     STAGE_LABELS,
 )
-from backend.ui.figures import (
+from autoimmune_atlas.ui.figures import (
     Measure,
     build_dot_figure,
     build_figure,
@@ -35,7 +35,7 @@ from backend.ui.figures import (
     heatmap_cell_ids,
     measure_fields,
 )
-from backend.ui.layout import detail_panel
+from autoimmune_atlas.ui.layout import detail_panel
 
 type NumberInput = int | float | str | None
 type ParameterValue = str | int | float | list[str] | None
@@ -150,7 +150,7 @@ def visible_rows(
     specificity: NumberInput = DEFAULT_SPECIFICITY_THRESHOLD,
     level: str = "group",
 ) -> list[SummaryRow]:
-    """backend の集計結果を現在の表示範囲へ絞る。"""
+    """集計結果を現在の表示範囲へ絞る。"""
     minimum, specificity_value, _ = effective_filters(threshold, specificity)
     return atlas.summarize(
         snapshot,

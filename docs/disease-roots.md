@@ -9,7 +9,7 @@ MONDO は idiopathic inflammatory myopathy、lupus nephritis、ANCA 関連血管
 
 表は、対象疾患の起点を採用または除外した理由と、調査時点の対応づけを残す記録である。
 候補数、下位語数、Open Targets の版、調査日は当時の値であり、現在の対象範囲を示す値ではない。
-現行の対象範囲は `backend/disease_catalog.py` の `SCOPE_ROOTS` が定め、`backend/refresh.py` がその下位語を取得してスナップショットへ保存する。
+現行の対象範囲は `autoimmune_atlas/disease_catalog.py` の `SCOPE_ROOTS` が定め、`autoimmune_atlas/refresh.py` がその下位語を取得してスナップショットへ保存する。
 表の ID と採否は、`SCOPE_ROOTS` を変更するときに根拠を確認するために読む。
 
 基準は 3 層にする。
@@ -152,7 +152,7 @@ lichen planus の下位語には lichenoid drug reaction が、psoriasis の下�
 
 ## 起点はコードとスナップショットで管理する
 
-起点と下位語を含めるかどうかは、`backend/disease_catalog.py` の `SCOPE_ROOTS` に定義している。
-`backend/refresh.py` は起点ごとの対象語を集めて和集合を作り、起点の一覧とともにスナップショットへ保存する。
-閲覧用の群と各群の起点は、`backend/disease_catalog.py` の `DISEASE_GROUPS` に定義している。
+起点と下位語を含めるかどうかは、`autoimmune_atlas/disease_catalog.py` の `SCOPE_ROOTS` に定義している。
+`autoimmune_atlas/refresh.py` は起点ごとの対象語を集めて和集合を作り、起点の一覧とともにスナップショットへ保存する。
+閲覧用の群と各群の起点は、`autoimmune_atlas/disease_catalog.py` の `DISEASE_GROUPS` に定義している。
 対象を保守するときは、表の採否と `SCOPE_ROOTS`、全疾患の配置先、独立して表示する疾患を確認し、`tests/test_disease_catalog.py` の回帰テストも更新する。

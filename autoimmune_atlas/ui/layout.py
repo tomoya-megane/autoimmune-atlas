@@ -7,16 +7,16 @@ from typing import cast
 from dash import dcc, html
 from dash.development.base_component import Component
 
-from backend import aggregation as atlas
-from backend.disease_catalog import ordered_disease_ids
-from backend.models import Snapshot, SummaryRow
-from backend.ui.components import (
+from autoimmune_atlas import aggregation as atlas
+from autoimmune_atlas.disease_catalog import ordered_disease_ids
+from autoimmune_atlas.models import Snapshot, SummaryRow
+from autoimmune_atlas.ui.components import (
     disease_selector,
     evidence_grid,
     evidence_rows,
     info_tip,
 )
-from backend.ui.config import (
+from autoimmune_atlas.ui.config import (
     DEFAULT_EXPRESSION_THRESHOLD,
     DEFAULT_SPECIFICITY_THRESHOLD,
     METHOD_LABELS,

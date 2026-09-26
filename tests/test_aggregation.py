@@ -1,231 +1,27 @@
-"""取得と集計の臨床段階、重複、欠測、細胞分類を検証する。"""
+"""集計規則（臨床段階、重複、欠測、細胞分類）を検証する。"""
 
 import math
 import unittest
 from collections.abc import Callable
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
-from backend.aggregation import (
+from autoimmune_atlas.aggregation import (
     cell_catalog,
     expression_metadata,
     expression_state,
     filtered_records,
     summarize,
 )
-from backend.models import (
+from autoimmune_atlas.models import (
     AggregationSnapshot,
-    CoreSnapshot,
     ExpressionRow,
     ExpressionStateInput,
 )
-from backend.refresh import (
-    ClinicalCandidate,
-    ExpressionApiRow,
-    MechanismApiRow,
-    extract_expression,
-    extract_mechanisms,
-    normalize_drugs,
-    resolve_disease_ids,
-    save_snapshot,
-)
+from tests.core_fixture import core_snapshot
 
 
-def _snapshot() -> CoreSnapshot:
-    return {
-        "schema": 2,
-        "diseases": [
-            {"id": "D1", "name": "Disease one", "status": "ready"},
-            {"id": "D2", "name": "Disease two", "status": "ready"},
-        ],
-        "records": [
-            {
-                "disease_id": "D1",
-                "disease": "Disease one",
-                "drug_id": "A-SALT",
-                "drug": "alpha salt",
-                "canonical_drug_id": "A",
-                "canonical_drug": "alpha",
-                "drug_type": "Antibody",
-                "stage": "PHASE_1",
-                "target_id": "G1",
-                "target": "Gene 1",
-                "mechanism": "blocks",
-                "references": [
-                    {"source": "FDA", "ids": ["1"], "urls": ["https://example.test/1"]}
-                ],
-            },
-            {
-                "disease_id": "D1",
-                "disease": "Disease one",
-                "drug_id": "A",
-                "drug": "alpha",
-                "canonical_drug_id": "A",
-                "canonical_drug": "alpha",
-                "drug_type": "Antibody",
-                "stage": "PHASE_3",
-                "target_id": "G2",
-                "target": "Gene 2",
-                "mechanism": "blocks",
-                "references": [],
-            },
-            {
-                "disease_id": "D1",
-                "disease": "Disease one",
-                "drug_id": "B",
-                "drug": "beta",
-                "canonical_drug_id": "B",
-                "canonical_drug": "beta",
-                "drug_type": "Antibody",
-                "stage": "PHASE_3",
-                "target_id": "G3",
-                "target": "Gene 3",
-                "mechanism": "inhibits",
-                "references": [],
-            },
-            {
-                "disease_id": "D1",
-                "disease": "Disease one",
-                "drug_id": "U",
-                "drug": "unknown",
-                "canonical_drug_id": "U",
-                "canonical_drug": "unknown",
-                "drug_type": "Antibody",
-                "stage": "PHASE_3",
-                "target_id": "",
-                "target": "Unknown",
-                "mechanism": "",
-                "references": [],
-            },
-            {
-                "disease_id": "D2",
-                "disease": "Disease two",
-                "drug_id": "A",
-                "drug": "alpha",
-                "canonical_drug_id": "A",
-                "canonical_drug": "alpha",
-                "drug_type": "Antibody",
-                "stage": "PHASE_1",
-                "target_id": "G1",
-                "target": "Gene 1",
-                "mechanism": "blocks",
-                "references": [],
-            },
-        ],
-        "expression": {
-            "G1": [
-                {
-                    "cell_id": "T4",
-                    "cell": "CD4 T cell",
-                    "median": 2.0,
-                    "specificity_score": 0.75,
-                    "parent_id": "LYMPH",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_0000084"],
-                },
-                {
-                    "cell_id": "T8",
-                    "cell": "CD8 T cell",
-                    "median": 0.1,
-                    "specificity_score": 0.2,
-                    "parent_id": "LYMPH",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_0000084"],
-                },
-                {
-                    "cell_id": "B1",
-                    "cell": "B cell",
-                    "median": 1.0,
-                    "specificity_score": 0.8,
-                    "parent_id": "B-GROUP",
-                    "parent": "B lineage",
-                    "ancestor_ids": [],
-                },
-                {
-                    "cell_id": "X",
-                    "cell": "Novel cell",
-                    "median": 0.1,
-                    "specificity_score": 0.1,
-                    "parent_id": None,
-                    "parent": None,
-                    "ancestor_ids": [],
-                },
-            ],
-            "G2": [
-                {
-                    "cell_id": "T4",
-                    "cell": "CD4 T cell",
-                    "median": 0.2,
-                    "specificity_score": 0.1,
-                    "parent_id": "LYMPH",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_0000084"],
-                },
-                {
-                    "cell_id": "T8",
-                    "cell": "CD8 T cell",
-                    "median": 3.0,
-                    "specificity_score": 0.9,
-                    "parent_id": "LYMPH",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_0000084"],
-                },
-                {
-                    "cell_id": "B1",
-                    "cell": "B cell",
-                    "median": 0.1,
-                    "specificity_score": 0.1,
-                    "parent_id": "B-GROUP",
-                    "parent": "B lineage",
-                    "ancestor_ids": [],
-                },
-                {
-                    "cell_id": "X",
-                    "cell": "Novel cell",
-                    "median": 0.1,
-                    "specificity_score": 0.1,
-                    "parent_id": None,
-                    "parent": None,
-                    "ancestor_ids": [],
-                },
-            ],
-            "G3": [
-                {
-                    "cell_id": "T4",
-                    "cell": "CD4 T cell",
-                    "median": None,
-                    "specificity_score": None,
-                    "parent_id": "LYMPH",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_0000084"],
-                },
-                {
-                    "cell_id": "T8",
-                    "cell": "CD8 T cell",
-                    "median": 0.1,
-                    "specificity_score": 0.9,
-                    "parent_id": "LYMPH",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_0000084"],
-                },
-                {
-                    "cell_id": "X",
-                    "cell": "Novel cell",
-                    "median": 2.0,
-                    "specificity_score": 0.9,
-                    "parent_id": None,
-                    "parent": None,
-                    "ancestor_ids": [],
-                },
-            ],
-        },
-    }
-
-
-class AtlasTests(unittest.TestCase):
+class AggregationTests(unittest.TestCase):
     def test_all_source_cells_count_each_target_and_drug_once(self) -> None:
-        row = summarize(_snapshot(), "all", 0.5, level="all", disease_ids=["D1"])[0]
+        row = summarize(core_snapshot(), "all", 0.5, level="all", disease_ids=["D1"])[0]
         self.assertEqual(row["cell_id"], "all")
         self.assertEqual(set(row["member_cell_ids"]), {"T4", "T8", "B1", "X"})
         self.assertEqual((row["count"], row["denominator"], row["unknown"]), (3, 3, 0))
@@ -234,7 +30,7 @@ class AtlasTests(unittest.TestCase):
     def test_mixed_cells_preserve_group_and_source_counts_with_distinct_ids(
         self,
     ) -> None:
-        snapshot = _snapshot()
+        snapshot = core_snapshot()
         catalog = cell_catalog(snapshot, "mixed")
         ids = [cell["id"] for cell in catalog]
         self.assertEqual(len(ids), len(set(ids)))
@@ -266,7 +62,7 @@ class AtlasTests(unittest.TestCase):
         )
 
     def test_stage_is_maximized_within_disease_and_canonical_drug(self) -> None:
-        rows = filtered_records(_snapshot(), "antibody", "phase3")
+        rows = filtered_records(core_snapshot(), "antibody", "phase3")
         self.assertEqual(
             {(r["disease_id"], r["drug_id"], r["target_id"]) for r in rows},
             {
@@ -279,7 +75,7 @@ class AtlasTests(unittest.TestCase):
         self.assertEqual({r["canonical_stage"] for r in rows}, {"PHASE_3"})
 
     def test_canonical_stage_is_chosen_before_modality_filter(self) -> None:
-        snapshot = _snapshot()
+        snapshot = core_snapshot()
         snapshot["records"] = snapshot["records"][:2]
         snapshot["records"][1]["drug_type"] = "Protein"
         rows = filtered_records(snapshot, "antibody", "phase3")
@@ -291,7 +87,7 @@ class AtlasTests(unittest.TestCase):
     def test_canonical_drug_and_multiple_targets_are_counted_once(self) -> None:
         row = next(
             r
-            for r in summarize(_snapshot(), "all", 0.5, level="group")
+            for r in summarize(core_snapshot(), "all", 0.5, level="group")
             if r["disease_id"] == "D1" and r["cell_id"] == "CL_0000084"
         )
         self.assertEqual((row["count"], row["denominator"]), (2, 3))
@@ -304,7 +100,7 @@ class AtlasTests(unittest.TestCase):
     def test_target_and_drug_unknown_states_are_independent(self) -> None:
         row = next(
             r
-            for r in summarize(_snapshot(), "all", 0.5, level="cell")
+            for r in summarize(core_snapshot(), "all", 0.5, level="cell")
             if r["disease_id"] == "D1" and r["cell_id"] == "T4"
         )
         self.assertEqual((row["count"], row["unknown"]), (1, 1))
@@ -315,7 +111,7 @@ class AtlasTests(unittest.TestCase):
         self.assertEqual(row["drug_percent"], 50)
 
     def test_unmapped_drug_does_not_change_known_percentages(self) -> None:
-        snapshot = _snapshot()
+        snapshot = core_snapshot()
         snapshot["records"] = [snapshot["records"][1], snapshot["records"][3]]
         row = next(
             r
@@ -328,7 +124,7 @@ class AtlasTests(unittest.TestCase):
         self.assertEqual(row["drug_percent"], 0)
 
     def test_unknown_expression_keeps_count_zero_and_percent_unknown(self) -> None:
-        snapshot = _snapshot()
+        snapshot = core_snapshot()
         snapshot["records"] = [snapshot["records"][2]]
         row = next(
             r
@@ -343,7 +139,7 @@ class AtlasTests(unittest.TestCase):
     def test_relative_median_uses_all_reference_cells_and_missing_is_unknown(
         self,
     ) -> None:
-        snapshot = _snapshot()
+        snapshot = core_snapshot()
         b_cell = next(
             r
             for r in summarize(snapshot, "all", 0.5, method="relative", level="cell")
@@ -361,7 +157,7 @@ class AtlasTests(unittest.TestCase):
         )
 
     def test_stage_filter_boundaries_follow_mixed_phase_policy(self) -> None:
-        snapshot = _snapshot()
+        snapshot = core_snapshot()
         stages = (
             "PHASE_1",
             "PHASE_1_2",
@@ -400,7 +196,7 @@ class AtlasTests(unittest.TestCase):
         row = next(
             r
             for r in summarize(
-                _snapshot(),
+                core_snapshot(),
                 "all",
                 0.5,
                 method="specificity",
@@ -411,7 +207,7 @@ class AtlasTests(unittest.TestCase):
         )
         self.assertEqual(row["count"], 1)
         self.assertEqual(row["records"][0]["specificity_score"], 0.75)
-        boundary = _snapshot()
+        boundary = core_snapshot()
         boundary["expression"]["G1"][0]["median"] = 0.5
         row = next(
             r
@@ -427,7 +223,7 @@ class AtlasTests(unittest.TestCase):
         for method in ("fixed", "relative", "specificity"):
             self.assertTrue(expression_state(at_threshold, 0.5, method, 0.75))
         self.assertFalse(expression_state({"median": 0.49}, 0.5, "fixed"))
-        metadata = expression_metadata(_snapshot())["G1", "T4"]
+        metadata = expression_metadata(core_snapshot())["G1", "T4"]
         self.assertTrue(expression_state(metadata, 0.5, "specificity", 0.75))
         self.assertTrue(
             expression_state(
@@ -438,14 +234,14 @@ class AtlasTests(unittest.TestCase):
             expression_state(metadata, 0.5, "guess")
 
     def test_group_catalog_unions_t_cells_and_keeps_unknown_parent(self) -> None:
-        groups = cell_catalog(_snapshot(), "group")
+        groups = cell_catalog(core_snapshot(), "group")
         self.assertIn(
             {"id": "CL_0000084", "name": "T cell", "members": ["T4", "T8"]}, groups
         )
         self.assertIn({"id": "X", "name": "Novel cell", "members": ["X"]}, groups)
         self.assertIn(
             {"id": "T4", "name": "CD4 T cell", "members": ["T4"]},
-            cell_catalog(_snapshot(), "cell"),
+            cell_catalog(core_snapshot(), "cell"),
         )
 
     def test_catalog_uses_lineage_group_priority_and_keeps_every_cell(self) -> None:
@@ -658,20 +454,20 @@ class AtlasTests(unittest.TestCase):
         )
 
     def test_group_membership_must_be_consistent_across_targets(self) -> None:
-        snapshot = _snapshot()
+        snapshot = core_snapshot()
         snapshot["expression"]["G2"][0]["ancestor_ids"] = []
         with self.assertRaisesRegex(ValueError, "一貫"):
             cell_catalog(snapshot)
 
     def test_invalid_modes_and_nonfinite_thresholds_fail(self) -> None:
         invalid_calls: tuple[tuple[str, Callable[[], object]], ...] = (
-            ("stage", lambda: summarize(_snapshot(), "all", 0.5, stage="late")),
-            ("method", lambda: summarize(_snapshot(), "all", 0.5, method="guess")),
-            ("level", lambda: summarize(_snapshot(), "all", 0.5, level="organ")),
+            ("stage", lambda: summarize(core_snapshot(), "all", 0.5, stage="late")),
+            ("method", lambda: summarize(core_snapshot(), "all", 0.5, method="guess")),
+            ("level", lambda: summarize(core_snapshot(), "all", 0.5, level="organ")),
             (
                 "specificity_threshold",
                 lambda: summarize(
-                    _snapshot(), "all", 0.5, specificity_threshold=math.inf
+                    core_snapshot(), "all", 0.5, specificity_threshold=math.inf
                 ),
             ),
         )
@@ -679,223 +475,10 @@ class AtlasTests(unittest.TestCase):
             with self.subTest(parameter=name), self.assertRaises(ValueError):
                 call()
         with self.assertRaises(ValueError):
-            summarize(_snapshot(), "all", math.nan)
+            summarize(core_snapshot(), "all", math.nan)
         with self.assertRaises(ValueError):
-            summarize(_snapshot(), "all", -0.1)
+            summarize(core_snapshot(), "all", -0.1)
         with self.assertRaises(ValueError):
-            summarize(_snapshot(), "all", 0.5, specificity_threshold=1.1)
+            summarize(core_snapshot(), "all", 0.5, specificity_threshold=1.1)
         with self.assertRaises(ValueError):
-            filtered_records(_snapshot(), "other", "phase3")
-
-
-class ImportTests(unittest.TestCase):
-    def test_scope_is_the_union_of_roots_and_body_only_roots_add_no_descendants(
-        self,
-    ) -> None:
-        tree = {
-            "MONDO_0007179": ["A", "B"],
-            "MONDO_0003346": ["AIDS_ARTERITIS", "B"],
-        }
-
-        def fake_query(_query: str, variables: dict[str, str]) -> dict[str, object]:
-            root_id = variables["id"]
-            if root_id not in tree:
-                return (
-                    {"disease": None}
-                    if root_id == "MISSING"
-                    else {
-                        "disease": {"id": root_id, "name": root_id, "descendants": []}
-                    }
-                )
-            return {
-                "disease": {
-                    "id": root_id,
-                    "name": root_id,
-                    "descendants": tree[root_id],
-                }
-            }
-
-        roots, ids = resolve_disease_ids(fake_query)
-        self.assertEqual(roots[0]["id"], "MONDO_0007179")
-        self.assertEqual(roots[0]["count"], 3)
-        body_only = next(r for r in roots if r["id"] == "MONDO_0003346")
-        self.assertFalse(body_only["include_descendants"])
-        self.assertEqual(body_only["count"], 1)
-        self.assertIn("A", ids)
-        self.assertIn("MONDO_0003346", ids)
-        self.assertNotIn("AIDS_ARTERITIS", ids)
-        self.assertEqual(ids.count("B"), 1)
-        with (
-            patch("backend.refresh.SCOPE_ROOTS", (("MISSING", True),)),
-            self.assertRaises(ValueError),
-        ):
-            resolve_disease_ids(fake_query)
-
-    def test_phase_one_drugs_and_parent_molecule_are_preserved(self) -> None:
-        kinds = (
-            "Small molecule",
-            "Antibody",
-            "Protein",
-            "Cell",
-            "Gene",
-            "Enzyme",
-            "Oligonucleotide",
-            "Antibody drug conjugate",
-            "Vaccine component",
-            "Oligosaccharide",
-            "Unknown",
-        )
-        modalities = (
-            "small_molecule",
-            "antibody",
-            "protein",
-            "cell",
-            "gene",
-            "enzyme",
-            "oligonucleotide",
-            "antibody_drug_conjugate",
-            "vaccine_component",
-            "oligosaccharide",
-            "unknown",
-        )
-        rows: list[ClinicalCandidate] = [
-            {
-                "maxClinicalStage": "PHASE_1",
-                "drug": {
-                    "id": str(index),
-                    "name": kind,
-                    "drugType": kind,
-                    "parentMolecule": (
-                        {"id": "P", "name": "Parent"} if index == 0 else None
-                    ),
-                },
-            }
-            for index, kind in enumerate(kinds)
-        ]
-        drugs = normalize_drugs(rows)
-        self.assertEqual([drug["drug_type"] for drug in drugs], list(kinds))
-        self.assertEqual([drug["modality"] for drug in drugs], list(modalities))
-        self.assertEqual(drugs[0]["canonical_drug_id"], "P")
-        self.assertEqual(drugs[1]["canonical_drug_id"], "1")
-
-    def test_withdrawal_is_not_stored_but_approval_and_phase_four_are(self) -> None:
-        rows: list[ClinicalCandidate] = [
-            {
-                "maxClinicalStage": stage,
-                "drug": {
-                    "id": stage,
-                    "name": stage,
-                    "drugType": "Antibody",
-                    "parentMolecule": None,
-                },
-            }
-            for stage in ("WITHDRAWAL", "APPROVAL", "PHASE_4")
-        ]
-        self.assertEqual(
-            [row["stage"] for row in normalize_drugs(rows)], ["APPROVAL", "PHASE_4"]
-        )
-
-    def test_duplicate_drug_rows_are_rejected(self) -> None:
-        row: ClinicalCandidate = {
-            "maxClinicalStage": "PHASE_1",
-            "drug": {
-                "id": "A",
-                "name": "Alpha",
-                "drugType": "Antibody",
-                "parentMolecule": None,
-            },
-        }
-        with self.assertRaisesRegex(ValueError, "重複"):
-            normalize_drugs([row, row])
-
-    def test_expression_keeps_specificity_parent_and_ancestors(self) -> None:
-        base: ExpressionApiRow = {
-            "datasourceId": "tabula_sapiens",
-            "unit": "CPM(pseudobulk sum[counts])",
-            "median": 2.0,
-            "specificity_score": 0.8,
-            "celltypeBiosample": {
-                "biosampleId": "C1",
-                "biosampleName": "B cell",
-                "ancestors": ["CL_1", "CL_2"],
-            },
-            "celltypeBiosampleParent": {
-                "biosampleId": "P1",
-                "biosampleName": "Lymphocyte",
-            },
-            "tissueBiosample": None,
-        }
-        self.assertEqual(
-            extract_expression([base]),
-            [
-                {
-                    "cell_id": "C1",
-                    "cell": "B cell",
-                    "median": 2.0,
-                    "specificity_score": 0.8,
-                    "parent_id": "P1",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_1", "CL_2"],
-                }
-            ],
-        )
-        self.assertEqual(
-            extract_expression(
-                [
-                    {**base, "datasourceId": "DICE"},
-                    {**base, "tissueBiosample": {"biosampleId": "T1"}},
-                ]
-            ),
-            [],
-        )
-        invalid_rows: tuple[tuple[str, ExpressionApiRow], ...] = (
-            ("median", {**base, "median": -1}),
-            ("specificity_score", {**base, "specificity_score": 1.1}),
-        )
-        for key, invalid_row in invalid_rows:
-            with self.subTest(key=key), self.assertRaises(ValueError):
-                extract_expression([invalid_row])
-        invalid_unit: ExpressionApiRow = {**base, "unit": "TPM"}
-        with self.assertRaisesRegex(ValueError, "単位"):
-            extract_expression([invalid_unit])
-
-    def test_mechanism_references_are_deduplicated(self) -> None:
-        row: MechanismApiRow = {
-            "mechanismOfAction": "blocks",
-            "actionType": "BLOCKER",
-            "targets": [{"id": "G1", "approvedSymbol": "GENE1"}],
-            "references": [
-                {"source": "FDA", "ids": ["1"], "urls": ["https://example.test"]},
-                {"source": "FDA", "ids": ["1"], "urls": ["https://example.test"]},
-            ],
-        }
-        self.assertEqual(
-            extract_mechanisms([row]),
-            [
-                {
-                    "target_id": "G1",
-                    "target": "GENE1",
-                    "mechanism": "blocks",
-                    "action_types": ["BLOCKER"],
-                    "references": [
-                        {
-                            "source": "FDA",
-                            "ids": ["1"],
-                            "urls": ["https://example.test"],
-                        }
-                    ],
-                }
-            ],
-        )
-
-    def test_failed_serialization_preserves_previous_snapshot(self) -> None:
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "snapshot.json"
-            path.write_text('{"previous": true}')
-            with self.assertRaises(ValueError):
-                save_snapshot(path, {"value": float("nan")})
-            self.assertEqual(path.read_text(), '{"previous": true}')
-
-
-if __name__ == "__main__":
-    unittest.main()
+            filtered_records(core_snapshot(), "other", "phase3")

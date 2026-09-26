@@ -16,3 +16,6 @@ __pycache__/
 
 # 公開APIから環境ごとに取得するデータ（大容量のため追跡しない）
 /data/
+
+# Claude Code の作業ディレクトリ
+.claude/

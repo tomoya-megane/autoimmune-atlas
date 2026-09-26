@@ -2,13 +2,13 @@
 
 import unittest
 
-from backend.disease_catalog import (
+from autoimmune_atlas.disease_catalog import (
     DISEASE_GROUPS,
     SCOPE_ROOTS,
     disease_catalog,
     ordered_disease_ids,
 )
-from backend.models import CatalogDisease, DiseaseCatalogInput
+from autoimmune_atlas.models import CatalogDisease, DiseaseCatalogInput
 
 
 class ScopeRootTests(unittest.TestCase):
