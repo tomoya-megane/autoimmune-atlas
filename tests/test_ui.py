@@ -69,10 +69,13 @@ class SummaryOverrides(TypedDict, total=False):
 
 class FigureAxis(Protocol):
     autorange: bool | str | None
+    categoryarray: Sequence[str] | None
+    categoryorder: str | None
     range: Sequence[float | str] | None
     side: str | None
     tickangle: float | None
     ticktext: Sequence[str] | None
+    type: str | None
 
 
 class FigureLayout(Protocol):
@@ -106,7 +109,21 @@ class HeatmapTrace(Protocol):
     zmin: float | None
 
 
+class DotMarker(Protocol):
+    cmax: float | None
+    cmin: float | None
+    color: Sequence[float] | str | None
+    showscale: bool | None
+    size: Sequence[float] | float | None
+    sizemode: str | None
+    sizeref: float | None
+    symbol: str | None
+
+
 class ScatterTrace(Protocol):
+    customdata: Sequence[Sequence[str]] | None
+    hovertext: Sequence[str] | None
+    marker: DotMarker
     mode: str | None
     name: str | None
     text: str | Sequence[str] | None
@@ -697,6 +714,159 @@ class FigureTests(unittest.TestCase):
             figures.hover_text(empty, "percent", "target"),
         )
 
+    def test_dot_area_and_color_map_count_and_percent_for_each_kind(self) -> None:
+        rows = [
+            summary(count=1, percent=20, drug_count=2, drug_percent=25),
+            summary(
+                cell_id="C2",
+                cell="T cell",
+                count=4,
+                percent=80,
+                drug_count=8,
+                drug_percent=75,
+            ),
+        ]
+        for kind, counts, colors, maximum in (
+            ("target", [1, 4], [20, 80], 4),
+            ("drug", [2, 8], [25, 75], 8),
+        ):
+            with self.subTest(kind=kind):
+                figure = figures.build_dot_figure(
+                    rows,
+                    ["D1"],
+                    ["C1", "C2"],
+                    cast(figures.Kind, kind),
+                    scale_rows=rows,
+                )
+                trace = _scatter(figure, "Values")
+                marker = trace.marker
+                marker_sizes = marker.size
+                marker_colors = marker.color
+                customdata = trace.customdata
+                hovertext = trace.hovertext
+                assert isinstance(marker_sizes, Sequence)
+                assert isinstance(marker_colors, Sequence) and not isinstance(
+                    marker_colors, str
+                )
+                assert customdata is not None and hovertext is not None
+                expected_sizes = [count**0.75 for count in counts]
+                self.assertEqual(list(marker_sizes), expected_sizes)
+                self.assertEqual(list(marker_colors), colors)
+                self.assertEqual(marker.sizemode, "area")
+                self.assertEqual(marker.sizeref, 2 * maximum**0.75 / 22**2)
+                self.assertEqual((marker.cmin, marker.cmax), (min(colors), max(colors)))
+                self.assertTrue(marker.showscale)
+                self.assertEqual(customdata[0], ["D1", "C1"])
+                self.assertIn("Count:", hovertext[0])
+                self.assertIn("Percent:", hovertext[0])
+                _, _, legend = figures.dot_size_scale(rows, cast(figures.Kind, kind))
+                self.assertEqual(legend[-1], (maximum, 22))
+                self.assertEqual(legend[0][1], 22 * (counts[0] / maximum) ** 0.375)
+                self.assertGreater(legend[0][1], 22 * math.sqrt(counts[0] / maximum))
+                self.assertEqual(
+                    [diameter for _, diameter in legend],
+                    sorted(diameter for _, diameter in legend),
+                )
+                assert marker.sizeref is not None
+                for count, (_, legend_diameter) in zip(counts, legend, strict=True):
+                    self.assertAlmostEqual(
+                        math.sqrt(2 * math.pow(count, 0.75) / marker.sizeref),
+                        legend_diameter,
+                    )
+                self.assertNotIn(
+                    str(maximum),
+                    [
+                        cast(ScatterTrace, trace).name
+                        for trace in _figure(figure).data
+                        if hasattr(trace, "name")
+                    ],
+                )
+
+    def test_dot_leaves_zero_and_missing_blank_without_changing_categories(
+        self,
+    ) -> None:
+        rows = [
+            summary(count=0, percent=0),
+            summary(
+                cell_id="C2",
+                cell="Missing first",
+                count=None,
+                percent=None,
+                unknown=1,
+                status="unavailable",
+            ),
+            summary(cell_id="C3", cell="Positive last", count=3, percent=60),
+        ]
+        figure = figures.build_dot_figure(
+            rows, ["D1"], ["C1", "C2", "C3"], "target", scale_rows=rows
+        )
+        positive = _scatter(figure, "Values")
+        with self.assertRaisesRegex(AssertionError, "trace not found: Zero"):
+            _scatter(figure, "Zero")
+        with self.assertRaisesRegex(AssertionError, "trace not found: Not available"):
+            _scatter(figure, "Not available")
+        plotted_cells = [
+            y
+            for trace in _figure(figure).data
+            if hasattr(trace, "y")
+            for y in (cast(ScatterTrace, trace).y or ())
+        ]
+        self.assertNotIn("B cell", plotted_cells)
+        self.assertNotIn("Missing first", plotted_cells)
+        self.assertEqual(list(positive.y), ["Positive last"])
+        self.assertEqual(_figure(figure).layout.xaxis.type, "category")
+        self.assertEqual(_figure(figure).layout.xaxis.categoryorder, "array")
+        x_categories = _figure(figure).layout.xaxis.categoryarray
+        x_range = _figure(figure).layout.xaxis.range
+        assert x_categories is not None and x_range is not None
+        self.assertEqual(list(x_categories), ["Disease one"])
+        self.assertEqual(list(x_range), [-0.5, 0.5])
+        self.assertFalse(_figure(figure).layout.xaxis.autorange)
+        self.assertEqual(_figure(figure).layout.yaxis.categoryorder, "array")
+        y_categories = _figure(figure).layout.yaxis.categoryarray
+        y_range = _figure(figure).layout.yaxis.range
+        assert y_categories is not None and y_range is not None
+        self.assertEqual(
+            list(y_categories), ["B cell", "Missing first", "Positive last"]
+        )
+        self.assertEqual(list(y_range), [2.5, -0.5])
+
+    def test_dot_keeps_percent_colorbar_when_no_positive_dot_exists(self) -> None:
+        for row in (
+            summary(count=0, percent=0),
+            summary(count=None, percent=None, status="unavailable"),
+        ):
+            with self.subTest(status=row["status"], percent=row["percent"]):
+                figure = figures.build_dot_figure([row], ["D1"], ["C1"])
+                values = _scatter(figure, "Values")
+                with self.assertRaisesRegex(AssertionError, "trace not found: Zero"):
+                    _scatter(figure, "Zero")
+                with self.assertRaisesRegex(
+                    AssertionError, "trace not found: Not available"
+                ):
+                    _scatter(figure, "Not available")
+                self.assertEqual(list(values.x), [None, None])
+                self.assertEqual(
+                    list(cast(Sequence[float], values.marker.size)), [0, 0]
+                )
+                self.assertTrue(values.marker.showscale)
+                self.assertEqual((values.marker.cmin, values.marker.cmax), (0, 1))
+
+    def test_dot_scale_includes_collapsed_source_cells(self) -> None:
+        group = summary(count=1, percent=20)
+        child = summary(cell_id="C2", cell="Source cell", count=9, percent=90)
+        collapsed = figures.build_dot_figure(
+            [group], ["D1"], ["C1"], "target", scale_rows=[group, child]
+        )
+        expanded = figures.build_dot_figure(
+            [group, child], ["D1"], ["C1", "C2"], "target", scale_rows=[group, child]
+        )
+        for attribute in ("sizeref", "cmin", "cmax"):
+            self.assertEqual(
+                getattr(_scatter(collapsed, "Values").marker, attribute),
+                getattr(_scatter(expanded, "Values").marker, attribute),
+            )
+
 
 class EvidenceTests(unittest.TestCase):
     """詳細が陽性以外の元記録も保持する。"""
@@ -823,6 +993,63 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(missing.text, "0")
         self.assertEqual(list(missing.x), ["TARGET2 (ENSG_TARGET_2)"])
         self.assertEqual(list(missing.y), ["memory B cell"])
+        dots = _scatter(figure, "CELLEX specificity")
+        self.assertEqual(dots.mode, "markers")
+        self.assertEqual(dots.marker.sizemode, "diameter")
+        self.assertEqual(dots.marker.sizeref, 1)
+        self.assertEqual(figures.expression_dot_diameter(0), 3)
+        self.assertEqual(figures.expression_dot_diameter(0.0001), 3)
+        self.assertEqual(figures.expression_dot_diameter(0.01), 3)
+        self.assertGreater(figures.expression_dot_diameter(0.1), 3)
+        self.assertLess(
+            figures.expression_dot_diameter(0.1),
+            figures.expression_dot_diameter(0.8),
+        )
+        self.assertEqual(
+            set(zip(dots.x, dots.y, strict=True)),
+            {
+                ("TARGET1 (ENSG_TARGET_1)", "memory B cell"),
+                ("TARGET1 (ENSG_TARGET_1)", "naive B cell"),
+                ("TARGET1 (ENSG_TARGET_1)", "CD8-positive T cell"),
+                ("TARGET2 (ENSG_TARGET_2)", "naive B cell"),
+                ("TARGET2 (ENSG_TARGET_2)", "CD8-positive T cell"),
+            },
+        )
+        dot_sizes = dict(
+            zip(
+                zip(dots.x, dots.y, strict=True),
+                cast(Sequence[float], dots.marker.size),
+                strict=True,
+            )
+        )
+        self.assertEqual(
+            dot_sizes,
+            {
+                (
+                    "TARGET1 (ENSG_TARGET_1)",
+                    "memory B cell",
+                ): figures.expression_dot_diameter(0.8),
+                (
+                    "TARGET1 (ENSG_TARGET_1)",
+                    "naive B cell",
+                ): figures.expression_dot_diameter(0.2),
+                (
+                    "TARGET1 (ENSG_TARGET_1)",
+                    "CD8-positive T cell",
+                ): figures.expression_dot_diameter(0.1),
+                (
+                    "TARGET2 (ENSG_TARGET_2)",
+                    "naive B cell",
+                ): figures.expression_dot_diameter(0.75),
+                (
+                    "TARGET2 (ENSG_TARGET_2)",
+                    "CD8-positive T cell",
+                ): figures.expression_dot_diameter(0.7),
+            },
+        )
+        self.assertEqual(len(dots.customdata or ()), len(dots.x))
+        assert dots.hovertext is not None
+        self.assertIn("Expression rule:", dots.hovertext[0])
         self.assertEqual(_figure(figure).layout.xaxis.side, "top")
         axis_range = _figure(figure).layout.yaxis.range
         assert axis_range is not None
@@ -843,6 +1070,30 @@ class EvidenceTests(unittest.TestCase):
         self.assertAlmostEqual(grouped_value, (math.log2(1 + 1.05) - center) / spread)
         self.assertIn("Mean CPM: 1.05", heatmap.hovertext[row][col])
         self.assertIn("Observed source cell types: 2 / 2", heatmap.hovertext[row][col])
+        dots = _scatter(figure, "CELLEX specificity")
+        assert dots.hovertext is not None
+        dot_index = list(zip(dots.x, dots.y, strict=True)).index(
+            ("TARGET1 (ENSG_TARGET_1)", "B cell (group)")
+        )
+        self.assertEqual(
+            cast(Sequence[float], dots.marker.size)[dot_index],
+            figures.expression_dot_diameter(0.5),
+        )
+        self.assertIn("Mean CELLEX specificity: 0.5", dots.hovertext[dot_index])
+        self.assertIn(
+            "CELLEX-observed source cell types: 2 / 2", dots.hovertext[dot_index]
+        )
+        target2_dot = list(zip(dots.x, dots.y, strict=True)).index(
+            ("TARGET2 (ENSG_TARGET_2)", "B cell (group)")
+        )
+        self.assertEqual(
+            cast(Sequence[float], dots.marker.size)[target2_dot],
+            figures.expression_dot_diameter(0.75),
+        )
+        self.assertIn(
+            "CELLEX-observed source cell types: 1 / 2",
+            dots.hovertext[target2_dot],
+        )
         col2 = list(heatmap.x).index("TARGET2 (ENSG_TARGET_2)")
         self.assertIn("Mean CPM: 0.6", heatmap.hovertext[row][col2])
         self.assertIn("Observed source cell types: 1 / 2", heatmap.hovertext[row][col2])
@@ -887,6 +1138,57 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(list(axis_range), [-0.5, 1.5])
             self.assertFalse(xaxis.autorange)
 
+            dot = figures.expression_view(figure, catalog, expanded, "dot")
+            self.assertEqual(len(_figure(dot).data), 1)
+            dots = _scatter(dot, "CELLEX specificity")
+            x_categories = _figure(dot).layout.xaxis.categoryarray
+            y_categories = _figure(dot).layout.yaxis.categoryarray
+            view_heatmap = _heatmap(view)
+            assert x_categories is not None and y_categories is not None
+            assert view_heatmap.x is not None and view_heatmap.y is not None
+            self.assertEqual(list(x_categories), list(view_heatmap.x))
+            self.assertEqual(list(y_categories), list(view_heatmap.y))
+            self.assertTrue(set(dots.y) <= set(view_heatmap.y))
+            self.assertEqual(
+                {
+                    len(dots.x),
+                    len(dots.y),
+                    len(dots.hovertext or ()),
+                    len(dots.customdata or ()),
+                    len(cast(Sequence[float], dots.marker.size)),
+                    len(cast(Sequence[float], dots.marker.color)),
+                },
+                {len(dots.x)},
+            )
+
+        hidden_base = figures.expression_figure(
+            self.snapshot, self.snapshot["records"], grouped=True
+        )
+        hidden_dots = _scatter(hidden_base, "CELLEX specificity")
+        hidden_indices = [
+            index for index, name in enumerate(hidden_dots.y) if "(group)" not in name
+        ]
+        hidden_dots.x = [hidden_dots.x[index] for index in hidden_indices]
+        hidden_dots.y = [hidden_dots.y[index] for index in hidden_indices]
+        hidden_dots.hovertext = [
+            (hidden_dots.hovertext or ())[index] for index in hidden_indices
+        ]
+        hidden_dots.customdata = [
+            (hidden_dots.customdata or ())[index] for index in hidden_indices
+        ]
+        hidden_dots.marker.size = [
+            cast(Sequence[float], hidden_dots.marker.size)[index]
+            for index in hidden_indices
+        ]
+        hidden_dots.marker.color = [
+            cast(Sequence[float], hidden_dots.marker.color)[index]
+            for index in hidden_indices
+        ]
+        hidden_view = figures.expression_view(hidden_base, catalog, [], "dot")
+        self.assertEqual(
+            list(_scatter(hidden_view, "CELLEX specificity").x), [None, None]
+        )
+
     def test_group_expression_is_missing_when_all_members_are_missing(self):
         for item in self.snapshot["expression"]["ENSG_TARGET_2"]:
             item["median"] = None
@@ -899,6 +1201,71 @@ class EvidenceTests(unittest.TestCase):
         row = list(heatmap.y).index("B cell (group)")
         self.assertIn(
             "Observed source cell types: 0 / 2", heatmap.hovertext[row][column]
+        )
+
+    def test_expression_dot_shows_zero_and_blanks_unavailable_values(self) -> None:
+        zero_group_snapshot = fixture()
+        zero_group_snapshot["expression"]["ENSG_TARGET_1"][0]["specificity_score"] = 0
+        zero_group_snapshot["expression"]["ENSG_TARGET_1"][1]["specificity_score"] = 0
+        zero_group_figure = figures.expression_figure(
+            zero_group_snapshot, zero_group_snapshot["records"], grouped=True
+        )
+        zero_group_dots = _scatter(zero_group_figure, "CELLEX specificity")
+        zero_group_sizes = dict(
+            zip(
+                zip(zero_group_dots.x, zero_group_dots.y, strict=True),
+                cast(Sequence[float], zero_group_dots.marker.size),
+                strict=True,
+            )
+        )
+        self.assertEqual(
+            zero_group_sizes[("TARGET1 (ENSG_TARGET_1)", "B cell (group)")], 3
+        )
+
+        snapshot = fixture()
+        snapshot["expression"]["ENSG_TARGET_1"][0]["specificity_score"] = None
+        snapshot["expression"]["ENSG_TARGET_1"][1]["specificity_score"] = None
+        snapshot["expression"]["ENSG_TARGET_1"][2]["specificity_score"] = 0
+        snapshot["expression"]["ENSG_TARGET_2"][0]["specificity_score"] = 0.9
+        figure = figures.expression_figure(snapshot, snapshot["records"], grouped=True)
+        dots = _scatter(figure, "CELLEX specificity")
+        coordinates = set(zip(dots.x, dots.y, strict=True))
+        self.assertNotIn(("TARGET1 (ENSG_TARGET_1)", "B cell (group)"), coordinates)
+        self.assertIn(("TARGET1 (ENSG_TARGET_1)", "CD8-positive T cell"), coordinates)
+        zero_index = list(zip(dots.x, dots.y, strict=True)).index(
+            ("TARGET1 (ENSG_TARGET_1)", "CD8-positive T cell")
+        )
+        self.assertEqual(cast(Sequence[float], dots.marker.size)[zero_index], 3)
+        self.assertNotIn(("TARGET2 (ENSG_TARGET_2)", "memory B cell"), coordinates)
+        heatmap = _heatmap(figure)
+        row = list(heatmap.y).index("B cell (group)")
+        column = list(heatmap.x).index("TARGET1 (ENSG_TARGET_1)")
+        self.assertIn(
+            "Mean CELLEX specificity: missing", heatmap.hovertext[row][column]
+        )
+        self.assertIn(
+            "CELLEX-observed source cell types: 0 / 2",
+            heatmap.hovertext[row][column],
+        )
+
+        for items in snapshot["expression"].values():
+            for item in items:
+                item["specificity_score"] = None
+        empty_base = figures.expression_figure(
+            snapshot, snapshot["records"], grouped=True
+        )
+        empty = figures.expression_view(
+            empty_base, atlas.cell_catalog(snapshot, "mixed"), [], "dot"
+        )
+        carrier = _scatter(empty, "CELLEX specificity")
+        self.assertEqual(list(carrier.x), [None, None])
+        self.assertTrue(carrier.marker.showscale)
+        empty_categories = _figure(empty).layout.xaxis.categoryarray
+        empty_heatmap_x = _heatmap(empty_base).x
+        assert empty_categories is not None and empty_heatmap_x is not None
+        self.assertEqual(
+            list(empty_categories),
+            list(empty_heatmap_x),
         )
 
     def test_constant_target_expression_has_zero_z_score(self) -> None:
@@ -925,6 +1292,10 @@ class EvidenceTests(unittest.TestCase):
         )
         self.assertEqual(
             (_heatmap(constant_only).zmin, _heatmap(constant_only).zmax), (-1, 1)
+        )
+        constant_dots = _scatter(constant_only, "CELLEX specificity")
+        self.assertEqual(
+            list(cast(Sequence[float], constant_dots.marker.color)), [0, 0, 0]
         )
 
     def test_expression_markers_follow_current_rule(self) -> None:
@@ -963,6 +1334,8 @@ class EvidenceTests(unittest.TestCase):
         )
         panel_children = _component_list(panel)
         self.assertIn("○ Source cell meets expression rule", str(panel_children[2]))
+        self.assertIn("expression-chart-type", str(panel_children[2]))
+        self.assertIn("expression-dot-key", str(panel_children[2]))
         graph_container = _component(_component(panel_children[3]).children)
         graph_children = graph_container.children
         assert isinstance(graph_children, list) and graph_children
@@ -1224,6 +1597,7 @@ class CallbackTests(unittest.TestCase):
             ("drug-heatmap", "clickData"): None,
             ("update-button", "n_clicks"): 1,
             ("heatmap-view", "value"): "target",
+            ("chart-type", "value"): "heatmap",
             ("expanded-cell-groups", "data"): [],
         }
         values[("applied-parameters", "data")] = {
@@ -1268,6 +1642,49 @@ class CallbackTests(unittest.TestCase):
             ),
             ["group:CL_B_GROUP", "CL_B_ONE"],
         )
+
+    def test_dot_expansion_preserves_area_and_color_scales(self) -> None:
+        values = self._values()
+        values[("chart-type", "value")] = "dot"
+        before = self._post("target-heatmap.figure", values, "chart-type.value")
+        values[("expanded-cell-groups", "data")] = ["group:CL_B_GROUP"]
+        expanded = self._post(
+            "target-heatmap.figure", values, "expanded-cell-groups.data"
+        )
+        for graph in ("target-heatmap", "drug-heatmap"):
+            old_marker = _at(before, graph, "figure", "data", 0, "marker")
+            new_marker = _at(expanded, graph, "figure", "data", 0, "marker")
+            self.assertEqual(
+                (
+                    _at(old_marker, "sizeref"),
+                    _at(old_marker, "cmin"),
+                    _at(old_marker, "cmax"),
+                ),
+                (
+                    _at(new_marker, "sizeref"),
+                    _at(new_marker, "cmin"),
+                    _at(new_marker, "cmax"),
+                ),
+            )
+            self.assertGreater(
+                len(
+                    _json_array(
+                        _at(
+                            expanded,
+                            graph,
+                            "figure",
+                            "layout",
+                            "yaxis",
+                            "categoryarray",
+                        )
+                    )
+                ),
+                len(
+                    _json_array(
+                        _at(before, graph, "figure", "layout", "yaxis", "categoryarray")
+                    )
+                ),
+            )
 
     def test_heatmap_button_toggles_and_ignores_rendered_buttons(self):
         button = {
@@ -1554,6 +1971,7 @@ class CallbackTests(unittest.TestCase):
                 "specificity": 0.75,
             },
             ("expanded-expression-groups", "data"): [],
+            ("expression-chart-type", "value"): "heatmap",
         }
         collapsed = self._post(
             "expression-heatmap.figure", values, "source-context.data"
@@ -1592,6 +2010,30 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(
             len(_json_array(_at(expanded, "expression-row-controls", "children"))),
             4,
+        )
+        values[("expression-chart-type", "value")] = "dot"
+        with patch.object(
+            callbacks,
+            "expression_figure",
+            side_effect=AssertionError("Chart switch recomputed expression"),
+        ):
+            dot = self._post(
+                "expression-heatmap.figure", values, "expression-chart-type.value"
+            )
+        self.assertEqual(
+            _at(dot, "expression-heatmap", "figure", "data", 0, "name"),
+            "CELLEX specificity",
+        )
+        self.assertEqual(_at(dot, "expression-dot-key", "style"), {"display": "flex"})
+        dot_key = json.dumps(dot["expression-dot-key"], ensure_ascii=False)
+        self.assertIn("CELLEX specificity (area)", dot_key)
+        self.assertIn('"width": "3px"', dot_key)
+        self.assertIn('"width": "11px"', dot_key)
+        self.assertIn('"width": "15.5563px"', dot_key)
+        self.assertIn('"width": "22px"', dot_key)
+        self.assertIn("Blank: missing CPM/CELLEX", dot_key)
+        self.assertEqual(
+            _at(dot, "expression-heatmap-key", "style"), {"display": "none"}
         )
 
     def test_source_records_are_visible_and_paged_without_losing_rows(self) -> None:
@@ -1743,6 +2185,63 @@ class CallbackTests(unittest.TestCase):
         disabled = _at(self.components["specificity"], "disabled")
         assert isinstance(disabled, bool)
         self.assertFalse(disabled)
+
+    def test_chart_type_switches_immediately_and_preserves_applied_filters(
+        self,
+    ) -> None:
+        self.assertEqual(_at(self.components["chart-type"], "value"), "heatmap")
+        self.assertEqual(
+            [
+                _at(option, "value")
+                for option in _json_array(_at(self.components["chart-type"], "options"))
+            ],
+            ["heatmap", "dot"],
+        )
+        self.assertNotIn("chart-type", config.PARAMETER_IDS)
+        values = self._values()
+        values[("applied-parameters", "data")] = {
+            **_json_object(values[("applied-parameters", "data")]),
+            "threshold": 0.71,
+        }
+        self._post("target-heatmap.figure", values, "applied-parameters.data")
+        values[("chart-type", "value")] = "dot"
+        with patch.object(atlas, "summarize", wraps=atlas.summarize) as summarize:
+            result = self._post("target-heatmap.figure", values, "chart-type.value")
+        summarize.assert_not_called()
+        self.assertEqual(
+            _at(result, "target-heatmap", "figure", "data", 0, "type"), "scatter"
+        )
+        self.assertEqual(
+            _at(result, "target-heatmap", "figure", "data", 0, "customdata", 0),
+            ["MONDO_RA_TEST", "group:" + atlas.T_CELL_ID],
+        )
+        self.assertEqual(_at(result, "target-dot-key", "style"), {"display": "flex"})
+        target_key = json.dumps(result["target-dot-key"], ensure_ascii=False)
+        self.assertIn("Count (scaled size)", target_key)
+        self.assertIn('"width": "22px"', target_key)
+        self.assertIn("Blank: zero or unavailable", target_key)
+        click = _json_value(
+            {"points": [{"customdata": ["MONDO_RA_TEST", "group:" + atlas.T_CELL_ID]}]}
+        )
+        values[("target-heatmap", "clickData")] = click
+        details = self._click_details(values, "target-heatmap")
+        self.assertIn("Drug–target records for rheumatoid arthritis", str(details))
+
+    def test_dot_plot_disables_measure_without_changing_its_value(self) -> None:
+        values = self._values()
+        for chart_type, disabled in (("dot", True), ("heatmap", False)):
+            values[("chart-type", "value")] = chart_type
+            result = self._post("measure.options", values, "chart-type.value")
+            self.assertEqual(
+                result["measure"],
+                {
+                    "options": [
+                        {"label": "Percent", "value": "percent", "disabled": disabled},
+                        {"label": "Count", "value": "count", "disabled": disabled},
+                    ]
+                },
+            )
+            self.assertEqual(values[("measure", "value")], "percent")
 
     def test_specificity_input_follows_rule_and_keeps_value(self) -> None:
         values = self._values()

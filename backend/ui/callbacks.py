@@ -27,8 +27,11 @@ from backend.ui.config import (
 )
 from backend.ui.figures import (
     Measure,
+    build_dot_figure,
     build_figure,
     disease_label_lines,
+    dot_size_scale,
+    expression_dot_size_scale,
     expression_figure,
     expression_view,
     heatmap_cell_ids,
@@ -273,14 +276,20 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Output("expression-heatmap", "figure"),
         Output("expression-heatmap", "style"),
         Output("expression-row-controls", "children"),
+        Output("expression-heatmap-key", "style"),
+        Output("expression-dot-key", "children"),
+        Output("expression-dot-key", "style"),
         Input("source-context", "data"),
         Input("expanded-expression-groups", "data"),
+        Input("expression-chart-type", "value"),
     )
     def update_expression(
-        context: SourceContext | None, expanded: list[str] | None
-    ) -> tuple[object, object, object]:
+        context: SourceContext | None,
+        expanded: list[str] | None,
+        chart_type: str,
+    ) -> tuple[object, object, object, object, object, object]:
         if not context:
-            return no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update
         base = expression_base(
             *(
                 context[key]
@@ -294,12 +303,36 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
                 )
             )
         )
-        figure = expression_view(base, heatmap_catalog, expanded or [])
-        heatmap = cast(go.Heatmap, figure.data[0])
-        x_values = cast(tuple[object, ...] | None, heatmap.x)
+        figure = expression_view(base, heatmap_catalog, expanded or [], chart_type)
+        base_heatmap = cast(go.Heatmap, base.data[0])
+        x_values = cast(tuple[object, ...] | None, base_heatmap.x)
         cells = heatmap_cell_ids(
             snapshot, tuple(heatmap_groups), expanded, catalog=heatmap_catalog
         )
+        _, size_values = expression_dot_size_scale()
+        dot_key = [
+            html.Span("CELLEX specificity (area)", className="dot-key-title"),
+            *[
+                html.Span(
+                    [
+                        html.Span(
+                            className="dot-key-circle",
+                            style={
+                                "width": f"{diameter:g}px",
+                                "height": f"{diameter:g}px",
+                            },
+                        ),
+                        f"{value:g}",
+                    ],
+                    className="dot-key-item",
+                )
+                for value, diameter in size_values
+            ],
+            html.Span(
+                "Blank: missing CPM/CELLEX",
+                className="dot-key-item",
+            ),
+        ]
         return (
             figure,
             {
@@ -307,6 +340,9 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
                 "height": f"{figure.layout.height}px",  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
             },
             heatmap_row_controls(heatmap_names, cells, expanded or [], "expression"),
+            {"display": "inline-flex" if chart_type == "heatmap" else "none"},
+            dot_key,
+            {"display": "flex" if chart_type == "dot" else "none"},
         )
 
     @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
@@ -375,6 +411,16 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         return method != "specificity"
 
     @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
+        Output("measure", "options"), Input("chart-type", "value")
+    )
+    def toggle_measure(chart_type: str | None) -> list[dict[str, str | bool]]:
+        disabled = chart_type == "dot"
+        return [
+            {"label": label, "value": value, "disabled": disabled}
+            for label, value in (("Percent", "percent"), ("Count", "count"))
+        ]
+
+    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
         Output("target-heatmap-panel", "hidden"),
         Output("drug-heatmap-panel", "hidden"),
         Input("applied-parameters", "data"),
@@ -395,11 +441,16 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Output("drug-row-controls", "children"),
         Output("target-row-controls", "style"),
         Output("drug-row-controls", "style"),
+        Output("target-dot-key", "children"),
+        Output("drug-dot-key", "children"),
+        Output("target-dot-key", "style"),
+        Output("drug-dot-key", "style"),
         Input("applied-parameters", "data"),
         Input("expanded-cell-groups", "data"),
+        Input("chart-type", "value"),
     )
     def update_figures(
-        applied: AppliedParameters, expanded: list[str] | None
+        applied: AppliedParameters, expanded: list[str] | None, chart_type: str | None
     ) -> tuple[
         go.Figure,
         go.Figure,
@@ -408,6 +459,10 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         html.Div,
         list[html.Button | html.Div],
         list[html.Button | html.Div],
+        dict[str, str],
+        dict[str, str],
+        list[html.Span],
+        list[html.Span],
         dict[str, str],
         dict[str, str],
     ]:
@@ -449,7 +504,15 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         top_margin = max(130, math.ceil(max(label_extents, default=0)) + 35)
         right_margin = max(90, math.ceil(label_extents[-1]) if label_extents else 0)
         target_figure, drug_figure = (
-            build_figure(
+            build_dot_figure(
+                rows,
+                disease_ids or [],
+                cell_ids or [],
+                kind,
+                scale_rows=scale_rows,
+            )
+            if chart_type == "dot"
+            else build_figure(
                 rows,
                 disease_ids or [],
                 cell_ids or [],
@@ -470,16 +533,34 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             figure.update_yaxes(  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
                 title=None, automargin=False, fixedrange=True
             )
-            figure.update_traces(  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
-                colorbar_len=min(240, max(28, 28 * len(cell_ids))),
-                selector={"type": "heatmap"},
+            if chart_type == "dot":
+                figure.update_traces(  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
+                    marker_colorbar_len=min(240, max(28, 28 * len(cell_ids))),
+                    selector={"type": "scatter", "name": "Values"},
+                )
+            else:
+                figure.update_traces(  # pyright: ignore[reportUnknownMemberType] - Plotly に型スタブがない。
+                    colorbar_len=min(240, max(28, 28 * len(cell_ids))),
+                    selector={"type": "heatmap"},
+                )
+        if chart_type == "dot":
+            target_missing = sum(
+                row[measure_fields("target", "count")[0]] is None
+                or row[measure_fields("target", "percent")[0]] is None
+                for row in rows
             )
-        target_missing = sum(
-            row[measure_fields("target", measure)[0]] is None for row in rows
-        )
-        drug_missing = sum(
-            row[measure_fields("drug", measure)[0]] is None for row in rows
-        )
+            drug_missing = sum(
+                row[measure_fields("drug", "count")[0]] is None
+                or row[measure_fields("drug", "percent")[0]] is None
+                for row in rows
+            )
+        else:
+            target_missing = sum(
+                row[measure_fields("target", measure)[0]] is None for row in rows
+            )
+            drug_missing = sum(
+                row[measure_fields("drug", measure)[0]] is None for row in rows
+            )
         condition = f"median CPM ≥ {minimum:g}"
         if method == "relative":
             condition += " and CPM ≥ the full-reference target median"
@@ -497,7 +578,12 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
                 modality,
             )
         )
-        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: all groups and expanded source cells; Measure: {measure.capitalize()}. {len(rows)} disease–cell combinations. Unavailable entries shown as zero: targets {target_missing}, drugs {drug_missing}."
+        display = (
+            f"Dot plot: area uses a compressed Count scale; color is Percent. Zero entries are blank. Unavailable entries are blank: targets {target_missing}, drugs {drug_missing}"
+            if chart_type == "dot"
+            else f"Heatmap measure: {measure.capitalize()}. Unavailable entries shown as zero: targets {target_missing}, drugs {drug_missing}"
+        )
+        note = f"Applied: Clinical stage: {STAGE_LABELS[stage]}; Drug modality: {modality_label}; Expression rule: {METHOD_LABELS[method]} ({condition}); Cells: all groups and expanded source cells. {display}. {len(rows)} disease–cell combinations."
         status = html.Span(f"{len(rows)} disease–cell combinations")
         error_note = (
             html.Span(" ".join(errors), className="filter-errors", role="alert")
@@ -507,6 +593,33 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         graph_style = {
             "minWidth": f"{max(600, 240 + right_margin + 50 * len(disease_ids))}px"
         }
+
+        def dot_key(kind: str) -> list[html.Span]:
+            _, _, values = dot_size_scale(
+                scale_rows, "drug" if kind == "drug" else "target"
+            )
+            return [
+                html.Span("Count (scaled size)", className="dot-key-title"),
+                *[
+                    html.Span(
+                        [
+                            html.Span(
+                                className="dot-key-circle",
+                                style={
+                                    "width": f"{diameter:g}px",
+                                    "height": f"{diameter:g}px",
+                                },
+                            ),
+                            f"{value:g}",
+                        ],
+                        className="dot-key-item",
+                    )
+                    for value, diameter in values
+                ],
+                html.Span("Blank: zero or unavailable", className="dot-key-item"),
+            ]
+
+        key_style = {"display": "flex" if chart_type == "dot" else "none"}
         return (
             target_figure,
             drug_figure,
@@ -520,6 +633,10 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             heatmap_row_controls(heatmap_names, cell_ids, expanded or [], "drug"),
             {"top": f"{top_margin}px"},
             {"top": f"{top_margin}px"},
+            dot_key("target"),
+            dot_key("drug"),
+            key_style,
+            key_style,
         )
 
     @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。

@@ -79,10 +79,28 @@ class _HeatmapData(Protocol):
     def update(self, **kwargs: object) -> object: ...
 
 
+class _ColorbarData(Protocol):
+    len: int | None
+
+
+class _MarkerData(Protocol):
+    cmax: float | None
+    cmin: float | None
+    color: Sequence[float] | None
+    colorbar: _ColorbarData
+    size: Sequence[float] | None
+
+
 class _ScatterData(Protocol):
-    x: Sequence[str] | None
-    y: Sequence[str] | None
+    customdata: Sequence[object] | None
+    marker: _MarkerData
+    name: str | None
+    visible: bool | None
+    x: Sequence[str | None] | None
+    y: Sequence[str | None] | None
     hovertext: Sequence[str] | None
+
+    def update(self, **kwargs: object) -> object: ...
 
 
 def heatmap_cell_ids(
@@ -177,6 +195,42 @@ def hover_text(row: SummaryRow, measure: Measure, kind: Kind) -> str:
                 if row.get(value_key) is None
                 else []
             ),
+            f"Denominator: {row.get(denominator_key, 0)}",
+            f"Unresolved in denominator: {row.get(unknown_key, 0)}",
+            f"Drugs with known targets / all drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
+        )
+    )
+
+
+def dot_hover_text(row: SummaryRow, kind: Kind) -> str:
+    """Dot plot の面積と色を、欠測と下限を含めて一緒に説明する。"""
+    _, unknown_key, denominator_key = measure_fields(kind, "percent")
+    count = display_value(row, "count", kind) or "Not available"
+    percent = display_value(row, "percent", kind) or "Not available"
+    label = "Drugs" if kind == "drug" else "Targets"
+    if row["status"] == "unavailable":
+        assessment = "Disease data unavailable"
+    elif row.get(denominator_key, 0) == 0:
+        assessment = "No eligible items in the percentage denominator"
+    elif _is_lower_bound(row, "count", kind) or _is_lower_bound(row, "percent", kind):
+        assessment = "≥ is a lower bound; unresolved evidence may increase this value"
+    elif (
+        row.get(measure_fields(kind, "count")[0]) is None
+        or row.get(measure_fields(kind, "percent")[0]) is None
+    ):
+        assessment = (
+            "Support cannot be determined from available target and expression data."
+        )
+    elif row[measure_fields(kind, "count")[0]] == 0:
+        assessment = f"No qualifying {label.lower()} under this rule"
+    else:
+        assessment = f"{label} meeting the expression rule"
+    return "<br>".join(
+        (
+            f"<b>{row['disease']} / {row['cell']}</b>",
+            f"Count: {count}",
+            f"Percent: {percent}",
+            assessment,
             f"Denominator: {row.get(denominator_key, 0)}",
             f"Unresolved in denominator: {row.get(unknown_key, 0)}",
             f"Drugs with known targets / all drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
@@ -294,6 +348,169 @@ def build_figure(
     # 欠測表示用の文字が追加されても、行見出しとマスの中心を揃える。
     figure_ops.update_yaxes(
         range=[max(1, len(cell_ids)) - 0.5, -0.5],
+        autorange=False,
+        title="Cell type",
+    )
+    return figure
+
+
+def dot_size_scale(
+    rows: Sequence[SummaryRow], kind: Kind
+) -> tuple[int | float, float, list[tuple[int | float, float]]]:
+    """Dot plot と面積キーで共有する件数の尺度を返す。"""
+    count_key = measure_fields(kind, "count")[0]
+    counts: list[int | float] = []
+    for row in rows:
+        count = cast(int | float | None, row.get(count_key))
+        if count is not None and count > 0:
+            counts.append(count)
+    size_max = max(counts, default=1)
+    unique_counts = sorted(set(counts))
+    legend_counts: list[int | float] = []
+    if unique_counts:
+        for index in (0, len(unique_counts) // 2, len(unique_counts) - 1):
+            if unique_counts[index] not in legend_counts:
+                legend_counts.append(unique_counts[index])
+    return (
+        size_max,
+        2 * size_max**0.75 / 22**2,
+        [(value, 22 * (value / size_max) ** 0.375) for value in legend_counts],
+    )
+
+
+def expression_dot_diameter(value: int | float) -> float:
+    """CELLEX 値を、0 も見える最大径 22 px の円へ変換する。"""
+    return max(3, 22 * math.sqrt(value))
+
+
+def expression_dot_size_scale() -> tuple[float, tuple[tuple[float, float], ...]]:
+    """発現 Dot plot と凡例で共有する固定尺度を返す。"""
+    values = (0.0, 0.25, 0.5, 1.0)
+    return 1, tuple((value, expression_dot_diameter(value)) for value in values)
+
+
+def build_dot_figure(
+    rows: list[SummaryRow],
+    disease_ids: Sequence[str],
+    cell_ids: Sequence[str],
+    kind: Kind = "target",
+    *,
+    scale_rows: list[SummaryRow] | None = None,
+) -> go.Figure:
+    """面積を件数の 0.75 乗、色を割合に固定した dot plot を作る。"""
+    count_key = measure_fields(kind, "count")[0]
+    percent_key = measure_fields(kind, "percent")[0]
+    lookup = {(row["disease_id"], row["cell_id"]): row for row in rows}
+    disease_names = {row["disease_id"]: row["disease"] for row in rows}
+    cell_names = {row["cell_id"]: row["cell"] for row in rows}
+    disease_labels = [disease_names.get(item, item) for item in disease_ids]
+    cell_labels = [cell_names.get(item, item) for item in cell_ids]
+    x: list[str] = []
+    y: list[str] = []
+    hover: list[str] = []
+    custom: list[list[str]] = []
+    sizes: list[int | float] = []
+    colors: list[int | float] = []
+    for cell_id, cell_label in zip(cell_ids, cell_labels, strict=True):
+        for disease_id, disease_label in zip(disease_ids, disease_labels, strict=True):
+            row = lookup.get((disease_id, cell_id))
+            count = cast(
+                int | float | None, None if row is None else row.get(count_key)
+            )
+            percent = cast(
+                int | float | None, None if row is None else row.get(percent_key)
+            )
+            if row is None or count is None or count <= 0 or percent is None:
+                continue
+            x.append(disease_label)
+            y.append(cell_label)
+            custom.append([disease_id, cell_id])
+            hover.append(dot_hover_text(row, kind))
+            sizes.append(math.pow(count, 0.75))
+            colors.append(percent)
+
+    scale_rows = rows if scale_rows is None else scale_rows
+    scale_percents: list[int | float] = []
+    for row in scale_rows:
+        percent = cast(int | float | None, row.get(percent_key))
+        if percent is not None:
+            scale_percents.append(percent)
+    _, size_ref, _ = dot_size_scale(scale_rows, kind)
+    color_min = min(scale_percents, default=0)
+    color_max = max(scale_percents, default=1)
+    if color_min == color_max:
+        color_min, color_max = 0, max(1, color_max)
+    title = "Drug" if kind == "drug" else "Target"
+    has_values = bool(x)
+    value_x = x if has_values else [None, None]
+    value_y = y if has_values else [None, None]
+    value_sizes = sizes if has_values else [0, 0]
+    value_colors = colors if has_values else [color_min, color_max]
+    value_hover = hover if has_values else ["", ""]
+    value_custom = custom if has_values else [None, None]
+    figure = go.Figure()
+    figure_ops = cast(_FigureOps, cast(object, figure))
+    figure_ops.add_trace(
+        go.Scatter(
+            x=value_x,
+            y=value_y,
+            mode="markers",
+            name="Values",
+            showlegend=False,
+            marker={
+                "size": value_sizes,
+                "color": value_colors,
+                "sizemode": "area",
+                "sizeref": size_ref,
+                "colorscale": "Greens",
+                "cmin": color_min,
+                "cmax": color_max,
+                "showscale": True,
+                "colorbar": {
+                    "title": f"{title} share (%)",
+                    "lenmode": "pixels",
+                    "len": 240,
+                    "y": 1,
+                    "yanchor": "top",
+                },
+                "line": {"color": "#35543a", "width": 0.6},
+            },
+            hovertext=value_hover,
+            hovertemplate="%{hovertext}<extra></extra>",
+            customdata=value_custom,
+        )
+    )
+    if not disease_ids or not cell_ids:
+        figure_ops.add_annotation(
+            text="Select diseases and cell types", showarrow=False
+        )
+    figure_ops.update_layout(
+        template="plotly_white",
+        font={"family": "Arial, sans-serif", "size": 12, "color": "#263238"},
+        height=max(420, min(1400, 180 + 28 * len(cell_ids))),
+        margin={"l": 180, "r": 40, "t": 130, "b": 70},
+        showlegend=False,
+        hoverlabel={"align": "left"},
+    )
+    figure_ops.update_xaxes(
+        type="category",
+        categoryorder="array",
+        categoryarray=disease_labels,
+        range=[-0.5, max(0.5, len(disease_labels) - 0.5)],
+        autorange=False,
+        tickangle=-45,
+        side="top",
+        title="Disease",
+        automargin=True,
+        tickmode="array",
+        tickvals=disease_labels,
+        ticktext=["<br>".join(disease_label_lines(name)) for name in disease_labels],
+    )
+    figure_ops.update_yaxes(
+        type="category",
+        categoryorder="array",
+        categoryarray=cell_labels,
+        range=[max(1, len(cell_labels)) - 0.5, -0.5],
         autorange=False,
         title="Cell type",
     )
@@ -440,6 +657,12 @@ def expression_figure(
     positive_x: list[str] = []
     positive_y: list[str] = []
     positive_hover: list[str] = []
+    dot_x: list[str] = []
+    dot_y: list[str] = []
+    dot_sizes: list[float] = []
+    dot_colors: list[float] = []
+    dot_hover: list[str] = []
+    dot_custom: list[list[str]] = []
     display_cells = atlas.cell_catalog(snapshot, "mixed") if grouped else cells
     member_names = {cell["id"]: cell["name"] for cell in display_cells}
     for cell in display_cells:
@@ -452,13 +675,23 @@ def expression_figure(
             item = metadata.get((target_id, member))
             cpm = item.get("median") if item else None
             observed: list[float] = []
+            specificity_score = item.get("specificity_score") if item else None
+            specificity_observed: list[float] = []
             if is_group:
                 for child in cell["members"]:
                     child_item = metadata.get((target_id, child))
                     median_value = child_item.get("median") if child_item else None
                     if median_value is not None:
                         observed.append(median_value)
+                    specificity_value = (
+                        child_item.get("specificity_score") if child_item else None
+                    )
+                    if specificity_value is not None:
+                        specificity_observed.append(specificity_value)
                 cpm = mean(observed) if observed else None
+                specificity_score = (
+                    mean(specificity_observed) if specificity_observed else None
+                )
             center, spread = target_stats[target_id]
             score = (
                 (math.log2(1 + cpm) - center) / spread
@@ -466,6 +699,20 @@ def expression_figure(
                 else (0 if cpm is not None else None)
             )
             z_row.append(score)
+            state = (
+                None
+                if is_group
+                else atlas.expression_state(item, threshold, method, specificity)
+            )
+            rule_state = (
+                "display only for groups"
+                if is_group
+                else "met"
+                if state is True
+                else "not met"
+                if state is False
+                else "unresolved"
+            )
             hover_row.append(
                 "<br>".join(
                     (
@@ -477,12 +724,13 @@ def expression_figure(
                         f"Median CPM: {cpm:g}"
                         if cpm is not None
                         else "Median CPM: missing",
-                        f"CELLEX specificity: {item.get('specificity_score'):g}"
-                        if item and item.get("specificity_score") is not None
+                        f"CELLEX specificity: {specificity_score:g}"
+                        if specificity_score is not None
                         else "CELLEX specificity: missing",
                         f"Target-relative median: {item.get('target_median'):g}"
                         if item and item.get("target_median") is not None
                         else "Target-relative median: missing",
+                        f"Expression rule: {rule_state}",
                     )
                 )
             )
@@ -498,6 +746,10 @@ def expression_figure(
                         f"Target-wise z-score: {score:.2f}"
                         if score is not None
                         else "Target-wise z-score: missing",
+                        f"Mean CELLEX specificity: {specificity_score:g}"
+                        if specificity_score is not None
+                        else "Mean CELLEX specificity: missing",
+                        f"CELLEX-observed source cell types: {len(specificity_observed)} / {len(cell['members'])}",
                         "Equal-weight mean across cell types with data; missing values are excluded.",
                         "Display only: excluded from reference medians, standardization, clustering and rule evaluation.",
                     )
@@ -509,13 +761,21 @@ def expression_figure(
                     hover_row[-1]
                     + "<br>Displayed as 0; expression is missing, not measured as zero."
                 )
-            elif (
-                not is_group
-                and atlas.expression_state(item, threshold, method, specificity) is True
-            ):
+            elif not is_group and state is True:
                 positive_x.append(label)
                 positive_y.append(member_names[member])
-                positive_hover.append(hover_row[-1] + "<br>Expression rule: met")
+                positive_hover.append(hover_row[-1])
+            if (
+                cpm is not None
+                and specificity_score is not None
+                and specificity_score >= 0
+            ):
+                dot_x.append(label)
+                dot_y.append(member_names[member])
+                dot_sizes.append(expression_dot_diameter(specificity_score))
+                dot_colors.append(score if score is not None else 0)
+                dot_hover.append(hover_row[-1])
+                dot_custom.append([target_id, member])
         z.append(z_row)
         hover.append(hover_row)
     target_labels = [f"{target_names[t]} ({t})" for t in targets]
@@ -579,6 +839,39 @@ def expression_figure(
                 hovertemplate="%{hovertext}<extra></extra>",
             )
         )
+    dot_size_ref, _ = expression_dot_size_scale()
+    has_dots = bool(dot_x)
+    figure_ops.add_trace(
+        go.Scatter(
+            x=dot_x if has_dots else [None, None],
+            y=dot_y if has_dots else [None, None],
+            mode="markers",
+            marker={
+                "size": dot_sizes if has_dots else [0, 0],
+                "color": dot_colors if has_dots else [-color_limit, color_limit],
+                "sizemode": "diameter",
+                "sizeref": dot_size_ref,
+                "colorscale": "RdBu_r",
+                "cmin": -color_limit,
+                "cmax": color_limit,
+                "showscale": True,
+                "colorbar": {
+                    "title": "Target-wise z-score",
+                    "lenmode": "pixels",
+                    "len": 240,
+                    "y": 1,
+                    "yanchor": "top",
+                },
+                "line": {"color": "#4a4a4a", "width": 0.6},
+            },
+            name="CELLEX specificity",
+            showlegend=False,
+            hovertext=dot_hover if has_dots else ["", ""],
+            hovertemplate="%{hovertext}<extra></extra>",
+            customdata=dot_custom if has_dots else [None, None],
+            visible=False,
+        )
+    )
     if not targets:
         figure_ops.add_annotation(
             text="No known targets in the selected scope", showarrow=False
@@ -610,6 +903,7 @@ def expression_view(
     base: go.Figure,
     catalog: Sequence[CellCatalogEntry],
     expanded: Sequence[str],
+    chart_type: str = "heatmap",
 ) -> go.Figure:
     """集計済みの図から表示行だけを選び、色範囲と標的順を保つ。"""
     groups = [cell["id"] for cell in catalog if cell.get("cell_level") == "group"]
@@ -628,22 +922,62 @@ def expression_view(
     for trace_value in figure_ops.data[1:]:
         trace = cast(_ScatterData, trace_value)
         trace_y = trace.y if trace.y is not None else ()
-        keep = [i for i, name in enumerate(trace_y) if name in names]
+        keep = [i for i, name in enumerate(trace_y) if name is None or name in names]
         if trace.x is not None:
             trace.x = [trace.x[i] for i in keep]
         if trace.y is not None:
             trace.y = [trace.y[i] for i in keep]
         if trace.hovertext is not None:
             trace.hovertext = [trace.hovertext[i] for i in keep]
+        if trace.customdata is not None:
+            trace.customdata = [trace.customdata[i] for i in keep]
+        if trace.name == "CELLEX specificity":
+            marker_sizes = trace.marker.size or ()
+            marker_colors = trace.marker.color or ()
+            trace.marker.size = [marker_sizes[i] for i in keep]
+            trace.marker.color = [marker_colors[i] for i in keep]
+            if not trace.x:
+                trace.x = [None, None]
+                trace.y = [None, None]
+                trace.hovertext = ["", ""]
+                trace.customdata = [None, None]
+                trace.marker.size = [0, 0]
+                trace.marker.color = [trace.marker.cmin or 0, trace.marker.cmax or 1]
     count = max(1, len(indices))
     target_count = max(1, len(heatmap.x or ()))
     figure_ops.update_layout(
         height=110 + 60 + 28 * count, margin=dict(l=280, r=40, t=110, b=60)
     )
+    target_labels = list(heatmap.x or ())
+    cell_labels = list(heatmap.y or ())
+    if chart_type == "dot":
+        dots = next(
+            trace
+            for trace in figure_ops.data[1:]
+            if cast(_ScatterData, trace).name == "CELLEX specificity"
+        )
+        dot_trace = cast(_ScatterData, dots)
+        dot_trace.update(visible=True)
+        dot_trace.marker.colorbar.len = min(240, 28 * count)
+        figure_ops.data = (dots,)
+    else:
+        figure_ops.data = tuple(
+            trace
+            for trace in figure_ops.data
+            if cast(_ScatterData, trace).name != "CELLEX specificity"
+        )
     figure_ops.update_xaxes(
-        range=[-0.5, target_count - 0.5], autorange=False, automargin=False
+        type="category",
+        categoryorder="array",
+        categoryarray=target_labels,
+        range=[-0.5, target_count - 0.5],
+        autorange=False,
+        automargin=False,
     )
     figure_ops.update_yaxes(
+        type="category",
+        categoryorder="array",
+        categoryarray=cell_labels,
         range=[count - 0.5, -0.5],
         autorange=False,
         automargin=False,

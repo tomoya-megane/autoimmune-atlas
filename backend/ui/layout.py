@@ -154,11 +154,24 @@ def detail_panel(
                     info_tip(
                         "expression",
                         "target expression",
-                        "Healthy reference expression for known targets of the selected disease's filtered drugs. Click a group name to show its source cell types. The same reference data are used for every disease; differences between diseases reflect their drug and target sets, not expression in patients.",
+                        "Healthy reference expression for known targets of the selected disease's filtered drugs. Switch between a heatmap and a dot plot without recalculating the data. Dot area represents CELLEX specificity and color is the target-wise z-score; zero and very small values use minimum-size 3 px dots. Missing CPM or CELLEX is blank. Click a group name to show its source cell types. The same reference data are used for every disease; differences between diseases reflect their drug and target sets, not expression in patients.",
                     ),
-                    html.Small(
-                        "○ Source cell meets expression rule",
-                        className="expression-marker-key",
+                    html.Fieldset(
+                        [
+                            html.Legend("Chart"),
+                            dcc.RadioItems(
+                                id="expression-chart-type",
+                                options=[
+                                    {"label": "Heatmap", "value": "heatmap"},
+                                    {"label": "Dot plot", "value": "dot"},
+                                ],
+                                value="heatmap",
+                                inline=True,
+                                persistence=True,
+                                persistence_type="session",
+                            ),
+                        ],
+                        className="control radio-control",
                     ),
                     html.Small(
                         [
@@ -166,16 +179,32 @@ def detail_panel(
                             info_tip(
                                 "expression-groups",
                                 "group mean expression",
-                                "Each group shows the arithmetic mean of available source-cell donor-median CPM values, with equal weight per cell type. Hover shows how many cell types have data. All missing means no group value. Group means are display-only: they never enter reference medians, z-score reference statistics, clustering, expression rules or comparison counts. White dots apply only to individual source cells.",
-                            ),
-                            "Color & zeros",
-                            info_tip(
-                                "expression-scale",
-                                "expression colors and zeros",
-                                "Red is higher and blue lower expression relative to the same target across all source cell types, not relative to other targets. Values are log2(1 + CPM), standardized using source-cell values only; group means use that same transformation. Targets are ordered by source-cell patterns. Expanding groups changes neither order nor color scale. A printed 0 marks missing expression; hover identifies it. Neutral color at z = 0 means reference-average log expression, not absence of expression.",
+                                "Each group shows equal-weight arithmetic means across source cell types with available values: donor-median CPM in both charts and CELLEX specificity for dot size. Hover shows coverage for each measure. All missing means no group value. Group means are display-only: they never enter reference medians, z-score reference statistics, clustering, expression rules or comparison counts.",
                             ),
                         ],
                         className="expression-marker-key",
+                    ),
+                    html.Small(
+                        [
+                            "Color",
+                            info_tip(
+                                "expression-scale",
+                                "expression colors",
+                                "Both charts use the same colors: red is higher and blue lower expression relative to the same target across all source cell types, not relative to other targets. Values are log2(1 + CPM), standardized using source-cell values only; group means use that same transformation. Targets are ordered by source-cell patterns. Expanding groups changes neither order nor color scale. Neutral color at z = 0 means reference-average log expression, not absence of expression.",
+                            ),
+                        ],
+                        className="expression-marker-key",
+                    ),
+                    html.Small(
+                        "○ Source cell meets expression rule · Printed 0: missing expression",
+                        id="expression-heatmap-key",
+                        className="expression-marker-key",
+                        style={"display": "inline-flex"},
+                    ),
+                    html.Small(
+                        id="expression-dot-key",
+                        className="dot-key expression-dot-key",
+                        style={"display": "none"},
                     ),
                 ],
                 className="detail-expression-heading",
@@ -585,11 +614,11 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                         [
                                             html.Legend(
                                                 [
-                                                    "Measure",
+                                                    "Measure (heatmap)",
                                                     info_tip(
                                                         "measure",
                                                         "measure",
-                                                        "Count shows qualifying targets or drugs. Percent divides by all known targets, or drugs with known targets, for that disease and the applied drug filters. The denominator is fixed across cell types. These are not cell proportions or probabilities of treatment benefit.",
+                                                        "For the heatmap, Count shows qualifying targets or drugs. Percent divides by all known targets, or drugs with known targets, for that disease and the applied drug filters. The dot plot uses a compressed Count size scale and Percent for color. The denominator is fixed across cell types. These are not cell proportions or probabilities of treatment benefit.",
                                                     ),
                                                 ]
                                             ),
@@ -649,9 +678,24 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                     info_tip(
                                         "comparison",
                                         "cell-type comparison",
-                                        "Compare qualifying targets or drugs across diseases. Group rows count distinct targets or drugs across their members, not average expression. Zero-colored cells can mean no qualifying evidence or an unavailable value; hover explains which. A ≥ in the hover means the result is a lower bound. Color scales are separate for targets and drugs and can change when filters change.",
+                                        "Compare qualifying targets or drugs across diseases. Group rows count distinct targets or drugs across their members, not average expression. The heatmap shows the selected measure. In the dot plot, size uses a compressed Count scale and color is Percent; blank means zero or unavailable. A ≥ in the hover means the result is a lower bound. Scales are separate for targets and drugs and can change when filters change.",
                                     ),
                                 ]
+                            ),
+                            html.Fieldset(
+                                [
+                                    html.Legend("Chart"),
+                                    dcc.RadioItems(
+                                        id="chart-type",
+                                        options=[
+                                            {"label": "Heatmap", "value": "heatmap"},
+                                            {"label": "Dot plot", "value": "dot"},
+                                        ],
+                                        value="heatmap",
+                                        inline=True,
+                                    ),
+                                ],
+                                className="control radio-control",
                             ),
                         ],
                         className="section-heading",
@@ -682,6 +726,11 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                         ),
                                         className="graph-scroll",
                                     ),
+                                    html.Div(
+                                        id="target-dot-key",
+                                        className="dot-key",
+                                        style={"display": "none"},
+                                    ),
                                 ],
                                 id="target-heatmap-panel",
                             ),
@@ -708,6 +757,11 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                         ),
                                         className="graph-scroll",
                                     ),
+                                    html.Div(
+                                        id="drug-dot-key",
+                                        className="dot-key",
+                                        style={"display": "none"},
+                                    ),
                                 ],
                                 id="drug-heatmap-panel",
                                 hidden=True,
@@ -716,7 +770,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                         className="heatmap-stack",
                     ),
                     html.P(
-                        "Click a group name to expand · Click a heatmap cell for disease details · Hover to distinguish zero from unavailable",
+                        "Click a group name to expand · Click a mark for disease details · Hover for counts and evidence status",
                         className="matrix-note",
                     ),
                 ],
