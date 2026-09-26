@@ -32,15 +32,22 @@ def choose_defaults(
 ) -> list[str]:
     """名前と実データの有無から、存在する項目だけを初期選択する。"""
     selected: list[str] = []
+    terms = list(terms)
     names = {item_id: name.casefold() for item_id, name in items}
+    # 完全一致した語は、部分一致で別の用語を足さない。
+    exact_terms: set[str] = set()
     for term in terms:
         exact = next(
             (item_id for item_id, name in names.items() if name == term.casefold()),
             None,
         )
-        if exact is not None and exact not in selected:
-            selected.append(exact)
+        if exact is not None:
+            exact_terms.add(term)
+            if exact not in selected:
+                selected.append(exact)
     for term in terms:
+        if term in exact_terms:
+            continue
         for item_id, name in items:
             if term.casefold() in name.casefold() and item_id not in selected:
                 selected.append(item_id)
@@ -252,7 +259,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
             "systemic sclerosis",
             "Sjogren syndrome",
             "rheumatoid arthritis",
-            "multiple sclerosis",
+            "myasthenia gravis",
             "dermatomyositis",
             "type 1 diabetes mellitus",
             "anti-neutrophil cytoplasmic antibody-associated vasculitis",

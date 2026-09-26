@@ -1460,6 +1460,34 @@ class InputTests(unittest.TestCase):
                 snapshot.load_snapshot(path)
 
 
+class DefaultsTests(unittest.TestCase):
+    """初期選択は、完全一致した語で部分一致の用語を足さない。"""
+
+    ITEMS: ClassVar[list[tuple[str, str]]] = [
+        ("A", "systemic lupus erythematosus"),
+        ("B", "autosomal systemic lupus erythematosus type 16"),
+        ("C", "relapsing-remitting multiple sclerosis"),
+    ]
+
+    def test_exact_match_skips_substring_match(self) -> None:
+        self.assertEqual(
+            layout.choose_defaults(
+                self.ITEMS, ["systemic lupus erythematosus"], 2, {"A", "C"}
+            ),
+            ["A", "C"],
+        )
+
+    def test_term_without_exact_match_falls_back_to_substring(self) -> None:
+        self.assertEqual(
+            layout.choose_defaults(
+                self.ITEMS,
+                ["systemic lupus erythematosus", "multiple sclerosis"],
+                2,
+            ),
+            ["A", "C"],
+        )
+
+
 class ApplicationPathTests(unittest.TestCase):
     def test_data_paths_keep_the_repository_data_directory(self):
         expected = ASSETS_PATH.parent / "data" / "snapshot.json"

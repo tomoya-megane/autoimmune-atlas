@@ -113,7 +113,7 @@ DISEASE_GROUPS = (
         "nervous",
         "Nervous system",
         (
-            "MONDO_0005301",
+            "EFO_0803536",
             "MONDO_0009688",
             "MONDO_0016218",
             "MONDO_0020640",
