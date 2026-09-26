@@ -1,23 +1,35 @@
 :root {
-    color: #333;
+    /* 色は 3 段の文字色、2 段の罫線、1 系統のアクセントに限る。図の色もこの値に合わせる。 */
+    --text: #2d2d2d;
+    --text-soft: #555;
+    --text-muted: #6b6b6b;
+    --line: #d8d8d8;
+    --line-soft: #eee;
+    --line-input: #aaa;
+    --surface-muted: #f5f5f5;
+    --accent: #1769aa;
+    --accent-dark: #0d4f86;
+    --accent-soft: #e8f3fb;
+    --font: Arial, Roboto, "Helvetica Neue", "Hiragino Sans", "Yu Gothic", sans-serif;
+    color: var(--text);
     background: #fff;
-    font-family: Arial, Roboto, "Helvetica Neue", "Hiragino Sans", "Yu Gothic", sans-serif;
+    font-family: var(--font);
     font-synthesis: none;
 }
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: #fff; color: #333; font-size: 14px; }
+body { margin: 0; background: #fff; color: var(--text); font-size: 14px; }
 button, input { font: inherit; }
-a { color: #1769aa; }
-a:hover { color: #0d4f86; }
+a { color: var(--accent); }
+a:hover { color: var(--accent-dark); }
 
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
 summary:focus-visible,
 .Select-control:focus-within {
-    outline: 3px solid #80b9e8;
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
@@ -32,7 +44,7 @@ summary:focus-visible,
     margin: -24px -24px 24px;
     padding: 12px 24px;
     gap: 12px;
-    background: #1769aa;
+    background: var(--accent);
     color: #fff;
 }
 
@@ -45,26 +57,28 @@ summary:focus-visible,
 
 .eyebrow {
     margin: 0 0 8px;
-    color: #1769aa;
+    color: var(--accent);
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.08em;
 }
 
-h1, h2, h3, p { margin-top: 0; }
-h1 { margin-bottom: 0; color: #252525; font-size: 28px; font-weight: 500; line-height: 1.2; }
-h2 { margin-bottom: 0; color: #2d2d2d; font-size: 18px; font-weight: 600; }
-h3 { margin-bottom: 8px; font-size: 15px; }
-.meta-label { color: #777; font-size: 11px; }
+/* 見出しは H1 28 / H2 18 / H3 15 / ラベル 12 の 4 段。色と太さは段ごとに 1 つ。 */
+h1, h2, h3, h4, p { margin-top: 0; }
+h1 { margin-bottom: 0; color: var(--text); font-size: 28px; font-weight: 500; line-height: 1.2; }
+h2 { margin-bottom: 0; color: var(--text); font-size: 18px; font-weight: 600; }
+h3 { margin-bottom: 8px; color: var(--text); font-size: 15px; font-weight: 600; }
+h4, .control label, .radio-control legend, .disease-browser h4 { color: var(--text-soft); font-size: 12px; font-weight: 600; }
+.meta-label { color: var(--text-muted); font-size: 11px; }
 
 .source-bar {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    border: 1px solid #ddd;
-    background: #f7f7f7;
+    border: 1px solid var(--line);
+    background: var(--surface-muted);
 }
 
-.source-bar > div { min-width: 0; padding: 8px 12px; border-left: 1px solid #ddd; }
+.source-bar > div { min-width: 0; padding: 8px 12px; border-left: 1px solid var(--line); }
 .source-bar > div:first-child { border-left: 0; }
 .source-bar span {
     display: block;
@@ -74,7 +88,7 @@ h3 { margin-bottom: 8px; font-size: 15px; }
 }
 .source-bar strong, .source-bar a { display: block; margin-top: 2px; overflow-wrap: anywhere; font-size: 12px; }
 
-.panel { margin-bottom: 16px; padding: 16px; border: 1px solid #d8d8d8; background: #fff; }
+.panel { margin-bottom: 16px; padding: 16px; border: 1px solid var(--line); background: #fff; }
 .controls > h2 { margin-bottom: 16px; }
 .controls .label-help, .controls .control > label, .controls .radio-control legend { margin-bottom: 8px; }
 .controls .radio-control label { margin-bottom: 0; }
@@ -83,37 +97,36 @@ h3 { margin-bottom: 8px; font-size: 15px; }
 .scope-controls { grid-template-columns: minmax(0, 1fr); }
 .filter-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .filter-group { min-width: 0; }
-.filter-group h3 { margin: 0 0 8px; color: #2d2d2d; font-size: 13px; font-weight: 600; }
-.filter-groups > .filter-group { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; align-content: start; padding: 16px; border: 1px solid #d8d8d8; }
+.filter-group h3 { margin: 0 0 8px; }
+.filter-groups > .filter-group { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; align-content: start; padding: 16px; border: 1px solid var(--line); }
 .filter-groups .scope-controls { grid-column: 1 / -1; }
 .filter-groups > .filter-group > h3 { grid-column: 1 / -1; margin-bottom: 0; }
 .filter-groups > .filter-group > .control { min-width: 0; }
 .control-grid.selectors { grid-template-columns: minmax(0, 1fr); margin-top: 12px; }
-.control label { display: block; margin-bottom: 5px; color: #444; font-size: 12px; font-weight: 600; }
+.control label { display: block; margin-bottom: 5px; }
 .control > label { display: flex; align-items: center; min-height: 22px; }
 .label-help { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
 .label-help label { margin-bottom: 0; }
 .radio-control { min-width: 0; margin: 0; padding: 0; border: 0; }
-.radio-control legend { margin-bottom: 5px; color: #444; font-size: 12px; font-weight: 600; }
-.radio-control label { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 6px 0; font-weight: 400; }
+.radio-control legend { margin-bottom: 5px; }
+.radio-control label { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 6px 0; color: var(--text); font-weight: 400; }
 .info-tip { position: relative; display: inline-flex; margin-left: 5px; vertical-align: middle; font-size: 12px; font-weight: 400; }
-.info-button, .section-heading .info-button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #1769aa; cursor: help; font-size: 17px; line-height: 1; }
-.info-button:hover, .section-heading .info-button:hover { background: #e8f3fb; }
-.info-button:focus-visible { outline: 2px solid #1769aa; outline-offset: 2px; }
-.info-content { box-sizing: border-box; position: fixed; z-index: 2000; top: 0; left: 0; width: min(340px, calc(100vw - 24px)); max-height: 50vh; overflow: auto; padding: 12px; border: 1px solid #9bb8ce; background: #fff; box-shadow: 0 3px 12px #0002; color: #263238; font-size: 12px; line-height: 1.5; text-align: left; white-space: normal; visibility: hidden; opacity: 0; pointer-events: none; }
+.info-button, .section-heading .info-button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--accent); cursor: help; font-size: 17px; line-height: 1; }
+.info-button:hover, .section-heading .info-button:hover { background: var(--accent-soft); }
+.info-content { box-sizing: border-box; position: fixed; z-index: 2000; top: 0; left: 0; width: min(340px, calc(100vw - 24px)); max-height: 50vh; overflow: auto; padding: 12px; border: 1px solid var(--line); background: #fff; box-shadow: 0 3px 12px #0002; color: var(--text); font-size: 12px; line-height: 1.5; text-align: left; white-space: normal; visibility: hidden; opacity: 0; pointer-events: none; }
 .info-tip:hover .info-content, .info-tip:focus-within .info-content { visibility: visible; opacity: 1; pointer-events: auto; }
 .info-tip.dismissed .info-content { visibility: hidden; opacity: 0; pointer-events: none; }
 .control input[type="number"] {
     width: 100%;
     min-height: 36px;
     padding: 8px;
-    border: 1px solid #aaa;
+    border: 1px solid var(--line-input);
     border-radius: 0;
 }
-.control input[type="radio"] { margin-right: 4px; accent-color: #1769aa; }
+.control input[type="radio"] { margin-right: 4px; accent-color: var(--accent); }
 .Select-control, .Select-menu-outer, .Select--multi .Select-value { border-radius: 0 !important; }
 
-.matrix-note, .empty-note { color: #666; font-size: 12px; }
+.matrix-note, .empty-note, #update-status { color: var(--text-muted); font-size: 12px; }
 
 .section-heading {
     display: flex;
@@ -124,71 +137,80 @@ h3 { margin-bottom: 8px; font-size: 15px; }
 }
 .section-heading button, .update-actions button {
     padding: 8px 12px;
-    border: 1px solid #1769aa;
+    border: 1px solid var(--accent);
     border-radius: 0;
-    background: #1769aa;
+    background: var(--accent);
     color: #fff;
     cursor: pointer;
     font-weight: 600;
 }
-.section-heading button:hover, .update-actions button:hover { background: #0d4f86; }
+.section-heading button:hover, .update-actions button:hover { background: var(--accent-dark); }
 .update-actions { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; min-width: 0; }
-#update-status { color: #555; font-size: 12px; }
 .detail-heading { align-items: baseline; }
 .section-heading .radio-control + *, .detail-expression-heading .radio-control + * { margin-left: auto; }
 .matrix-note { margin-bottom: 0; }
 .matrix-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .filter-errors { color: #9a2a2a; }
 .disease-browser { margin-top: 8px; font-size: 12px; }
-.disease-browser h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; }
-.disease-browser summary { padding: 8px 0; color: #1769aa; cursor: pointer; }
-.disease-tree { max-height: 360px; overflow: auto; border: 1px solid #ddd; padding: 8px 12px; }
+.disease-browser h4 { margin: 0 0 8px; }
+.disease-browser summary { padding: 8px 0; color: var(--accent); cursor: pointer; }
+.disease-tree { max-height: 360px; overflow: auto; border: 1px solid var(--line); padding: 8px 12px; }
 .disease-families { padding-left: 16px; }
 .disease-families details > .disease-checklist,
 .disease-families details > .disease-families { padding-left: 16px; }
 .disease-checklist label { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; font-weight: normal; overflow-wrap: anywhere; }
 #comparison, #evidence { scroll-margin-top: 16px; }
 
-.graph-scroll, .table-scroll { overflow: auto; }
-.graph-scroll { border-top: 1px solid #eee; scrollbar-color: #aaa #eee; }
+.graph-scroll { overflow: auto; border-top: 1px solid var(--line-soft); scrollbar-color: var(--line-input) var(--line-soft); }
 .expandable-heatmap { position: relative; min-width: 600px; }
 .heatmap-row-controls { position: absolute; left: 0; width: 240px; background: white; }
 .heatmap-row-controls > * { display: block; box-sizing: border-box; width: 100%; height: 28px; margin: 0; padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 12px; line-height: 20px; }
-.heatmap-row-controls > button { border: 0; border-bottom: 1px solid #e3e9ed; background: #edf3f6; color: #263238; cursor: pointer; }
+.heatmap-row-controls > button { border: 0; border-bottom: 1px solid var(--line-soft); background: #edf3f6; color: var(--text); cursor: pointer; }
 .heatmap-row-controls > button:hover { background: #dcebf3; }
-.heatmap-row-controls > button:focus-visible { outline: 2px solid #1769aa; outline-offset: -2px; }
-.heatmap-row-controls > .heatmap-child-label { padding-left: 24px; color: #444; }
+.heatmap-row-controls > button:focus-visible { outline-offset: -2px; }
+.heatmap-row-controls > .heatmap-child-label { padding-left: 24px; color: var(--text-soft); }
 .heatmap-stack { display: grid; gap: 16px; }
 .heatmap-stack article { min-width: 0; }
-.heatmap-stack h3 { margin: 10px 0 4px; color: #444; }
-.dot-key { min-height: 24px; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0; color: #444; font-size: 12px; }
+.heatmap-stack h3 { margin: 10px 0 4px; }
+.dot-key { min-height: 24px; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0; color: var(--text-soft); font-size: 12px; }
 .dot-key-title { font-weight: 600; }
 .dot-key-item { display: inline-flex; min-height: 22px; align-items: center; gap: 6px; }
 .dot-key-circle { box-sizing: border-box; flex: none; border: 1px solid #35543a; border-radius: 50%; background: #4b8f3d; }
-.expression-dot-key .dot-key-circle { border-color: #555; background: #f7f7f7; }
-.detail-expression-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 16px 0 12px; padding-top: 12px; border-top: 1px solid #ddd; line-height: 1.4; }
-.expression-marker-key { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; color: #444; font-size: 12px; font-weight: normal; }
+.expression-dot-key .dot-key-circle { border-color: var(--text-soft); background: var(--surface-muted); }
+.detail-expression-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 16px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); line-height: 1.4; }
+.expression-marker-key { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--text-soft); font-size: 12px; font-weight: normal; }
 .expression-graph .dash-graph { margin-inline: auto; }
 .source-records { margin-top: 12px; }
 .source-records .matrix-note { margin-bottom: 8px; }
-.source-records-grid { font-size: 12px; }
+
+/* AgGrid はアプリの角無しの枠線とフォントに合わせる。旧テーブルの見出しの背景も引き継ぐ。 */
+.source-records-grid {
+    --ag-font-family: var(--font);
+    --ag-font-size: 12px;
+    --ag-foreground-color: var(--text);
+    --ag-header-foreground-color: var(--text);
+    --ag-header-background-color: #f0f0f0;
+    --ag-border-color: var(--line);
+    --ag-row-border-color: var(--line);
+    --ag-border-radius: 0;
+    --ag-wrapper-border-radius: 0;
+    --ag-accent-color: var(--accent);
+    font-size: 12px;
+}
 .source-records-grid .ag-cell { line-height: 1.4; }
-.source-records-grid .ag-cell a { color: #1769aa; }
+.source-records-grid .ag-cell a { color: var(--accent); }
 .details { margin-top: 16px; }
 
-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-th, td { padding: 8px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
-th { position: sticky; top: 0; background: #f0f0f0; color: #333; font-weight: 600; }
 .unavailable { min-height: 100vh; display: grid; place-items: center; }
-.unavailable-card { width: min(660px, 100%); padding: 28px; border: 1px solid #ccc; background: #fff; }
+.unavailable-card { width: min(660px, 100%); padding: 28px; border: 1px solid var(--line); background: #fff; }
 .unavailable-card h1 { font-size: 28px; }
 .unavailable-card code {
     display: block;
     overflow: auto;
     padding: 10px;
-    border: 1px solid #ddd;
-    background: #f5f5f5;
-    color: #333;
+    border: 1px solid var(--line);
+    background: var(--surface-muted);
+    color: var(--text);
 }
 
 @media (min-width: 901px) {
@@ -211,7 +233,7 @@ th { position: sticky; top: 0; background: #f0f0f0; color: #333; font-weight: 60
 
 @media (max-width: 1200px) {
     .source-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .source-bar > div { border-top: 1px solid #ddd; }
+    .source-bar > div { border-top: 1px solid var(--line); }
     .source-bar > div:nth-child(-n + 3) { border-top: 0; }
     .source-bar > div:nth-child(3n + 1) { border-left: 0; }
 }
@@ -221,14 +243,13 @@ th { position: sticky; top: 0; background: #f0f0f0; color: #333; font-weight: 60
     .app-bar { margin: -16px -16px 16px; padding: 12px 16px; }
     .app-nav { gap: 12px; }
     .source-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .source-bar > div { border-top: 1px solid #ddd; border-left: 1px solid #ddd; }
-    .source-bar > div:nth-child(-n + 3) { border-top: 1px solid #ddd; }
-    .source-bar > div:nth-child(3n + 1) { border-left: 1px solid #ddd; }
+    .source-bar > div { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+    .source-bar > div:nth-child(-n + 3) { border-top: 1px solid var(--line); }
+    .source-bar > div:nth-child(3n + 1) { border-left: 1px solid var(--line); }
     .source-bar > div:nth-child(-n + 2) { border-top: 0; }
     .source-bar > div:nth-child(odd) { border-left: 0; }
     .scope-controls, .filter-groups, .filter-groups > .filter-group, .control-grid.selectors { grid-template-columns: 1fr; }
     .section-heading, .detail-heading { align-items: flex-start; flex-direction: column; }
-    .source-pagination { justify-content: flex-start; }
 }
 
 @media (max-width: 560px) {
@@ -237,7 +258,6 @@ th { position: sticky; top: 0; background: #f0f0f0; color: #333; font-weight: 60
     .app-nav { width: 100%; justify-content: space-between; gap: 8px; }
     h1 { font-size: 24px; }
     .panel, .filter-groups > .filter-group { padding: 12px; }
-    .source-pagination #source-page { width: min(140px, 100%); }
 }
 
 /* 操作アイコンは共通の線幅とサイズを使い、文字ラベルを残す。 */

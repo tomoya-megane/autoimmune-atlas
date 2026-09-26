@@ -325,7 +325,7 @@ def build_figure(
         )
     figure_ops.update_layout(
         template="plotly_white",
-        font={"family": "Arial, sans-serif", "size": 12, "color": "#263238"},
+        font={"family": "Arial, sans-serif", "size": 12, "color": "#2d2d2d"},
         height=max(420, min(1400, 180 + 28 * len(cell_ids))),
         margin={"l": 180, "r": 40, "t": 130, "b": 70},
         legend={"orientation": "h", "y": -0.08, "yanchor": "top", "x": 0},
@@ -482,7 +482,7 @@ def build_dot_figure(
         )
     figure_ops.update_layout(
         template="plotly_white",
-        font={"family": "Arial, sans-serif", "size": 12, "color": "#263238"},
+        font={"family": "Arial, sans-serif", "size": 12, "color": "#2d2d2d"},
         height=max(420, min(1400, 180 + 28 * len(cell_ids))),
         margin={"l": 180, "r": 40, "t": 130, "b": 70},
         showlegend=False,
@@ -834,7 +834,7 @@ def expression_figure(
                     "symbol": "circle",
                     "size": 7,
                     "color": "white",
-                    "line": {"color": "#263238", "width": 1},
+                    "line": {"color": "#2d2d2d", "width": 1},
                 },
                 name="Meets expression rule",
                 showlegend=False,
@@ -883,7 +883,7 @@ def expression_figure(
         template="plotly_white",
         height=max(360, 170 + 25 * len(display_cells)),
         margin={"l": 280, "r": 40, "t": 110, "b": 60},
-        font={"family": "Arial, sans-serif", "size": 11, "color": "#263238"},
+        font={"family": "Arial, sans-serif", "size": 12, "color": "#2d2d2d"},
         hoverlabel={"align": "left"},
     )
     figure_ops.update_xaxes(
