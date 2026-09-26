@@ -3,6 +3,7 @@
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import Literal, TypedDict
 
+import dash_ag_grid as dag  # pyright: ignore[reportMissingTypeStubs] - dash-ag-grid に型スタブがない。
 from dash import dcc, html
 from dash.development.base_component import Component
 
@@ -15,6 +16,7 @@ from backend.models import (
     FilteredRecord,
     Snapshot,
 )
+from backend.ui.config import SOURCE_PAGE_SIZE
 
 
 class DiseaseSection(TypedDict):
@@ -338,131 +340,123 @@ def heatmap_row_controls(
     ]
 
 
-def reference_links(record: FilteredRecord) -> html.Div | str:
-    links: list[html.A] = []
+def reference_links(record: FilteredRecord) -> str:
+    """Open Targets へのリンクを、AgGrid の markdown セル用にまとめる。"""
+    links: list[tuple[str, str]] = []
     target_id = record.get("target_id")
     if target_id:
         links.append(
-            html.A(
+            (
                 "Open Targets target",
-                href="https://platform.opentargets.org/target/" + target_id,
-                target="_blank",
-                rel="noreferrer",
+                "https://platform.opentargets.org/target/" + target_id,
             )
         )
-    if record.get("drug_id"):
+    if record.get("canonical_drug_id"):
         links.append(
-            html.A(
+            (
                 "Open Targets drug",
-                href="https://platform.opentargets.org/drug/" + record["drug_id"],
-                target="_blank",
-                rel="noreferrer",
-            )
-        )
-    if record.get("canonical_drug_id") and record.get(
-        "canonical_drug_id"
-    ) != record.get("drug_id"):
-        links.append(
-            html.A(
-                "Open Targets canonical drug",
-                href="https://platform.opentargets.org/drug/"
-                + record["canonical_drug_id"],
-                target="_blank",
-                rel="noreferrer",
+                "https://platform.opentargets.org/drug/" + record["canonical_drug_id"],
             )
         )
     if record.get("disease_id"):
         links.append(
-            html.A(
+            (
                 "Open Targets disease",
-                href="https://platform.opentargets.org/disease/" + record["disease_id"],
-                target="_blank",
-                rel="noreferrer",
+                "https://platform.opentargets.org/disease/" + record["disease_id"],
             )
         )
-    children: list[Component] = []
-    for index, item in enumerate(links):
-        if index:
-            children.append(html.Br())
-        children.append(item)
-    return html.Div(children) if children else "—"
+    return "  \n".join(f"[{label}]({url})" for label, url in links) or "—"
 
 
-def evidence_table(records: Sequence[FilteredRecord]) -> html.Div:
-    headers = (
+EVIDENCE_COLUMNS: tuple[tuple[str, str, str | None], ...] = (
+    (
+        "canonical_drug",
         "Canonical drug",
-        "Original drug",
-        "Modality",
-        "Original / canonical stage",
-        "Target",
-        "Action / mechanism",
-        "Open Targets links",
-    )
-    column_help = {
-        "Canonical drug": (
-            "canonical-drug",
-            "Drug used for counting: original forms sharing Open Targets' parentMolecule are counted once. If no parent is recorded, the original drug is used.",
-        ),
-        "Original drug": (
-            "original-drug",
-            "Drug name and ID in the source record, which may describe a salt or another form. Original does not mean originator brand. Forms of the same canonical drug can have different targets, stages or references.",
-        ),
-        "Original / canonical stage": (
-            "record-stage",
-            "Left: stage of this original drug in this disease. Right: highest stage across original forms of the same canonical drug in this disease, used for filtering.",
-        ),
-    }
-    body: list[html.Tr] = []
+        "Drug used for counting: original forms sharing Open Targets' parentMolecule are merged into one row. If no parent is recorded, the original drug is used.",
+    ),
+    ("modality", "Modality", None),
+    (
+        "stage",
+        "Canonical stage",
+        "Highest stage across original forms of the same canonical drug in this disease, used for filtering.",
+    ),
+    ("target", "Target", None),
+    ("action_mechanism", "Action / mechanism", None),
+    ("links", "Open Targets links", None),
+)
+
+
+def _joined(values: Iterable[str | None]) -> str:
+    unique = list(dict.fromkeys(value for value in values if value))
+    return " · ".join(unique) or "—"
+
+
+def evidence_rows(records: Sequence[FilteredRecord]) -> list[dict[str, str]]:
+    """元記録を canonical drug と標的の組ごとに 1 行へ畳む。"""
+    groups: dict[tuple[str, str | None], list[FilteredRecord]] = {}
     for record in records:
-        actions, mechanism = (
-            ", ".join(record.get("action_types") or []),
-            record.get("mechanism") or "—",
-        )
-        body.append(
-            html.Tr(
-                [
-                    html.Td(
-                        f"{record.get('canonical_drug') or '—'} ({record.get('canonical_drug_id') or '—'})"
-                    ),
-                    html.Td(
-                        f"{record.get('drug') or '—'} ({record.get('drug_id') or '—'})"
-                    ),
-                    html.Td(record.get("drug_type") or "—"),
-                    html.Td(
-                        f"{record.get('stage') or '—'} / {record.get('canonical_stage') or '—'}"
-                    ),
-                    html.Td(
-                        f"{record.get('target') or '—'} ({record.get('target_id') or '—'})"
-                    ),
-                    html.Td(f"{actions or '—'} / {mechanism}"),
-                    html.Td(reference_links(record)),
-                ]
-            )
-        )
-    return html.Div(
-        html.Table(
-            [
-                html.Thead(
-                    html.Tr(
-                        [
-                            html.Th(
-                                [
-                                    item,
-                                    info_tip(
-                                        column_help[item][0],
-                                        item.lower(),
-                                        column_help[item][1],
-                                    ),
-                                ]
-                            )
-                            if item in column_help
-                            else html.Th(item)
-                            for item in headers
-                        ]
-                    )
+        groups.setdefault(
+            (record["canonical_drug_id"], record.get("target_id")), []
+        ).append(record)
+    rows: list[dict[str, str]] = []
+    for members in groups.values():
+        first = members[0]
+        rows.append(
+            {
+                "canonical_drug": f"{first.get('canonical_drug') or '—'} ({first['canonical_drug_id']})",
+                "modality": _joined(member.get("drug_type") for member in members),
+                "stage": first.get("canonical_stage") or "—",
+                "target": f"{first.get('target') or '—'} ({first.get('target_id') or '—'})",
+                "action_mechanism": _joined(
+                    f"{', '.join(member.get('action_types') or []) or '—'} / {member.get('mechanism') or '—'}"
+                    for member in members
                 ),
-                html.Tbody(body),
-            ]
-        ),
-        className="table-scroll",
+                "links": reference_links(first),
+            }
+        )
+    return rows
+
+
+def evidence_grid(rows: Sequence[dict[str, str]]) -> dag.AgGrid:
+    """列ごとにソートと絞り込みができる、薬剤と標的の記録の表。"""
+    column_defs: list[dict[str, object]] = []
+    for field, header, help_text in EVIDENCE_COLUMNS:
+        column: dict[str, object] = {"field": field, "headerName": header}
+        if help_text:
+            column["headerTooltip"] = help_text
+        if field == "links":
+            column.update(
+                {
+                    "cellRenderer": "markdown",
+                    "linkTarget": "_blank",
+                    "sortable": False,
+                    "filter": False,
+                    "floatingFilter": False,
+                }
+            )
+        column_defs.append(column)
+    return dag.AgGrid(
+        id="source-records-grid",
+        columnDefs=column_defs,
+        rowData=list(rows),
+        defaultColDef={
+            "sortable": True,
+            "filter": "agTextColumnFilter",
+            "floatingFilter": True,
+            "resizable": True,
+            "wrapText": True,
+            "autoHeight": True,
+            "minWidth": 120,
+        },
+        columnSize="responsiveSizeToFit",
+        dashGridOptions={
+            "pagination": True,
+            "paginationPageSize": SOURCE_PAGE_SIZE,
+            "paginationPageSizeSelector": False,
+            "animateRows": False,
+            "domLayout": "autoHeight",
+            "tooltipShowDelay": 300,
+            "suppressCellFocus": True,
+        },
+        className="ag-theme-alpine source-records-grid",
     )

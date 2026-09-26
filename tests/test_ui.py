@@ -96,6 +96,14 @@ class ColorBar(Protocol):
     yanchor: str | None
 
 
+class GridComponent(Protocol):
+    id: str
+    rowData: list[dict[str, str]]
+    columnDefs: list[dict[str, object]]
+    defaultColDef: dict[str, object]
+    dashGridOptions: dict[str, object]
+
+
 class HeatmapTrace(Protocol):
     colorbar: ColorBar
     customdata: Sequence[Sequence[object]]
@@ -888,7 +896,6 @@ class EvidenceTests(unittest.TestCase):
         links = str(components.reference_links(record))
         self.assertIn("Open Targets target", links)
         self.assertIn("Open Targets drug", links)
-        self.assertIn("Open Targets canonical drug", links)
         self.assertIn("Open Targets disease", links)
         self.assertNotIn("PubMed", links)
 
@@ -923,14 +930,9 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("Drug–target records", str(panel_children[0]))
         self.assertIn("Relative target expression", str(panel_children[2]))
         source_children = _component_list(panel_children[1])
-        pagination = source_children[-1]
-        assert hasattr(pagination, "className")
-        self.assertEqual(
-            cast(ClassComponent, pagination).className, "source-pagination"
-        )
-        table = _component(source_children[1]).children
-        assert hasattr(table, "id")
-        self.assertEqual(cast(GraphComponent, table).id, "source-records-page")
+        grid = source_children[-1]
+        assert hasattr(grid, "id")
+        self.assertEqual(cast(GraphComponent, grid).id, "source-records-grid")
         context_store = source_children[0]
         assert hasattr(context_store, "data")
         context = cast(StoreComponent, context_store).data
@@ -2050,75 +2052,70 @@ class CallbackTests(unittest.TestCase):
             _at(dot, "expression-heatmap-key", "style"), {"display": "none"}
         )
 
-    def test_source_records_are_visible_and_paged_without_losing_rows(self) -> None:
-        self.assertIn("source-records-page.children", self._application().callback_map)
-        context = {"disease_id": "MONDO_RA_TEST", "modality": "all", "stage": "phase3"}
-        values: CallbackValues = {
-            ("source-page", "value"): 1,
-            ("source-context", "data"): _json_value(context),
+    def test_source_records_grid_keeps_all_rows_and_enables_sort_and_filter(
+        self,
+    ) -> None:
+        records = [
+            record
+            for record in atlas.filtered_records(self.snapshot, "all", "phase3")
+            if record["disease_id"] == "MONDO_RA_TEST"
+        ]
+        salt: FilteredRecord = {
+            **records[0],
+            "drug_id": "CHEMBL_SALT",
+            "drug": "salt form",
+            "drug_type": "Salt",
         }
-        records = atlas.filtered_records(self.snapshot, "all", "phase3")
-        seen: list[JsonValue] = []
-        with patch.object(callbacks, "SOURCE_PAGE_SIZE", 2):
-            for page in range(1, math.ceil(len(records) / 2) + 1):
-                values[("source-page", "value")] = page
-                result = self._post(
-                    "source-records-page.children", values, "source-page.value"
-                )
-                children = _json_array(
-                    _at(result, "source-records-page", "children", "props", "children")
-                )
-                table_rows = _json_array(
-                    _at(
-                        children[1],
-                        "props",
-                        "children",
-                        "props",
-                        "children",
-                        1,
-                        "props",
-                        "children",
-                    )
-                )
-                self.assertLessEqual(len(table_rows), 2)
-                seen.extend(
-                    _at(row, "props", "children", 1, "props", "children")
-                    for row in table_rows
-                )
-                headers = _json_array(
-                    _at(
-                        children[1],
-                        "props",
-                        "children",
-                        "props",
-                        "children",
-                        0,
-                        "props",
-                        "children",
-                        "props",
-                        "children",
-                    )
-                )
-                labels_in_table = [
-                    _json_array(_at(header, "props", "children"))[0]
-                    if isinstance(_at(header, "props", "children"), list)
-                    else _at(header, "props", "children")
-                    for header in headers
-                ]
-                self.assertEqual(
-                    labels_in_table,
-                    [
-                        "Canonical drug",
-                        "Original drug",
-                        "Modality",
-                        "Original / canonical stage",
-                        "Target",
-                        "Action / mechanism",
-                        "Open Targets links",
-                    ],
-                )
+        records = [*records, salt]
+        rows = components.evidence_rows(records)
+        grid = cast(GridComponent, cast(object, components.evidence_grid(rows)))
+        self.assertEqual(grid.id, "source-records-grid")
+        expected_pairs = list(
+            dict.fromkeys(
+                (record["canonical_drug_id"], record["target_id"]) for record in records
+            )
+        )
         self.assertEqual(
-            seen, [f"{record['drug']} ({record['drug_id']})" for record in records]
+            [
+                (row["canonical_drug"].rsplit("(", 1)[1][:-1], row["target"])
+                for row in grid.rowData
+            ],
+            [
+                (
+                    canonical_id,
+                    f"{next(r['target'] for r in records if r['target_id'] == target_id) or '—'} ({target_id or '—'})",
+                )
+                for canonical_id, target_id in expected_pairs
+            ],
+        )
+        self.assertEqual(len(rows), len(records) - 1)
+        self.assertIn("Salt", rows[0]["modality"])
+        self.assertNotIn("salt form", str(rows))
+        self.assertEqual(
+            [column["headerName"] for column in grid.columnDefs],
+            [
+                "Canonical drug",
+                "Modality",
+                "Canonical stage",
+                "Target",
+                "Action / mechanism",
+                "Open Targets links",
+            ],
+        )
+        self.assertTrue(grid.defaultColDef["sortable"])
+        self.assertTrue(grid.defaultColDef["floatingFilter"])
+        self.assertEqual(grid.defaultColDef["filter"], "agTextColumnFilter")
+        links = grid.columnDefs[-1]
+        self.assertEqual(links["cellRenderer"], "markdown")
+        self.assertEqual(links["linkTarget"], "_blank")
+        self.assertFalse(links["sortable"])
+        self.assertTrue(grid.dashGridOptions["pagination"])
+        self.assertEqual(
+            grid.dashGridOptions["paginationPageSize"], config.SOURCE_PAGE_SIZE
+        )
+        self.assertIn("[Open Targets drug](", grid.rowData[0]["links"])
+        self.assertNotIn(
+            "source-records-page.children", self._application().callback_map
         )
 
     def test_layout_has_all_modalities_and_defaults(self) -> None:

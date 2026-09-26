@@ -1,6 +1,5 @@
 """Dash アプリの画面構成。"""
 
-import math
 from collections.abc import Collection, Iterable, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import cast
@@ -11,13 +10,17 @@ from dash.development.base_component import Component
 from backend import aggregation as atlas
 from backend.disease_catalog import ordered_disease_ids
 from backend.models import Snapshot, SummaryRow
-from backend.ui.components import disease_selector, info_tip
+from backend.ui.components import (
+    disease_selector,
+    evidence_grid,
+    evidence_rows,
+    info_tip,
+)
 from backend.ui.config import (
     DEFAULT_EXPRESSION_THRESHOLD,
     DEFAULT_SPECIFICITY_THRESHOLD,
     METHOD_LABELS,
     PARAMETER_IDS,
-    SOURCE_PAGE_SIZE,
 )
 
 
@@ -104,6 +107,7 @@ def detail_panel(
         for record in atlas.filtered_records(snapshot, modality, stage)
         if record["disease_id"] == row["disease_id"]
     ]
+    pairs = evidence_rows(filtered)
     source_context: dict[str, str | float] = {
         "disease_id": row["disease_id"],
         "modality": modality,
@@ -112,7 +116,6 @@ def detail_panel(
         "method": method,
         "specificity": specificity,
     }
-    pages = max(1, math.ceil(len(filtered) / SOURCE_PAGE_SIZE))
     return html.Div(
         [
             html.H3(
@@ -121,30 +124,19 @@ def detail_panel(
                     info_tip(
                         "source-records",
                         "source records",
-                        "Records match the selected disease and applied drug filters. Each row is an original drug–target pair, so a drug with several targets appears on several rows. Expression thresholds do not filter this table. Ten rows are shown per page; — means unavailable information.",
+                        "Records match the selected disease and applied drug filters. Each row is a canonical drug–target pair; original forms such as salts are merged, and a drug with several targets appears on several rows. Expression thresholds do not filter this table. Click a column header to sort and type in the boxes under the headers to filter; ten rows are shown per page. — means unavailable information.",
                     ),
                 ]
             ),
             html.Div(
                 [
                     dcc.Store(id="source-context", data=source_context),
-                    dcc.Loading(html.Div(id="source-records-page")),
-                    html.Div(
-                        [
-                            html.Label("Page", htmlFor="source-page"),
-                            dcc.Dropdown(
-                                id="source-page",
-                                options=[
-                                    {"label": f"{page} / {pages}", "value": page}
-                                    for page in range(1, pages + 1)
-                                ],
-                                value=1,
-                                clearable=False,
-                                searchable=False,
-                            ),
-                        ],
-                        className="source-pagination",
+                    html.P(
+                        f"{len(pairs)} drug–target pairs from {len(filtered)} records",
+                        role="status",
+                        className="matrix-note",
                     ),
+                    evidence_grid(pairs),
                 ],
                 className="source-records",
             ),

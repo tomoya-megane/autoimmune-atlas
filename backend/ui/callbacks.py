@@ -13,7 +13,6 @@ from backend.disease_catalog import disease_catalog, ordered_disease_ids
 from backend.models import Snapshot, SummaryRow
 from backend.ui.components import (
     disease_checklist_sections,
-    evidence_table,
     heatmap_row_controls,
     info_tip,
 )
@@ -22,7 +21,6 @@ from backend.ui.config import (
     DEFAULT_SPECIFICITY_THRESHOLD,
     METHOD_LABELS,
     PARAMETER_IDS,
-    SOURCE_PAGE_SIZE,
     STAGE_LABELS,
 )
 from backend.ui.figures import (
@@ -710,40 +708,4 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             threshold=minimum,
             method=method,
             specificity=specificity_value,
-        )
-
-    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
-        Output("source-records-page", "children"),
-        Input("source-page", "value"),
-        Input("source-context", "data"),
-    )
-    def show_source_records(
-        page: int | None, context: SourceContext | None
-    ) -> html.Div | None:
-        if not context:
-            return None
-        records = [
-            record
-            for record in atlas.filtered_records(
-                snapshot, context["modality"], context["stage"]
-            )
-            if record["disease_id"] == context["disease_id"]
-        ]
-        pages = max(1, math.ceil(len(records) / SOURCE_PAGE_SIZE))
-        page = (
-            min(max(page, 1), pages)
-            if isinstance(page, int) and not isinstance(page, bool)
-            else 1
-        )
-        start = (page - 1) * SOURCE_PAGE_SIZE
-        end = min(start + SOURCE_PAGE_SIZE, len(records))
-        return html.Div(
-            [
-                html.P(
-                    f"Rows {start + 1 if records else 0}–{end} of {len(records)}",
-                    role="status",
-                    className="matrix-note",
-                ),
-                evidence_table(records[start:end]),
-            ]
         )
