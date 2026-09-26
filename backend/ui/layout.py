@@ -195,17 +195,6 @@ def detail_panel(
                         ],
                         className="expression-marker-key",
                     ),
-                    html.Small(
-                        "○ Source cell meets expression rule · Printed 0: missing expression",
-                        id="expression-heatmap-key",
-                        className="expression-marker-key",
-                        style={"display": "inline-flex"},
-                    ),
-                    html.Small(
-                        id="expression-dot-key",
-                        className="dot-key expression-dot-key",
-                        style={"display": "none"},
-                    ),
                 ],
                 className="detail-expression-heading",
             ),
@@ -225,6 +214,17 @@ def detail_panel(
                     className="expandable-heatmap",
                 ),
                 className="graph-scroll expression-graph",
+            ),
+            html.Small(
+                "○ Source cell meets expression rule · Printed 0: missing expression",
+                id="expression-heatmap-key",
+                className="expression-marker-key",
+                style={"display": "inline-flex"},
+            ),
+            html.Div(
+                id="expression-dot-key",
+                className="dot-key expression-dot-key",
+                style={"display": "none"},
             ),
         ]
     )
@@ -678,7 +678,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                     info_tip(
                                         "comparison",
                                         "cell-type comparison",
-                                        "Compare qualifying targets or drugs across diseases. Group rows count distinct targets or drugs across their members, not average expression. The heatmap shows the selected measure. In the dot plot, size uses a compressed Count scale and color is Percent; blank means zero or unavailable. A ≥ in the hover means the result is a lower bound. Scales are separate for targets and drugs and can change when filters change.",
+                                        "Compare qualifying targets or drugs across diseases. Group rows count distinct targets or drugs across their members, not average expression. The heatmap shows the selected measure. In the dot plot, size uses a compressed Count scale and color is Percent; blank means zero or unavailable. A ≥ in the hover means the result is a lower bound. Scales are separate for targets and drugs and can change when filters change. Click a group name to expand it, click a mark for disease details, and hover for counts and evidence status.",
                                     ),
                                 ]
                             ),
@@ -697,10 +697,12 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                 ],
                                 className="control radio-control",
                             ),
+                            html.Div(
+                                id="matrix-note", className="matrix-note", role="status"
+                            ),
                         ],
                         className="section-heading",
                     ),
-                    html.Div(id="matrix-note", className="matrix-note", role="status"),
                     html.Div(
                         [
                             html.Article(
@@ -768,10 +770,6 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                             ),
                         ],
                         className="heatmap-stack",
-                    ),
-                    html.P(
-                        "Click a group name to expand · Click a mark for disease details · Hover for counts and evidence status",
-                        className="matrix-note",
                     ),
                 ],
                 className="panel matrix-panel",

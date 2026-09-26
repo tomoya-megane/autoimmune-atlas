@@ -1333,9 +1333,9 @@ class EvidenceTests(unittest.TestCase):
             self.rows, "MONDO_RA_TEST", self.snapshot, method="specificity"
         )
         panel_children = _component_list(panel)
-        self.assertIn("○ Source cell meets expression rule", str(panel_children[2]))
         self.assertIn("expression-chart-type", str(panel_children[2]))
-        self.assertIn("expression-dot-key", str(panel_children[2]))
+        self.assertIn("○ Source cell meets expression rule", str(panel_children[4]))
+        self.assertIn("expression-dot-key", str(panel_children[5]))
         graph_container = _component(_component(panel_children[3]).children)
         graph_children = graph_container.children
         assert isinstance(graph_children, list) and graph_children
