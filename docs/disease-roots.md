@@ -5,6 +5,13 @@
 MONDO は idiopathic inflammatory myopathy、lupus nephritis、ANCA 関連血管炎、primary biliary cholangitis などを別の枝に置いているため、基底の 1 語だけでは拾えない。
 このノートは、起点の一覧と、その根拠の記録である。
 
+## このノートの読み方
+
+表は、対象疾患の起点を採用または除外した理由と、調査時点の対応づけを残す記録である。
+候補数、下位語数、Open Targets の版、調査日は当時の値であり、現在の対象範囲を示す値ではない。
+現行の対象範囲は `backend/disease_catalog.py` の `SCOPE_ROOTS` が定め、`backend/refresh.py` がその下位語を取得してスナップショットへ保存する。
+表の ID と採否は、`SCOPE_ROOTS` を変更するときに根拠を確認するために読む。
+
 基準は 3 層にする。
 
 1. 基底の起点は `MONDO_0007179` で、下位語をすべて含める。

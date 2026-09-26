@@ -4,6 +4,7 @@
 Python の Dash と Plotly を使う。
 実行環境には Python 3.13 を使う。
 集計規則と判断理由は[設計ノート](docs/design.md)に記録する。
+文書の一覧は[ドキュメント索引](docs/README.md)にある。
 
 画面構成は Open Targets の [Associations on the Fly](https://platform-docs.opentargets.org/web-interface/associations-on-the-fly) を参考にしている。
 小さな概要欄、比較表の近くのフィルター、根拠を表示する詳細欄を採用した。
