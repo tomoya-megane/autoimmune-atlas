@@ -24,3 +24,26 @@ METHOD_LABELS = {
     "relative": "Fixed CPM + Target-relative median",
     "specificity": "Fixed CPM + CELLEX specificity",
 }
+DEFAULT_SCORE_THRESHOLD = 0.5
+SCORE_FLOOR = 0.1
+GENETICS_PARAMETER_IDS = (
+    "genetics-measure",
+    "genetics-score",
+    "genetics-method",
+    "genetics-threshold",
+    "genetics-specificity",
+    "genetics-diseases",
+)
+# 薬剤ページと遺伝子ページが初期選択に使う 10 疾患。
+DEFAULT_DISEASE_TERMS = (
+    "systemic lupus erythematosus",
+    "systemic sclerosis",
+    "Sjogren syndrome",
+    "rheumatoid arthritis",
+    "myasthenia gravis",
+    "dermatomyositis",
+    "type 1 diabetes mellitus",
+    "anti-neutrophil cytoplasmic antibody-associated vasculitis",
+    "pemphigus",
+    "autoimmune hepatitis",
+)

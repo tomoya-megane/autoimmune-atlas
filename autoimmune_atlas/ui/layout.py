@@ -17,6 +17,7 @@ from autoimmune_atlas.ui.components import (
     info_tip,
 )
 from autoimmune_atlas.ui.config import (
+    DEFAULT_DISEASE_TERMS,
     DEFAULT_EXPRESSION_THRESHOLD,
     DEFAULT_SPECIFICITY_THRESHOLD,
     METHOD_LABELS,
@@ -254,18 +255,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
     diseases = [(row["id"], row["name"]) for row in snapshot["diseases"]]
     default_diseases = choose_defaults(
         diseases,
-        (
-            "systemic lupus erythematosus",
-            "systemic sclerosis",
-            "Sjogren syndrome",
-            "rheumatoid arthritis",
-            "myasthenia gravis",
-            "dermatomyositis",
-            "type 1 diabetes mellitus",
-            "anti-neutrophil cytoplasmic antibody-associated vasculitis",
-            "pemphigus",
-            "autoimmune hepatitis",
-        ),
+        DEFAULT_DISEASE_TERMS,
         10,
         {row["disease_id"] for row in snapshot["records"]},
     )

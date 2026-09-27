@@ -28,6 +28,42 @@ class DiseaseSection(TypedDict):
     kind: Literal["self", "children"]
 
 
+def page_nav(current: Literal["drugs", "genetics"]) -> html.Nav:
+    """2 ページへのリンクと Open Targets へのリンクを持つ上部バー。"""
+
+    def link(label: str, href: str, key: str) -> html.A:
+        extra = {"aria-current": "page"} if key == current else {}
+        return html.A(
+            label,
+            href=href,
+            className="app-page-link",
+            **extra,  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
+        )
+
+    return html.Nav(
+        [
+            html.A("Autoimmune Atlas", href="/", className="app-brand"),
+            html.Div(
+                [
+                    link("Drug targets", "/", "drugs"),
+                    link("Genetic associations", "/genetics", "genetics"),
+                    html.A(
+                        "Open Targets",
+                        href="https://platform.opentargets.org/",
+                        target="_blank",
+                        rel="noreferrer",
+                    ),
+                ],
+                className="app-nav",
+            ),
+        ],
+        className="app-bar",
+        **{  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
+            "aria-label": "Main navigation"
+        },
+    )
+
+
 def info_tip(key: str, label: str, description: str) -> html.Span:
     """操作対象の近くに、キーボードでも読める説明を置く。"""
     tip_id = f"{key}-tip"
