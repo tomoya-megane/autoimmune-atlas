@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast, override
 
+from autoimmune_atlas import aggregation as atlas
 from autoimmune_atlas import genetics
 from autoimmune_atlas.models import GeneticsSnapshot, Snapshot
 from tests.core_fixture import core_snapshot
@@ -66,6 +67,35 @@ class SummarizeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.base = genetics.merged_snapshot(snapshot(), genetics_snapshot())
         self.data = genetics_snapshot()
+
+    def test_precomputed_metadata_and_catalog_give_same_rows(self) -> None:
+        catalog = atlas.cell_catalog(self.base, "group")
+        cell_ids = [cell["id"] for cell in catalog][:2]
+        diseases = ["D1", "D2"]
+        plain = genetics.summarize_genes(
+            self.base,
+            self.data,
+            0.5,
+            0.5,
+            level="group",
+            cell_ids=cell_ids,
+            disease_ids=diseases,
+        )
+        cached = genetics.summarize_genes(
+            self.base,
+            self.data,
+            0.5,
+            0.5,
+            metadata=atlas.expression_metadata(self.base),
+            level="group",
+            cell_ids=cell_ids,
+            disease_ids=diseases,
+            catalog=catalog,
+        )
+        self.assertTrue(plain)
+        self.assertEqual(cached, plain)
+        # 渡した catalog は cell_ids の絞り込みで書き換えない。
+        self.assertEqual(len(catalog), len(atlas.cell_catalog(self.base, "group")))
 
     def test_threshold_is_inclusive_and_sorted_by_score(self) -> None:
         genes = genetics.genes_for_disease(self.data, "D1", 0.5)

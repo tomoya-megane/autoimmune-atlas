@@ -8,6 +8,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import ClassVar, Protocol, TypedDict, cast, override
 
+from dash import dcc
 from flask.testing import FlaskClient
 
 from autoimmune_atlas import genetics
@@ -159,6 +160,15 @@ def _walk(node: object) -> Iterator[object]:
         yield from _walk(cast(object, children))
 
 
+def _classes(node: object) -> list[str]:
+    return str(getattr(node, "className", "") or "").split()
+
+
+def _page_links(node: object) -> list[object]:
+    """上部バーのページリンク（app-page-link クラスを持つもの）を順に返す。"""
+    return [c for c in _walk(node) if "app-page-link" in _classes(c)]
+
+
 class GeneticsLayoutTests(unittest.TestCase):
     def test_page_has_prefixed_controls_and_nav_marks_current(self) -> None:
         page = genetics_layout.genetics_page(core_ui_snapshot(), genetics_snapshot())
@@ -187,7 +197,10 @@ class GeneticsLayoutTests(unittest.TestCase):
         self.assertNotIn("update-button", found)
         self.assertTrue({"genetics-comparison-tip", "genetics-selection-tip"} <= found)
         self.assertEqual([c for c in found if not c.startswith("genetics-")], [])
-        current = [c for c in _walk(page) if getattr(c, "aria-current", None) == "page"]
+        links = _page_links(page)
+        self.assertEqual([cast(_Linked, c).href for c in links], ["/", "/genetics"])
+        self.assertTrue(all(isinstance(c, dcc.Link) for c in links))
+        current = [c for c in links if "current" in _classes(c)]
         self.assertEqual([cast(_Linked, c).href for c in current], ["/genetics"])
 
     def test_score_input_range_and_default(self) -> None:
@@ -347,6 +360,18 @@ class GeneticsCallbackTests(unittest.TestCase):
     def _post(self, output_id: str, values: dict[str, object]) -> dict[str, object]:
         return _post(self, self.application, self.client, output_id, values)
 
+    def test_detail_selector_ignores_heatmap_clicks(self) -> None:
+        key = next(
+            k
+            for k in self.application.callback_map
+            if "genetics-detail-disease.value" in k
+        )
+        inputs = self.application.callback_map[key]["inputs"]
+        self.assertNotIn(
+            "genetics-heatmap.clickData",
+            [f"{item['id']}.{item['property']}" for item in inputs],
+        )
+
     def test_score_input_falls_back_below_floor_and_on_empty(self) -> None:
         self.assertEqual(
             effective_score(0.05),
@@ -466,10 +491,9 @@ class RouterTests(unittest.TestCase):
 
     def test_nav_marks_current_page(self) -> None:
         drug = layout.dashboard_layout(core_ui_snapshot())
-        links = [
-            c for c in _walk(drug) if getattr(c, "className", None) == "app-page-link"
-        ]
+        links = _page_links(drug)
         self.assertEqual([cast(_Linked, c).href for c in links], ["/", "/genetics"])
-        current = [c for c in links if getattr(c, "aria-current", None) == "page"]
+        self.assertTrue(all(isinstance(c, dcc.Link) for c in links))
+        current = [c for c in links if "current" in _classes(c)]
         self.assertEqual([cast(_Linked, c).href for c in current], ["/"])
         self.assertEqual(getattr(drug, "id", None), "drug-page")

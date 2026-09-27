@@ -2,12 +2,14 @@
 
 import json
 import math
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
 from autoimmune_atlas import aggregation as atlas
 from autoimmune_atlas.models import (
     CellCatalogEntry,
+    ExpressionMetadata,
     GeneAssociation,
     GeneticsSnapshot,
     Snapshot,
@@ -86,12 +88,16 @@ def summarize_genes(
     level: str = "group",
     cell_ids: list[str] | None = None,
     disease_ids: list[str] | None = None,
+    metadata: Mapping[tuple[str, str], ExpressionMetadata] | None = None,
+    catalog: list[CellCatalogEntry] | None = None,
 ) -> list[SummaryRow]:
     """疾患・細胞ごとに、閾値以上の遺伝子のうち発現判定が陽性の数と割合を返す。
 
     薬剤ページの標的と同じ三値判定、大分類の集約、割合の NA の規則を使う。
     薬剤に関する列は空の値で埋め、図の共有に使う。
     引数の検証は、遺伝子が 0 件の疾患でも行われるよう、発現の判定より前に行う。
+    metadata と catalog は、呼び出し元が先に計算したものを渡すと再計算を省ける。
+    catalog は level に対応したものを渡す。cell_ids の絞り込みは渡した catalog にも行う。
     """
     if method not in {"fixed", "relative", "specificity"}:
         raise ValueError(f"未対応の発現判定方法: {method}")
@@ -116,20 +122,22 @@ def summarize_genes(
         or not 0 <= score_threshold <= 1
     ):
         raise ValueError("スコアの閾値は 0 以上 1 以下の有限の数値にしてください")
-    metadata = atlas.expression_metadata(snapshot)
-    catalog: list[CellCatalogEntry] = (
-        [
-            {
-                "id": "all",
-                "name": "All source cell types",
-                "members": [
-                    cell["id"] for cell in atlas.cell_catalog(snapshot, "cell")
-                ],
-            }
-        ]
-        if level == "all"
-        else atlas.cell_catalog(snapshot, level)
-    )
+    if metadata is None:
+        metadata = atlas.expression_metadata(snapshot)
+    if catalog is None:
+        catalog = (
+            [
+                {
+                    "id": "all",
+                    "name": "All source cell types",
+                    "members": [
+                        cell["id"] for cell in atlas.cell_catalog(snapshot, "cell")
+                    ],
+                }
+            ]
+            if level == "all"
+            else atlas.cell_catalog(snapshot, level)
+        )
     if cell_ids is not None:
         selected_cells = set(cell_ids)
         catalog = [cell for cell in catalog if cell["id"] in selected_cells]

@@ -1,7 +1,7 @@
 """Dash アプリのコールバック。"""
 
 import math
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Sequence
 from functools import lru_cache
 from typing import TypedDict, cast
 
@@ -62,14 +62,6 @@ class SourceContext(TypedDict):
     threshold: float
     method: str
     specificity: float
-
-
-class ClickPoint(TypedDict, total=False):
-    customdata: list[str] | tuple[str, ...]
-
-
-class ClickData(TypedDict):
-    points: list[ClickPoint]
 
 
 class CellToggleId(TypedDict):
@@ -171,26 +163,6 @@ def visible_rows(
         cell_ids=list(cell_ids or ()),
         disease_ids=list(disease_ids or ()),
     )
-
-
-def resolve_disease_selection(
-    triggered_id: str | dict[str, str] | None,
-    click_data: ClickData | None,
-    disease_id: str | None,
-    visible_ids: Collection[str],
-) -> str | None:
-    """表示中の疾患に限って、クリックまたは選択欄を受け付ける。"""
-    selection = disease_id
-    if (
-        triggered_id
-        in {"target-heatmap", "drug-heatmap", "heatmap", "genetics-heatmap"}
-        and click_data
-        and click_data.get("points")
-    ):
-        custom = click_data["points"][0].get("customdata")
-        if isinstance(custom, (list, tuple)) and custom:
-            selection = custom[0]
-    return selection if selection in visible_ids else None
 
 
 def make_toggle(
@@ -659,36 +631,22 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         Output("detail-disease", "options"),
         Output("detail-disease", "value"),
         Input("applied-parameters", "data"),
-        Input("target-heatmap", "clickData"),
-        Input("drug-heatmap", "clickData"),
         State("detail-disease", "value"),
     )
     def update_detail_selector(
-        applied: AppliedParameters,
-        target_click: ClickData | None,
-        drug_click: ClickData | None,
-        current_disease: str | None,
+        applied: AppliedParameters, current_disease: str | None
     ) -> tuple[list[dict[str, str]], str | None]:
         disease_ids = ordered_disease_ids(snapshot, applied["diseases"])
         disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}
-        triggered = cast(str | dict[str, str] | None, ctx.triggered_id)
-        click_data = (
-            target_click
-            if triggered == "target-heatmap"
-            else drug_click
-            if triggered == "drug-heatmap"
-            else None
-        )
-        selected = resolve_disease_selection(
-            triggered, click_data, current_disease, disease_ids
-        )
         return (
             [
                 {"label": disease_names[item], "value": item}
                 for item in disease_ids
                 if item in disease_names
             ],
-            selected or next(iter(disease_ids), None),
+            current_disease
+            if current_disease in disease_ids
+            else next(iter(disease_ids), None),
         )
 
     @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。

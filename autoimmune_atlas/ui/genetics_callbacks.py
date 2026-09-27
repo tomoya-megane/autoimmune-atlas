@@ -11,19 +11,18 @@ from autoimmune_atlas import aggregation as atlas
 from autoimmune_atlas import genetics as gene_data
 from autoimmune_atlas.disease_catalog import disease_catalog, ordered_disease_ids
 from autoimmune_atlas.models import (
+    CellCatalogEntry,
     GeneticsSnapshot,
     Snapshot,
     SummaryRow,
     TargetRecord,
 )
 from autoimmune_atlas.ui.callbacks import (
-    ClickData,
     NumberInput,
     ParameterValue,
     effective_filters,
     effective_number,
     make_toggle,
-    resolve_disease_selection,
 )
 from autoimmune_atlas.ui.components import (
     disease_checklist_sections,
@@ -90,7 +89,17 @@ def register_genetics_callbacks(
     application: Dash, snapshot: Snapshot, genetics: GeneticsSnapshot
 ) -> None:
     """遺伝子ページのコールバックを登録する。snapshot は merged_snapshot を通したもの。"""
+    # 遺伝子は薬剤の標的より桁違いに多く、発現の表と細胞の一覧を毎回作ると 1 回の更新に数秒かかる。
+    # 登録時に 1 度だけ作り、各 callback で使い回す。
+    metadata = atlas.expression_metadata(snapshot)
     heatmap_catalog = atlas.cell_catalog(snapshot, "mixed")
+    all_catalog: list[CellCatalogEntry] = [
+        {
+            "id": "all",
+            "name": "All source cell types",
+            "members": [cell["id"] for cell in atlas.cell_catalog(snapshot, "cell")],
+        }
+    ]
     heatmap_names = {cell["id"]: cell["name"] for cell in heatmap_catalog}
     heatmap_groups = {
         cell["id"] for cell in heatmap_catalog if cell.get("cell_level") == "group"
@@ -116,6 +125,8 @@ def register_genetics_callbacks(
             level="mixed",
             cell_ids=list(cell_ids),
             disease_ids=list(disease_ids),
+            metadata=metadata,
+            catalog=heatmap_catalog,
         )
 
     toggle_cell_group = make_toggle(heatmap_groups)
@@ -152,6 +163,7 @@ def register_genetics_callbacks(
         return expression_figure(
             snapshot,
             records,
+            metadata,
             threshold=threshold,
             method=method,
             specificity=specificity,
@@ -461,20 +473,16 @@ def register_genetics_callbacks(
         Output("genetics-detail-disease", "options"),
         Output("genetics-detail-disease", "value"),
         Input("genetics-applied-parameters", "data"),
-        Input("genetics-heatmap", "clickData"),
         State("genetics-detail-disease", "value"),
     )
     def update_detail_selector(
         applied: GeneticsParameters,
-        click: ClickData | None,
         current_disease: str | None,
     ) -> tuple[list[dict[str, str]], str | None]:
         disease_ids = ordered_disease_ids(snapshot, applied["genetics-diseases"])
         disease_names = {row["id"]: row["name"] for row in snapshot["diseases"]}
-        triggered = cast(str | dict[str, str] | None, ctx.triggered_id)
-        selected = resolve_disease_selection(
-            triggered, click, current_disease, disease_ids
-        )
+        # 比較図のマスのクリックでは切り替えない。表示中なら今の選択を残し、なければ先頭にする。
+        selected = current_disease if current_disease in disease_ids else None
         return (
             [
                 {"label": disease_names[item], "value": item}
@@ -509,6 +517,8 @@ def register_genetics_callbacks(
             specificity_threshold=specificity_value,
             level="all",
             disease_ids=[selected] if selected else [],
+            metadata=metadata,
+            catalog=all_catalog,
         )
         return genetics_detail_panel(
             rows,

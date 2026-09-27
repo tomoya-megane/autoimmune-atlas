@@ -1418,30 +1418,6 @@ class EvidenceTests(unittest.TestCase):
             ["CD8-positive T cell", "memory B cell", "naive B cell"],
         )
 
-    def test_selection_rejects_stale_click_and_accepts_either_heatmap(self) -> None:
-        stale: callbacks.ClickData = {"points": [{"customdata": ["OLD", "CELL"]}]}
-        valid: callbacks.ClickData = {
-            "points": [{"customdata": ["MONDO_RA_TEST", "CL_B_GROUP"]}]
-        }
-        visible = ["MONDO_RA_TEST"]
-        self.assertIsNone(
-            callbacks.resolve_disease_selection("target-heatmap", stale, None, visible)
-        )
-        self.assertEqual(
-            callbacks.resolve_disease_selection("target-heatmap", valid, None, visible),
-            "MONDO_RA_TEST",
-        )
-        self.assertEqual(
-            callbacks.resolve_disease_selection("drug-heatmap", valid, None, visible),
-            "MONDO_RA_TEST",
-        )
-        self.assertEqual(
-            callbacks.resolve_disease_selection(
-                "detail-disease", None, "MONDO_RA_TEST", visible
-            ),
-            "MONDO_RA_TEST",
-        )
-
 
 class InputTests(unittest.TestCase):
     """空欄と不正値で表示値と計算値がずれない。"""
@@ -1623,12 +1599,11 @@ class CallbackTests(unittest.TestCase):
         self._apply(values)
         return self._post(output_id, values, "applied-parameters.data")
 
-    def _click_details(self, values: CallbackValues, graph: str) -> JsonObject:
-        selected = self._post("detail-disease.value", values, f"{graph}.clickData")
+    def _select_details(
+        self, values: CallbackValues, disease: str = "MONDO_RA_TEST"
+    ) -> JsonObject:
         values = dict(values)
-        detail = selected["detail-disease"]
-        assert isinstance(detail, dict)
-        values[("detail-disease", "value")] = detail["value"]
+        values[("detail-disease", "value")] = disease
         return self._post("details.children", values, "detail-disease.value")
 
     def _values(self) -> CallbackValues:
@@ -1641,8 +1616,6 @@ class CallbackTests(unittest.TestCase):
             ("specificity", "value"): None,
             ("diseases", "value"): ["MONDO_RA_TEST"],
             ("detail-disease", "value"): "MONDO_RA_TEST",
-            ("target-heatmap", "clickData"): None,
-            ("drug-heatmap", "clickData"): None,
             ("update-button", "n_clicks"): 1,
             ("heatmap-view", "value"): "target",
             ("chart-type", "value"): "heatmap",
@@ -1979,35 +1952,6 @@ class CallbackTests(unittest.TestCase):
             json.dumps(result, ensure_ascii=False),
         )
 
-    def test_heatmap_selection_keeps_disease_wide_details(self) -> None:
-        values = self._values()
-        self._apply(values)
-        for graph in ("target-heatmap", "drug-heatmap"):
-            with self.subTest(graph=graph):
-                values[(graph, "clickData")] = _json_value(
-                    {
-                        "points": [
-                            {
-                                "customdata": [
-                                    "MONDO_RA_TEST",
-                                    "group:" + atlas.T_CELL_ID,
-                                ]
-                            }
-                        ]
-                    }
-                )
-                selected = self._post(
-                    "detail-disease.value", values, f"{graph}.clickData"
-                )
-                self.assertEqual(
-                    _at(selected, "detail-disease", "value"), "MONDO_RA_TEST"
-                )
-                result = self._post_applied("details.children", values)
-                self.assertIn(
-                    "Drug–target records for rheumatoid arthritis",
-                    json.dumps(result, ensure_ascii=False),
-                )
-
     def test_expression_expansion_uses_cached_values_and_applied_rule(self):
         values: CallbackValues = {
             ("source-context", "data"): {
@@ -2268,11 +2212,7 @@ class CallbackTests(unittest.TestCase):
         self.assertIn("Count (area)", target_key)
         self.assertIn('"width": "22px"', target_key)
         self.assertIn("Empty cell: zero or missing", target_key)
-        click = _json_value(
-            {"points": [{"customdata": ["MONDO_RA_TEST", "group:" + atlas.T_CELL_ID]}]}
-        )
-        values[("target-heatmap", "clickData")] = click
-        details = self._click_details(values, "target-heatmap")
+        details = self._select_details(values)
         self.assertIn("Drug–target records for rheumatoid arthritis", str(details))
 
     def test_dot_plot_disables_measure_without_changing_its_value(self) -> None:
@@ -2333,11 +2273,7 @@ class CallbackTests(unittest.TestCase):
                     yield from nodes(value)
 
         layout = _response_json(self._client().get("/_dash-layout"))
-        selected = self._values()
-        selected[("target-heatmap", "clickData")] = _json_value(
-            {"points": [{"customdata": ["MONDO_RA_TEST", "group:CL_B_GROUP"]}]}
-        )
-        details = self._click_details(selected, "target-heatmap")
+        details = self._select_details(self._values())
         surfaces: list[JsonValue] = [
             layout,
             _at(figures, "matrix-note", "children"),
@@ -2396,12 +2332,9 @@ class CallbackTests(unittest.TestCase):
         figures = self._post_applied("target-heatmap.figure", values)
         self.assertIn("figure", _json_object(figures["target-heatmap"]))
         self.assertIn("figure", _json_object(figures["drug-heatmap"]))
-        click = _json_value(
-            {"points": [{"customdata": ["MONDO_RA_TEST", "group:CL_B_GROUP"]}]}
-        )
-        for view, hidden, graph in (
-            ("target", (False, True), "target-heatmap"),
-            ("drug", (True, False), "drug-heatmap"),
+        for view, hidden in (
+            ("target", (False, True)),
+            ("drug", (True, False)),
         ):
             values[("heatmap-view", "value")] = view
             panels = self._post_applied("target-heatmap-panel.hidden", values)
@@ -2412,9 +2345,7 @@ class CallbackTests(unittest.TestCase):
                 ),
                 hidden,
             )
-            case = dict(values)
-            case[(graph, "clickData")] = click
-            details = self._click_details(case, graph)
+            details = self._select_details(values)
             self.assertIn(
                 "Relative target expression by cell type",
                 str(_at(details, "details", "children")),
@@ -2440,18 +2371,17 @@ class CallbackTests(unittest.TestCase):
             ["MONDO_RA_TEST"],
         )
 
-    def test_details_from_both_clicks(self) -> None:
-        values = self._values()
-        click = _json_value(
-            {"points": [{"customdata": ["MONDO_RA_TEST", "group:CL_B_GROUP"]}]}
-        )
-        for heatmap in ("target-heatmap", "drug-heatmap"):
-            case = dict(values)
-            case[(heatmap, "clickData")] = click
-            details = self._click_details(case, heatmap)
-            rendered = str(_at(details, "details", "children"))
-            self.assertIn("Relative target expression by cell type", rendered)
-            self.assertIn("Drug–target records for rheumatoid arthritis", rendered)
+    def test_details_follow_disease_selector(self) -> None:
+        details = self._select_details(self._values())
+        rendered = str(_at(details, "details", "children"))
+        self.assertIn("Relative target expression by cell type", rendered)
+        self.assertIn("Drug–target records for rheumatoid arthritis", rendered)
+
+    def test_detail_selector_ignores_heatmap_clicks(self) -> None:
+        callback = self._application().callback_map[
+            self._callback_key("detail-disease.value")
+        ]
+        self.assertNotIn("clickData", [item["property"] for item in callback["inputs"]])
 
 
 if __name__ == "__main__":

@@ -579,7 +579,7 @@ def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
                                     info_tip(
                                         "genetics-comparison",
                                         "comparison by cell type",
-                                        "The comparison counts genes at or above the score threshold that meet the expression rule for each disease and cell type. A cell group row counts distinct genes across its cell types, not mean expression. The heatmap shows the selected measure. In the dot plot, dot area uses a compressed Count scale and color shows Percent; an empty cell means zero or missing. A ≥ in the hover marks a lower bound. The scale can change when settings change. Click a cell group name to expand it, click a cell or mark for disease details, or hover for counts and evidence status.",
+                                        "The comparison counts genes at or above the score threshold that meet the expression rule for each disease and cell type. A cell group row counts distinct genes across its cell types, not mean expression. The heatmap shows the selected measure. In the dot plot, dot area uses a compressed Count scale and color shows Percent; an empty cell means zero or missing. A ≥ in the hover marks a lower bound. The scale can change when settings change. Click a cell group name to expand it, or hover for counts and evidence status.",
                                     ),
                                 ]
                             ),
@@ -656,7 +656,7 @@ def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
                                     info_tip(
                                         "genetics-selection",
                                         "disease details",
-                                        "Disease details show the genetically associated genes and their expression for one disease. They update immediately within the last applied settings. The table lists every gene at or above the score threshold, and the expression chart includes all of them, even when they do not meet the expression rule. Click a cell or mark in the comparison chart, or choose a disease below.",
+                                        "Disease details show the genetically associated genes and their expression for one disease. They update immediately within the last applied settings. The table lists every gene at or above the score threshold, and the expression chart includes all of them, even when they do not meet the expression rule. Choose a disease below.",
                                     ),
                                 ]
                             )

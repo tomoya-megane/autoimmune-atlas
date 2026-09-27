@@ -647,7 +647,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                     info_tip(
                                         "comparison",
                                         "comparison by cell type",
-                                        "The comparison counts qualifying targets or canonical drugs for each disease and cell type. A cell group row counts distinct targets or canonical drugs across its cell types, not mean expression. The heatmap shows the selected measure. In the dot plot, dot area uses a compressed Count scale and color shows Percent; an empty cell means zero or missing. A ≥ in the hover marks a lower bound. Scales are separate for targets and canonical drugs and can change when filters change. Click a cell group name to expand it, click a cell or mark for disease details, or hover for counts and evidence status.",
+                                        "The comparison counts qualifying targets or canonical drugs for each disease and cell type. A cell group row counts distinct targets or canonical drugs across its cell types, not mean expression. The heatmap shows the selected measure. In the dot plot, dot area uses a compressed Count scale and color shows Percent; an empty cell means zero or missing. A ≥ in the hover marks a lower bound. Scales are separate for targets and canonical drugs and can change when filters change. Click a cell group name to expand it, or hover for counts and evidence status.",
                                     ),
                                 ]
                             ),
@@ -754,7 +754,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                     info_tip(
                                         "selection",
                                         "disease details",
-                                        "Disease details show the drug–target records and target expression for one disease. They update immediately within the last applied settings. The records show the underlying evidence, and the expression chart includes every target of those canonical drugs, even when it does not meet the expression rule. Click a cell or mark in the comparison charts, or choose a disease below.",
+                                        "Disease details show the drug–target records and target expression for one disease. They update immediately within the last applied settings. The records show the underlying evidence, and the expression chart includes every target of those canonical drugs, even when it does not meet the expression rule. Choose a disease below.",
                                     ),
                                 ]
                             )

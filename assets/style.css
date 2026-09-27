@@ -52,7 +52,7 @@ summary:focus-visible,
 .app-brand:hover, .app-nav a, .app-nav a:hover { color: #fff; }
 .app-nav { display: flex; gap: 24px; font-size: 13px; }
 .app-nav a { text-decoration: none; }
-.app-page-link[aria-current="page"] { text-decoration: underline; text-underline-offset: 4px; }
+.app-page-link.current { text-decoration: underline; text-underline-offset: 4px; }
 
 .hero { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 24px; padding: 0 0 24px; }
 

@@ -31,14 +31,17 @@ class DiseaseSection(TypedDict):
 def page_nav(current: Literal["drugs", "genetics"]) -> html.Nav:
     """2 ページへのリンクと Open Targets へのリンクを持つ上部バー。"""
 
-    def link(label: str, href: str, key: str) -> html.A:
-        extra = {"aria-current": "page"} if key == current else {}
-        return html.A(
-            label,
-            href=href,
-            className="app-page-link",
-            **extra,  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
-        )
+    def link(label: str, href: str, key: str) -> dcc.Link:
+        # dcc.Link は pushState で切り替えるので、再読み込みせず、もう一方のページの状態が残る。
+        # dcc.Link は aria-current を受け取らないので、表示中のページは current クラスで示す。
+        if key == current:
+            return dcc.Link(
+                label,
+                href=href,
+                className="app-page-link current",
+                title="Current page",
+            )
+        return dcc.Link(label, href=href, className="app-page-link")
 
     return html.Nav(
         [
