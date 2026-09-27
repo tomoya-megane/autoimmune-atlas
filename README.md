@@ -46,7 +46,14 @@ tests/
 ├── test_disease_catalog.py    対象疾患と表示順
 ├── test_genetics.py           遺伝子ページの集計規則
 ├── test_genetics_ui.py        遺伝子ページの図、画面、callback
-├── test_ui.py                 図、画面、callback
+├── ui_fixture.py              UI のテストが共有する型とスナップショット
+├── test_disease_tree.py       疾患の選択ツリー
+├── test_figures.py            ヒートマップとドットプロットの図
+├── test_evidence.py           根拠の行と詳細パネル
+├── test_inputs.py             閾値の入力と初期選択
+├── test_snapshot.py           スナップショットの読み込み
+├── test_application.py        アプリの入口と assets のパス
+├── test_callbacks.py          画面と callback
 └── test_help.cjs              ツールチップの JavaScript
 ```
 

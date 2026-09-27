@@ -280,7 +280,7 @@ def _post(
     output_id: str,
     values: dict[str, object],
 ) -> dict[str, object]:
-    """test_ui.py の CallbackTests._post と同じ形で callback を 1 回呼ぶ。"""
+    """test_callbacks.py の CallbackTests._post と同じ形で callback を 1 回呼ぶ。"""
     key = next(k for k in application.callback_map if output_id in k)
     callback = application.callback_map[key]
     outputs = callback["output"]
