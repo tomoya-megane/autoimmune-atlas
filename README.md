@@ -14,7 +14,7 @@ Python の Dash と Plotly を使う。
 ## コード構成
 
 起動の入口 `app.py` だけをリポジトリ直下に置き、処理の実体は `autoimmune_atlas/` パッケージにまとめている。
-データ更新は `pixi run refresh` が `autoimmune_atlas.refresh` を、`pixi run refresh-genetics` が `autoimmune_atlas.refresh_genetics` を、それぞれモジュールとして実行する。
+データ更新は `pixi run refresh` が `autoimmune_atlas.refresh` をモジュールとして実行する。
 集計、データ取得、画面表示のどこを読むべきかを、ファイル名から判断できる構成である。
 
 ```text
@@ -22,10 +22,9 @@ app.py                         Dash アプリの起動
 autoimmune_atlas/
 ├── aggregation.py             薬剤、標的、細胞型の集計
 ├── disease_catalog.py         対象疾患と表示順の定義
-├── genetics.py                遺伝学的関連遺伝子の読み込みと集計
+├── genetics.py                遺伝学的関連遺伝子の集計
 ├── models.py                  スナップショットと集計結果の共有データ型
 ├── refresh.py                 公開 API の取得、正規化、保存（python -m で実行）
-├── refresh_genetics.py        遺伝学的関連遺伝子の取得と保存（python -m で実行）
 ├── snapshot.py                保存済みデータの読み込みと検証
 └── ui/
     ├── application.py         Dash アプリの組み立てとページの切り替え
@@ -44,7 +43,6 @@ docs/                          設計ノートと対象疾患の根拠
 tests/
 ├── test_aggregation.py        集計規則
 ├── test_refresh.py            公開 API の取得と保存
-├── test_refresh_genetics.py   遺伝学的関連遺伝子の取得と保存
 ├── test_disease_catalog.py    対象疾患と表示順
 ├── test_genetics.py           遺伝子ページの集計規則
 ├── test_genetics_ui.py        遺伝子ページの図、画面、callback
@@ -230,28 +228,23 @@ T cell には CD4・CD8 系を含める。
 ## データ更新と検証
 
 公開 API から取り直す。
-通信量と API の応答により数分から十数分かかる。
+初回は、発現データの取得に 1.5 時間から 2 時間かかる。
 
 ```bash
 pixi run refresh
 ```
 
-全取得と件数の検証が成功したときだけ `data/snapshot.json` を置き換える。
+疾患、薬剤の標的、genetic association の関連遺伝子、細胞型別の発現を順に取り、全取得と件数の検証が成功したときだけ `data/snapshot.json` を置き換える。
 途中で失敗した場合は前回のデータを保つ。
 取得日時と Open Targets のデータ版はスナップショットに保存する。
 取得時点の公開データを使うため、環境間で取得日時や版が異なると結果も変わり得る。
 更新後はアプリを再起動する。
-schema 1 の旧データを使っている場合も、この更新で schema 2 に切り替える。
 
-遺伝子ページのデータは、`pixi run refresh` のあとに別に取り直す。
-
-```bash
-pixi run refresh-genetics
-```
-
-取得を始める前に Open Targets の版を `data/snapshot.json` と比べ、違えば取得せずに止まる。
-全件の取得が成功したときだけ `data/genetics.json` を置き換える。
-`data/genetics.json` が無いか版が一致しないときは、遺伝子ページに再取得の案内を表示し、薬剤ページはそのまま使える。
+同じ版の発現データは、既存の `data/snapshot.json` と `data/genetics.json` から再利用し、取り直さない。
+版が変わっていれば全部取り直す。
+schema 2 の `snapshot.json` と `genetics.json` を使っている場合も、この更新で schema 3 の 1 ファイルに切り替わる。
+切り替えが済んだら `data/genetics.json` は消してよい。
+保存の形と取得の手順は[保存データの統合と一括取得の設計](docs/snapshot-design.md)にある。
 
 ```bash
 pixi run test

@@ -287,7 +287,7 @@ Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケー�
 取得日時と取得元の版は環境ごとのスナップショットに保存し、結果を比較するときに確認する。
 旧形式にない段階や特異性を、推測で補完した完成データとして扱わない。
 
-遺伝学的関連遺伝子のページは、別の取得データ（`data/genetics.json`）と別の集計（`autoimmune_atlas/genetics.py`）で `/genetics` に置き、薬剤ページの発現判定と細胞分類と図を共有する。
+遺伝学的関連遺伝子のページは、`snapshot.json` の `associations` を読む別の集計（`autoimmune_atlas/genetics.py`）で `/genetics` に置き、薬剤ページの発現判定と細胞分類と図を共有する。
 ページの切り替えは `dcc.Location` で行い、両ページのレイアウトを起動時に組み立てて `hidden` を入れ替える。
 遺伝子集合の定め方、保存の形、表示の規則は[遺伝学的関連遺伝子のページの設計](genetics-design.md)にある。
 
@@ -299,7 +299,7 @@ Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケー�
 - [Open Targets: baseline expression](https://github.com/opentargets/platform-docs/blob/main/target/baseline-expression.md)：pseudobulk、ドナー間要約、CELLEX の定義。
 - [Open Targets: clinical report](https://platform-docs.opentargets.org/drug/clinical-report)：臨床段階、元資料、品質管理。
 - [Open Targets: drugs and clinical candidates](https://platform-docs.opentargets.org/disease-or-phenotype/drugs)：疾患内の最高段階と撤回歴の承認到達への集約。
-- [Open Targets: association scores](https://platform-docs.opentargets.org/associations)：genetic association の datatype スコアと datasource スコアの合成。`autoimmune_atlas/refresh_genetics.py` が取得し、`autoimmune_atlas/genetics.py` が集計する。
+- [Open Targets: association scores](https://platform-docs.opentargets.org/associations)：genetic association の datatype スコアと datasource スコアの合成。`autoimmune_atlas/refresh.py` が取得し、`autoimmune_atlas/genetics.py` が集計する。
 - `autoimmune_atlas/refresh.py`：実際の取得項目と検証、`autoimmune_atlas/aggregation.py`：集計規則、`autoimmune_atlas/ui/`：表示。
 
 ## 検証と残る確認範囲
