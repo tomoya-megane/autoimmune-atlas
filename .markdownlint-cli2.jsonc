@@ -33,5 +33,5 @@
   },
 
   "globs": ["**/*.md"],
-  "ignores": [".pixi/**", ".git/**", ".cache/**", ".agents/**", ".remember/**", "node_modules/**"]
+  "ignores": [".pixi/**", ".git/**", ".cache/**", ".agents/**", ".remember/**", "node_modules/**", ".superpowers/**"]
 }
