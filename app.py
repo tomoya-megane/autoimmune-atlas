@@ -21,15 +21,18 @@ except (OSError, json.JSONDecodeError, ValueError, TypeError, KeyError) as error
 # genetics.json が読めなくても、薬剤ページは止めない。
 try:
     genetics_data = load_genetics()
+    genetics_error = None
 except (OSError, json.JSONDecodeError, ValueError, TypeError, KeyError) as error:
     print(f"genetics.json を読めません: {error}", file=sys.stderr)
     genetics_data = None
+    genetics_error = error
 
 app = create_app(
     snapshot_data,
     load_error,
     assets_folder=BASE_DIR / "assets",
     genetics=genetics_data,
+    genetics_error=genetics_error,
 )
 
 

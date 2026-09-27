@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import TypedDict, cast
 
-from autoimmune_atlas.genetics import GENETICS_PATH, GENETICS_SCHEMA
+from autoimmune_atlas.genetics import GENETICS_PATH, GENETICS_SCHEMA, SCORE_FLOOR
 from autoimmune_atlas.models import (
     DataVersion,
     ExpressionRow,
@@ -24,7 +24,6 @@ from autoimmune_atlas.refresh import (
 )
 from autoimmune_atlas.snapshot import load_snapshot
 
-SCORE_FLOOR = 0.1
 PAGE_SIZE = 500
 GENETIC_DATATYPE = "genetic_association"
 

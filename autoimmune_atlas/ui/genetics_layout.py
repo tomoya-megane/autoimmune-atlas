@@ -128,7 +128,7 @@ def genetics_detail_panel(
     """選択した疾患の関連遺伝子の表と連続発現を表示する。"""
     if selection is None:
         return html.Div(
-            "Select a disease in the comparison charts or the selector above.",
+            "Choose a disease in the selector above.",
             className="empty-note",
         )
     row = next((item for item in rows if item["disease_id"] == selection), None)
@@ -317,6 +317,8 @@ def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
         .strftime("%Y-%m-%d %H:%M JST")
     )
     loaded = sum(d["id"] in genetics["associations"] for d in snapshot["diseases"])
+    # 保存した下限を入力欄の下限にする。古いファイルにキーが無ければ定数を使う。
+    score_floor = genetics.get("score_floor", SCORE_FLOOR)
     applied = dict(
         zip(
             GENETICS_PARAMETER_IDS,
@@ -419,7 +421,7 @@ def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
                             info_tip(
                                 "genetics-settings",
                                 "settings",
-                                "These settings define the comparison and the disease details. Until you click Update, both charts and the disease details keep the previous settings. Cell group expansion, the detail disease and table pages update immediately. Edit the settings, then click Update to apply them together.",
+                                "These settings define the comparison and the disease details. Until you click Update, the chart and the disease details keep the previous settings. Cell group expansion, the detail disease and table pages update immediately. Edit the settings, then click Update to apply them together.",
                             ),
                         ]
                     ),
@@ -450,12 +452,12 @@ def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
                                         dcc.Input(
                                             id="genetics-score",
                                             type="number",
-                                            min=SCORE_FLOOR,
+                                            min=score_floor,
                                             max=1,
                                             step=0.05,
                                             value=DEFAULT_SCORE_THRESHOLD,
                                         ),
-                                        "The score threshold keeps genes whose Open Targets genetic association score for the disease is at or above this value. Scores below 0.1 are not stored, so the threshold cannot go below 0.1. Empty or out-of-range values use 0.5.",
+                                        f"The score threshold keeps genes whose Open Targets genetic association score for the disease is at or above this value. Scores below {score_floor:g} are not stored, so the threshold cannot go below {score_floor:g}. Empty or out-of-range values use 0.5.",
                                     ),
                                 ],
                                 className="filter-group",

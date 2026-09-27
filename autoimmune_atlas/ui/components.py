@@ -45,7 +45,8 @@ def page_nav(current: Literal["drugs", "genetics"]) -> html.Nav:
 
     return html.Nav(
         [
-            html.A("Autoimmune Atlas", href="/", className="app-brand"),
+            # dcc.Link なので、ロゴから薬剤ページへ戻るときも再読み込みしない。
+            dcc.Link("Autoimmune Atlas", href="/", className="app-brand"),
             html.Div(
                 [
                     link("Drug targets", "/", "drugs"),

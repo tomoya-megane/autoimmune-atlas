@@ -79,7 +79,7 @@ def _applied_parameters(values: tuple[ParameterValue, ...]) -> AppliedParameters
     )
 
 
-def _effective_number(
+def effective_number(
     value: NumberInput,
     default: float,
     label: str,
@@ -113,17 +113,14 @@ def _effective_number(
     return number, None
 
 
-effective_number = _effective_number
-
-
 def effective_filters(
     threshold: NumberInput, specificity: NumberInput
 ) -> tuple[float, float, list[str]]:
     """実際に集計へ渡す閾値と入力エラーを返す。"""
-    minimum, minimum_error = _effective_number(
+    minimum, minimum_error = effective_number(
         threshold, DEFAULT_EXPRESSION_THRESHOLD, "minimum CPM"
     )
-    specificity_value, specificity_error = _effective_number(
+    specificity_value, specificity_error = effective_number(
         specificity, DEFAULT_SPECIFICITY_THRESHOLD, "CELLEX specificity", 1
     )
     return (

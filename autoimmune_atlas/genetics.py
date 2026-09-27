@@ -18,6 +18,8 @@ from autoimmune_atlas.models import (
 
 GENETICS_PATH = Path(__file__).resolve().parent.parent / "data" / "genetics.json"
 GENETICS_SCHEMA = 1
+# 保存する genetic association スコアの下限。取得と画面の入力欄が共有する。
+SCORE_FLOOR = 0.1
 
 
 def load_genetics(path: Path = GENETICS_PATH) -> GeneticsSnapshot | None:

@@ -16,6 +16,9 @@ VERSION_MISMATCH = (
     "The genetic association data were retrieved from a different Open Targets "
     "release than the drug data."
 )
+NO_SNAPSHOT = (
+    "The drug snapshot is not available, so the genetics page cannot be shown."
+)
 
 
 def create_app(
@@ -24,6 +27,7 @@ def create_app(
     *,
     assets_folder: str | Path,
     genetics: GeneticsSnapshot | None = None,
+    genetics_error: Exception | None = None,
 ) -> Dash:
     """保存済みデータまたは明示的な fixture から、2 ページの Dash アプリを作る。"""
     application = Dash(
@@ -35,8 +39,14 @@ def create_app(
     drug_page = (
         unavailable_layout(error) if snapshot is None else dashboard_layout(snapshot)
     )
-    if snapshot is None or genetics is None:
-        gene_page = genetics_unavailable_page(NOT_RETRIEVED)
+    if snapshot is None:
+        gene_page = genetics_unavailable_page(NO_SNAPSHOT)
+    elif genetics is None:
+        gene_page = genetics_unavailable_page(
+            NOT_RETRIEVED
+            if genetics_error is None
+            else f"The genetic association data could not be read: {genetics_error}"
+        )
     elif not version_matches(snapshot, genetics):
         gene_page = genetics_unavailable_page(VERSION_MISMATCH)
     else:

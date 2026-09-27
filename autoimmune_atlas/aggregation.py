@@ -558,7 +558,7 @@ def _expression_state(
     return None if score is None else score >= specificity_threshold
 
 
-def _aggregate(states: list[bool | None]) -> bool | None:
+def aggregate_states(states: list[bool | None]) -> bool | None:
     if any(state is True for state in states):
         return True
     if states and all(state is False for state in states):
@@ -566,17 +566,14 @@ def _aggregate(states: list[bool | None]) -> bool | None:
     return None
 
 
-def _percent(positives: set[str], unknown: set[str], denominator: int) -> float | None:
+def percent_of(
+    positives: set[str], unknown: set[str], denominator: int
+) -> float | None:
     if not denominator:
         return None
     if positives:
         return 100 * len(positives) / denominator
     return None if unknown else 0
-
-
-# genetics.py が同じ三値の集約と割合の規則を使うための公開名。
-aggregate_states = _aggregate
-percent_of = _percent
 
 
 def summarize(
@@ -646,7 +643,7 @@ def summarize(
         unmapped_drugs = drugs - mapped_drugs
         for cell in catalog:
             target_states = {
-                target: _aggregate(
+                target: aggregate_states(
                     [
                         _expression_state(
                             metadata.get((target, member)),
@@ -666,7 +663,7 @@ def summarize(
                 target for target, state in target_states.items() if state is None
             }
             drug_states = {
-                drug: _aggregate(
+                drug: aggregate_states(
                     [target_states[target] for target in drug_targets[drug]]
                 )
                 for drug in mapped_drugs
@@ -718,7 +715,7 @@ def summarize(
                 "ontology_id": cell.get("ontology_id", cell["id"]),
                 "cell_level": cell.get("cell_level", level),
                 "count": target_count,
-                "percent": _percent(positive_targets, unknown_targets, len(targets))
+                "percent": percent_of(positive_targets, unknown_targets, len(targets))
                 if complete
                 else None,
                 "denominator": len(targets),
@@ -731,7 +728,7 @@ def summarize(
                 else "complete",
                 "records": selected,
                 "drug_count": drug_count,
-                "drug_percent": _percent(
+                "drug_percent": percent_of(
                     positive_drugs, unknown_drugs, len(mapped_drugs)
                 )
                 if complete

@@ -213,6 +213,16 @@ class GeneticsLayoutTests(unittest.TestCase):
         self.assertEqual(score.max, 1)
         self.assertEqual(score.value, 0.5)
 
+    def test_score_input_minimum_follows_stored_floor(self) -> None:
+        data = genetics_snapshot()
+        data["score_floor"] = 0.2
+        page = genetics_layout.genetics_page(core_ui_snapshot(), data)
+        score = cast(
+            _NumberInput,
+            next(c for c in _walk(page) if getattr(c, "id", None) == "genetics-score"),
+        )
+        self.assertEqual(score.min, 0.2)
+
     def test_gene_rows_have_scores_datasource_columns_and_evidence_link(self) -> None:
         data = genetics_snapshot()
         genes = genetics.genes_for_disease(data, "D1", 0.5)
@@ -488,6 +498,18 @@ class RouterTests(unittest.TestCase):
         ids = _collect_ids(_layout_json(app))
         self.assertTrue({"url", "drug-page", "genetics-page"} <= ids)
         self.assertNotIn("genetics-heatmap", ids)
+        self.assertIn("drug snapshot is not available", json.dumps(_layout_json(app)))
+
+    def test_genetics_read_error_is_shown_in_the_notice(self) -> None:
+        app = create_app(
+            core_ui_snapshot(),
+            assets_folder=ASSETS_PATH,
+            genetics_error=ValueError("broken file"),
+        )
+        self.assertIn(
+            "The genetic association data could not be read: broken file",
+            json.dumps(_layout_json(app)),
+        )
 
     def test_nav_marks_current_page(self) -> None:
         drug = layout.dashboard_layout(core_ui_snapshot())

@@ -93,7 +93,7 @@ def detail_panel(
     """選択した疾患の連続発現と元記録を表示する。"""
     if selection is None:
         return html.Div(
-            "Select a disease in the comparison charts or the selector above.",
+            "Choose a disease in the selector above.",
             className="empty-note",
         )
     row = next((item for item in rows if item["disease_id"] == selection), None)
