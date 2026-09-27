@@ -23,6 +23,7 @@ from autoimmune_atlas.aggregation import (
 )
 from autoimmune_atlas.disease_catalog import SCOPE_ROOTS
 from autoimmune_atlas.models import (
+    CellDefinition,
     DataVersion,
     Disease,
     DrugRecord,
@@ -317,9 +318,12 @@ def normalize_drugs(rows: list[ClinicalCandidate]) -> list[_NormalizedDrug]:
     return drugs
 
 
-def extract_expression(rows: list[ExpressionApiRow]) -> list[ExpressionRow]:
-    """Tabula Sapiens の細胞型別 pseudobulk の中央値を取り出す。"""
+def extract_expression(
+    rows: list[ExpressionApiRow],
+) -> tuple[list[ExpressionRow], dict[str, CellDefinition]]:
+    """Tabula Sapiens の細胞型別 pseudobulk の中央値と、細胞の定数を取り出す。"""
     result: dict[str, ExpressionRow] = {}
+    cells: dict[str, CellDefinition] = {}
     for row in rows:
         cell = row.get("celltypeBiosample")
         if (
@@ -352,14 +356,16 @@ def extract_expression(rows: list[ExpressionApiRow]) -> list[ExpressionRow]:
         parent = row.get("celltypeBiosampleParent")
         result[cell_id] = {
             "cell_id": cell_id,
-            "cell": cell["biosampleName"],
             "median": value,
             "specificity_score": specificity,
+        }
+        cells[cell_id] = {
+            "name": cell["biosampleName"],
             "parent_id": parent["biosampleId"] if parent else None,
             "parent": parent["biosampleName"] if parent else None,
             "ancestor_ids": list(cell.get("ancestors") or []),
         }
-    return list(result.values())
+    return list(result.values()), cells
 
 
 def extract_mechanisms(rows: list[MechanismApiRow]) -> list[_MechanismRecord]:
@@ -405,8 +411,10 @@ def extract_mechanisms(rows: list[MechanismApiRow]) -> list[_MechanismRecord]:
     ]
 
 
-def fetch_expression(target_id: str) -> tuple[str, list[ExpressionRow]]:
-    """発現データを全ページ取得してから、細胞型別の値を選ぶ。"""
+def fetch_expression(
+    target_id: str,
+) -> tuple[str, list[ExpressionRow], dict[str, CellDefinition]]:
+    """発現データを全ページ取得してから、細胞型別の値と細胞の定数を選ぶ。"""
     query = """query($id:String!, $page:Int!) {
       target(ensemblId:$id) { baselineExpression(page:{index:$page,size:3000}) {
         count rows { datasourceId unit median
@@ -434,7 +442,18 @@ def fetch_expression(target_id: str) -> tuple[str, list[ExpressionRow]]:
         if not block["rows"]:
             raise ValueError("発現データの途中のページが空です")
         page += 1
-    return target_id, extract_expression(rows)
+    kept, cells = extract_expression(rows)
+    return target_id, kept, cells
+
+
+def merge_cells(
+    cells: dict[str, CellDefinition], found: Mapping[str, CellDefinition]
+) -> None:
+    """細胞の定数を表へ足し、既にある定義と食い違えば失敗にする。"""
+    for cell_id, definition in found.items():
+        if cell_id in cells and cells[cell_id] != definition:
+            raise ValueError(f"細胞型の名前か親分類が標的間で一貫しません: {cell_id}")
+        cells[cell_id] = definition
 
 
 def save_snapshot(path: Path, snapshot: object) -> None:
@@ -546,11 +565,13 @@ def main() -> None:
         {target_id for record in records.values() if (target_id := record["target_id"])}
     )
     expression: dict[str, list[ExpressionRow]] = {}
+    cells: dict[str, CellDefinition] = {}
     with ThreadPoolExecutor(max_workers=2) as pool:
-        for index, (target, rows) in enumerate(
+        for index, (target, rows, found) in enumerate(
             pool.map(fetch_expression, target_ids), 1
         ):
             expression[target] = rows
+            merge_cells(cells, found)
             print(f"細胞型別発現: {index}/{len(target_ids)}", flush=True)
     final_version = cast(_VersionResponse, cast(object, query_api(version_query)))[
         "meta"
@@ -558,7 +579,7 @@ def main() -> None:
     if final_version != version:
         raise ValueError("取得中にデータの版が変わりました。再取得してください")
     snapshot: Snapshot = {
-        "schema": 2,
+        "schema": 3,
         "root": ROOT_ID,
         "roots": roots,
         "data_version": version,
@@ -566,6 +587,7 @@ def main() -> None:
         "source": f"https://{API_HOST}{API_PATH}",
         "diseases": sorted(diseases, key=lambda d: d["name"]),
         "records": list(records.values()),
+        "cells": cells,
         "expression": expression,
     }
     cell_catalog(snapshot)

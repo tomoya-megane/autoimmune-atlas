@@ -5,12 +5,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from autoimmune_atlas.models import CellDefinition
 from autoimmune_atlas.refresh import (
     ClinicalCandidate,
     ExpressionApiRow,
     MechanismApiRow,
     extract_expression,
     extract_mechanisms,
+    merge_cells,
     normalize_drugs,
     resolve_disease_ids,
     save_snapshot,
@@ -137,7 +139,7 @@ class RefreshTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "重複"):
             normalize_drugs([row, row])
 
-    def test_expression_keeps_specificity_parent_and_ancestors(self) -> None:
+    def test_expression_splits_values_from_cell_definitions(self) -> None:
         base: ExpressionApiRow = {
             "datasourceId": "tabula_sapiens",
             "unit": "CPM(pseudobulk sum[counts])",
@@ -154,19 +156,20 @@ class RefreshTests(unittest.TestCase):
             },
             "tissueBiosample": None,
         }
+        rows, cells = extract_expression([base])
         self.assertEqual(
-            extract_expression([base]),
-            [
-                {
-                    "cell_id": "C1",
-                    "cell": "B cell",
-                    "median": 2.0,
-                    "specificity_score": 0.8,
+            rows, [{"cell_id": "C1", "median": 2.0, "specificity_score": 0.8}]
+        )
+        self.assertEqual(
+            cells,
+            {
+                "C1": {
+                    "name": "B cell",
                     "parent_id": "P1",
                     "parent": "Lymphocyte",
                     "ancestor_ids": ["CL_1", "CL_2"],
                 }
-            ],
+            },
         )
         self.assertEqual(
             extract_expression(
@@ -175,7 +178,7 @@ class RefreshTests(unittest.TestCase):
                     {**base, "tissueBiosample": {"biosampleId": "T1"}},
                 ]
             ),
-            [],
+            ([], {}),
         )
         invalid_rows: tuple[tuple[str, ExpressionApiRow], ...] = (
             ("median", {**base, "median": -1}),
@@ -187,6 +190,20 @@ class RefreshTests(unittest.TestCase):
         invalid_unit: ExpressionApiRow = {**base, "unit": "TPM"}
         with self.assertRaisesRegex(ValueError, "単位"):
             extract_expression([invalid_unit])
+
+    def test_merge_cells_rejects_inconsistent_definitions(self) -> None:
+        cells: dict[str, CellDefinition] = {}
+        first: CellDefinition = {
+            "name": "B cell",
+            "parent_id": "P",
+            "parent": "Lymphocyte",
+            "ancestor_ids": ["CL_1"],
+        }
+        merge_cells(cells, {"C1": first})
+        merge_cells(cells, {"C1": first, "C2": {**first, "name": "T cell"}})
+        self.assertEqual(set(cells), {"C1", "C2"})
+        with self.assertRaisesRegex(ValueError, "一貫"):
+            merge_cells(cells, {"C1": {**first, "ancestor_ids": []}})
 
     def test_mechanism_references_are_deduplicated(self) -> None:
         row: MechanismApiRow = {

@@ -51,7 +51,7 @@ class LoadTests(unittest.TestCase):
         self.assertFalse(genetics.version_matches(base, data))
         data = genetics_snapshot()
         data["expression"]["G1"] = [
-            {"cell_id": "T4", "cell": "CD4 T cell", "median": 99.0}
+            {"cell_id": "T4", "median": 99.0, "specificity_score": None}
         ]
         merged = genetics.merged_snapshot(base, data)
         self.assertEqual(merged["expression"]["G1"][0]["median"], 2.0)

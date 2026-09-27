@@ -42,42 +42,10 @@ def genetics_snapshot() -> GeneticsSnapshot:
         },
         "expression": {
             "G9": [
-                {
-                    "cell_id": "T4",
-                    "cell": "CD4 T cell",
-                    "median": 5.0,
-                    "specificity_score": 0.9,
-                    "parent_id": "LYMPH",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_0000084"],
-                },
-                {
-                    "cell_id": "T8",
-                    "cell": "CD8 T cell",
-                    "median": 0.0,
-                    "specificity_score": 0.0,
-                    "parent_id": "LYMPH",
-                    "parent": "Lymphocyte",
-                    "ancestor_ids": ["CL_0000084"],
-                },
-                {
-                    "cell_id": "B1",
-                    "cell": "B cell",
-                    "median": 0.0,
-                    "specificity_score": 0.0,
-                    "parent_id": "B-GROUP",
-                    "parent": "B lineage",
-                    "ancestor_ids": [],
-                },
-                {
-                    "cell_id": "X",
-                    "cell": "Novel cell",
-                    "median": 0.0,
-                    "specificity_score": 0.0,
-                    "parent_id": None,
-                    "parent": None,
-                    "ancestor_ids": [],
-                },
+                {"cell_id": "T4", "median": 5.0, "specificity_score": 0.9},
+                {"cell_id": "T8", "median": 0.0, "specificity_score": 0.0},
+                {"cell_id": "B1", "median": 0.0, "specificity_score": 0.0},
+                {"cell_id": "X", "median": 0.0, "specificity_score": 0.0},
             ]
         },
     }

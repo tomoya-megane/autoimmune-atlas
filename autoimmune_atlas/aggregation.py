@@ -295,8 +295,8 @@ CELL_DISPLAY_ORDER = {
 
 
 def _validate_snapshot(snapshot: SnapshotInput) -> None:
-    if snapshot.get("schema") != 2:
-        raise ValueError("snapshot must use schema 2")
+    if snapshot.get("schema") != 3:
+        raise ValueError("snapshot must use schema 3")
 
 
 def _record_modality(row: DrugRecord) -> str:
@@ -327,7 +327,7 @@ def filtered_records(
         canonical_id = row.get("canonical_drug_id")
         canonical_name = row.get("canonical_drug")
         if not canonical_id or not canonical_name:
-            raise ValueError("schema 2 の有効成分 ID または名称がありません")
+            raise ValueError("有効成分 ID または名称がありません")
         key = row["disease_id"], canonical_id
         if (
             key not in maximum
@@ -346,26 +346,22 @@ def filtered_records(
 def _cell_memberships(
     snapshot: SnapshotInput,
 ) -> dict[str, CellMembership]:
+    """cells の表から、細胞ごとの名前、大分類、祖先を作る。"""
     cells: dict[str, CellMembership] = {}
-    for rows in snapshot.get("expression", {}).values():
-        for row in rows:
-            cell_id = row["cell_id"]
-            ancestors = tuple(row.get("ancestor_ids") or ())
-            if cell_id == T_CELL_ID or T_CELL_ID in ancestors:
-                group_id, group_name = T_CELL_ID, "T cell"
-            else:
-                group_id = row.get("parent_id") or cell_id
-                group_name = row.get("parent") or row["cell"]
-            definition: CellMembership = {
-                "id": cell_id,
-                "name": row["cell"],
-                "group_id": group_id,
-                "group_name": group_name,
-                "ancestor_ids": tuple(sorted(set(ancestors))),
-            }
-            if cell_id in cells and cells[cell_id] != definition:
-                raise ValueError(f"細胞型の親分類が標的間で一貫しません: {cell_id}")
-            cells[cell_id] = definition
+    for cell_id, definition in snapshot.get("cells", {}).items():
+        ancestors = tuple(definition.get("ancestor_ids") or ())
+        if cell_id == T_CELL_ID or T_CELL_ID in ancestors:
+            group_id, group_name = T_CELL_ID, "T cell"
+        else:
+            group_id = definition.get("parent_id") or cell_id
+            group_name = definition.get("parent") or definition["name"]
+        cells[cell_id] = {
+            "id": cell_id,
+            "name": definition["name"],
+            "group_id": group_id,
+            "group_name": group_name,
+            "ancestor_ids": tuple(sorted(set(ancestors))),
+        }
     return cells
 
 
@@ -490,9 +486,10 @@ def cell_catalog(
 def expression_metadata(
     snapshot: SnapshotInput,
 ) -> dict[tuple[str, str], ExpressionMetadata]:
-    """各標的・細胞の発現値と、全参照細胞から求めた標的内中央値を返す。"""
+    """各標的・細胞の発現値に cell 名と、全参照細胞から求めた標的内中央値を付けて返す。"""
     _validate_snapshot(snapshot)
-    all_cells = set(_cell_memberships(snapshot))
+    cells = _cell_memberships(snapshot)
+    all_cells = set(cells)
     result: dict[tuple[str, str], ExpressionMetadata] = {}
     for target_id, rows in snapshot.get("expression", {}).items():
         by_cell = {row["cell_id"]: row for row in rows}
@@ -506,7 +503,14 @@ def expression_metadata(
             else None
         )
         for row in rows:
-            result[target_id, row["cell_id"]] = {**row, "target_median": target_median}
+            cell_id = row["cell_id"]
+            if cell_id not in cells:
+                raise ValueError(f"cells に無い細胞 ID が発現にあります: {cell_id}")
+            result[target_id, cell_id] = {
+                **row,
+                "cell": cells[cell_id]["name"],
+                "target_median": target_median,
+            }
     return result
 
 

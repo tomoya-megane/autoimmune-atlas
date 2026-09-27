@@ -231,7 +231,9 @@ def main() -> None:
     )
     expression: dict[str, list[ExpressionRow]] = {}
     with ThreadPoolExecutor(max_workers=2) as pool:
-        for index, (target, rows) in enumerate(pool.map(fetch_expression, needed), 1):
+        for index, (target, rows, _cells) in enumerate(
+            pool.map(fetch_expression, needed), 1
+        ):
             expression[target] = rows
             print(f"細胞型別発現: {index}/{len(needed)}", flush=True)
     final_version = cast(_VersionResponse, cast(object, query_api(VERSION_QUERY)))[

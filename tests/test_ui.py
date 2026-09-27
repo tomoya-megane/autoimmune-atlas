@@ -359,7 +359,7 @@ def fixture() -> Snapshot:
         },
     ]
     return {
-        "schema": 2,
+        "schema": 3,
         "root": root,
         "data_version": {"year": "26", "month": "6", "iteration": None},
         "retrieved_at": "2026-09-22T12:00:00Z",
@@ -368,64 +368,36 @@ def fixture() -> Snapshot:
             {"id": "MONDO_RA_TEST", "name": "rheumatoid arthritis", "status": "ready"}
         ],
         "records": records,
+        "cells": {
+            "CL_B_ONE": {
+                "name": "memory B cell",
+                "parent_id": "CL_B_GROUP",
+                "parent": "B cell",
+                "ancestor_ids": ["CL_B_GROUP"],
+            },
+            "CL_B_TWO": {
+                "name": "naive B cell",
+                "parent_id": "CL_B_GROUP",
+                "parent": "B cell",
+                "ancestor_ids": ["CL_B_GROUP"],
+            },
+            "CL_T_ONE": {
+                "name": "CD8-positive T cell",
+                "parent_id": "CL_T_PARENT",
+                "parent": "T lymphocyte",
+                "ancestor_ids": [atlas.T_CELL_ID],
+            },
+        },
         "expression": {
             "ENSG_TARGET_1": [
-                {
-                    "cell_id": "CL_B_ONE",
-                    "cell": "memory B cell",
-                    "median": 2.0,
-                    "specificity_score": 0.8,
-                    "parent_id": "CL_B_GROUP",
-                    "parent": "B cell",
-                    "ancestor_ids": ["CL_B_GROUP"],
-                },
-                {
-                    "cell_id": "CL_B_TWO",
-                    "cell": "naive B cell",
-                    "median": 0.1,
-                    "specificity_score": 0.2,
-                    "parent_id": "CL_B_GROUP",
-                    "parent": "B cell",
-                    "ancestor_ids": ["CL_B_GROUP"],
-                },
-                {
-                    "cell_id": "CL_T_ONE",
-                    "cell": "CD8-positive T cell",
-                    "median": 0.2,
-                    "specificity_score": 0.1,
-                    "parent_id": "CL_T_PARENT",
-                    "parent": "T lymphocyte",
-                    "ancestor_ids": [atlas.T_CELL_ID],
-                },
+                {"cell_id": "CL_B_ONE", "median": 2.0, "specificity_score": 0.8},
+                {"cell_id": "CL_B_TWO", "median": 0.1, "specificity_score": 0.2},
+                {"cell_id": "CL_T_ONE", "median": 0.2, "specificity_score": 0.1},
             ],
             "ENSG_TARGET_2": [
-                {
-                    "cell_id": "CL_B_ONE",
-                    "cell": "memory B cell",
-                    "median": None,
-                    "specificity_score": None,
-                    "parent_id": "CL_B_GROUP",
-                    "parent": "B cell",
-                    "ancestor_ids": ["CL_B_GROUP"],
-                },
-                {
-                    "cell_id": "CL_B_TWO",
-                    "cell": "naive B cell",
-                    "median": 0.6,
-                    "specificity_score": 0.75,
-                    "parent_id": "CL_B_GROUP",
-                    "parent": "B cell",
-                    "ancestor_ids": ["CL_B_GROUP"],
-                },
-                {
-                    "cell_id": "CL_T_ONE",
-                    "cell": "CD8-positive T cell",
-                    "median": 1.0,
-                    "specificity_score": 0.7,
-                    "parent_id": "CL_T_PARENT",
-                    "parent": "T lymphocyte",
-                    "ancestor_ids": [atlas.T_CELL_ID],
-                },
+                {"cell_id": "CL_B_ONE", "median": None, "specificity_score": None},
+                {"cell_id": "CL_B_TWO", "median": 0.6, "specificity_score": 0.75},
+                {"cell_id": "CL_T_ONE", "median": 1.0, "specificity_score": 0.7},
             ],
         },
     }
@@ -1428,12 +1400,13 @@ class InputTests(unittest.TestCase):
         self.assertEqual((minimum, specificity), (0.5, 0.5))
         self.assertEqual(len(errors), 2)
 
-    def test_schema1_requires_refresh(self) -> None:
+    def test_schema1_and_schema2_require_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "snapshot.json"
-            path.write_text(json.dumps({"schema": 1}), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "Refresh"):
-                snapshot.load_snapshot(path)
+            for old in (1, 2):
+                path.write_text(json.dumps({"schema": old}), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "Refresh"):
+                    snapshot.load_snapshot(path)
 
 
 class DefaultsTests(unittest.TestCase):

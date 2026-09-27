@@ -76,16 +76,26 @@ class CatalogDisease(TypedDict):
 
 
 class ExpressionRow(TypedDict):
+    """保存する発現の行。細胞の定数は Snapshot の cells にある。"""
+
     cell_id: str
-    cell: str
     median: float | None
-    specificity_score: NotRequired[float | None]
-    parent_id: NotRequired[str | None]
-    parent: NotRequired[str | None]
-    ancestor_ids: NotRequired[list[str]]
+    specificity_score: float | None
+
+
+class CellDefinition(TypedDict):
+    """細胞 1 つの定数。遺伝子が違っても同じなので 1 回だけ保存する。"""
+
+    name: str
+    parent_id: str | None
+    parent: str | None
+    ancestor_ids: list[str]
 
 
 class ExpressionMetadata(ExpressionRow):
+    """実行時の行。cells から引いた cell 名と、標的内の中央値を持つ。"""
+
+    cell: str
     target_median: float | None
 
 
@@ -120,6 +130,7 @@ class Snapshot(TypedDict):
     source: str
     diseases: list[Disease]
     records: list[DrugRecord]
+    cells: dict[str, CellDefinition]
     expression: dict[str, list[ExpressionRow]]
 
 
@@ -127,6 +138,7 @@ class AggregationSnapshot(TypedDict):
     schema: int
     diseases: NotRequired[list[Disease]]
     records: NotRequired[list[DrugRecord]]
+    cells: NotRequired[dict[str, CellDefinition]]
     expression: NotRequired[dict[str, list[ExpressionRow]]]
 
 
@@ -134,6 +146,7 @@ class CoreSnapshot(TypedDict):
     schema: int
     diseases: list[Disease]
     records: list[DrugRecord]
+    cells: dict[str, CellDefinition]
     expression: dict[str, list[ExpressionRow]]
 
 

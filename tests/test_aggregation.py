@@ -13,6 +13,7 @@ from autoimmune_atlas.aggregation import (
 )
 from autoimmune_atlas.models import (
     AggregationSnapshot,
+    CellDefinition,
     ExpressionRow,
     ExpressionStateInput,
 )
@@ -245,75 +246,33 @@ class AggregationTests(unittest.TestCase):
         )
 
     def test_catalog_uses_lineage_group_priority_and_keeps_every_cell(self) -> None:
+        definitions: list[tuple[str, str, str, str, list[str]]] = [
+            ("CD8_EFFECTOR", "A CD8 effector", "OTHER", "Other", ["CL_0000084", "CD8"]),
+            ("UNKNOWN_Z", "Zeta cell", "UNKNOWN_Z", "Zeta group", []),
+            ("CD4_MEMORY", "A CD4 memory", "OTHER", "Other", ["CL_0000084", "CD4"]),
+            ("B", "B cell", "CL_0000945", "B lineage", ["CL_0000945"]),
+            ("CD8", "CD8 T cell", "OTHER", "Other", ["CL_0000084"]),
+            ("UNKNOWN_A", "Alpha cell", "UNKNOWN_A", "Alpha group", []),
+            ("CD4", "CD4 T cell", "OTHER", "Other", ["CL_0000084"]),
+        ]
+        cell_table: dict[str, CellDefinition] = {
+            cell_id: {
+                "name": name,
+                "parent_id": parent_id,
+                "parent": parent,
+                "ancestor_ids": ancestors,
+            }
+            for cell_id, name, parent_id, parent, ancestors in definitions
+        }
         rows: list[ExpressionRow] = [
-            {
-                "cell_id": "CD8_EFFECTOR",
-                "cell": "A CD8 effector",
-                "median": 1,
-                "specificity_score": None,
-                "parent_id": "OTHER",
-                "parent": "Other",
-                "ancestor_ids": ["CL_0000084", "CD8"],
-            },
-            {
-                "cell_id": "UNKNOWN_Z",
-                "cell": "Zeta cell",
-                "median": 1,
-                "specificity_score": None,
-                "parent_id": "UNKNOWN_Z",
-                "parent": "Zeta group",
-                "ancestor_ids": [],
-            },
-            {
-                "cell_id": "CD4_MEMORY",
-                "cell": "A CD4 memory",
-                "median": 1,
-                "specificity_score": None,
-                "parent_id": "OTHER",
-                "parent": "Other",
-                "ancestor_ids": ["CL_0000084", "CD4"],
-            },
-            {
-                "cell_id": "B",
-                "cell": "B cell",
-                "median": 1,
-                "specificity_score": None,
-                "parent_id": "CL_0000945",
-                "parent": "B lineage",
-                "ancestor_ids": ["CL_0000945"],
-            },
-            {
-                "cell_id": "CD8",
-                "cell": "CD8 T cell",
-                "median": 1,
-                "specificity_score": None,
-                "parent_id": "OTHER",
-                "parent": "Other",
-                "ancestor_ids": ["CL_0000084"],
-            },
-            {
-                "cell_id": "UNKNOWN_A",
-                "cell": "Alpha cell",
-                "median": 1,
-                "specificity_score": None,
-                "parent_id": "UNKNOWN_A",
-                "parent": "Alpha group",
-                "ancestor_ids": [],
-            },
-            {
-                "cell_id": "CD4",
-                "cell": "CD4 T cell",
-                "median": 1,
-                "specificity_score": None,
-                "parent_id": "OTHER",
-                "parent": "Other",
-                "ancestor_ids": ["CL_0000084"],
-            },
+            {"cell_id": cell_id, "median": 1, "specificity_score": None}
+            for cell_id, *_ in definitions
         ]
         snapshot: AggregationSnapshot = {
-            "schema": 2,
+            "schema": 3,
             "diseases": [],
             "records": [],
+            "cells": cell_table,
             "expression": {"G": rows},
         }
 
@@ -334,7 +293,7 @@ class AggregationTests(unittest.TestCase):
             {cell["id"] for cell in cells}, {row["cell_id"] for row in rows}
         )
 
-        snapshot["expression"]["G"] = list(reversed(rows))
+        snapshot["cells"] = dict(reversed(list(cell_table.items())))
         self.assertEqual(cell_catalog(snapshot, "group"), groups)
         self.assertEqual(cell_catalog(snapshot, "cell"), cells)
 
@@ -412,22 +371,24 @@ class AggregationTests(unittest.TestCase):
                 ["CL_0000015"],
             ),
         ]
-        rows: list[ExpressionRow] = [
-            {
-                "cell_id": cell_id,
-                "cell": name,
-                "median": 1,
-                "specificity_score": None,
+        cells: dict[str, CellDefinition] = {
+            cell_id: {
+                "name": name,
                 "parent_id": parent_id,
                 "parent": parent,
                 "ancestor_ids": ancestors,
             }
             for cell_id, name, parent_id, parent, ancestors in definitions
+        }
+        rows: list[ExpressionRow] = [
+            {"cell_id": cell_id, "median": 1, "specificity_score": None}
+            for cell_id, *_ in definitions
         ]
         snapshot: AggregationSnapshot = {
-            "schema": 2,
+            "schema": 3,
             "diseases": [],
             "records": [],
+            "cells": cells,
             "expression": {"G": rows},
         }
 
@@ -453,11 +414,18 @@ class AggregationTests(unittest.TestCase):
             [cell_id for cell_id, *_ in definitions],
         )
 
-    def test_group_membership_must_be_consistent_across_targets(self) -> None:
+    def test_expression_cell_missing_from_cells_table_fails(self) -> None:
         snapshot = core_snapshot()
-        snapshot["expression"]["G2"][0]["ancestor_ids"] = []
-        with self.assertRaisesRegex(ValueError, "一貫"):
-            cell_catalog(snapshot)
+        snapshot["expression"]["G2"].append(
+            {"cell_id": "GHOST", "median": 1.0, "specificity_score": None}
+        )
+        with self.assertRaisesRegex(ValueError, "cells に無い"):
+            expression_metadata(snapshot)
+
+    def test_metadata_rows_carry_cell_name_from_cells_table(self) -> None:
+        metadata = expression_metadata(core_snapshot())
+        self.assertEqual(metadata["G1", "T4"]["cell"], "CD4 T cell")
+        self.assertEqual(metadata["G3", "X"]["cell"], "Novel cell")
 
     def test_invalid_modes_and_nonfinite_thresholds_fail(self) -> None:
         invalid_calls: tuple[tuple[str, Callable[[], object]], ...] = (

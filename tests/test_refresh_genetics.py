@@ -126,8 +126,8 @@ def _query_with_versions(versions: list[Mapping[str, object]]) -> object:
     return query
 
 
-def _fetch(target: str) -> tuple[str, list[Mapping[str, object]]]:
-    return target, [{"target_id": target}]
+def _fetch(target: str) -> tuple[str, list[Mapping[str, object]], dict[str, object]]:
+    return target, [{"target_id": target}], {}
 
 
 class RefreshGeneticsMainTests(unittest.TestCase):
