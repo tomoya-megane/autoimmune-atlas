@@ -10,6 +10,8 @@ from tempfile import TemporaryDirectory
 from typing import cast
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 from autoimmune_atlas.models import CellDefinition, DataVersion, ExpressionRow
 from autoimmune_atlas.refresh import (
     VERSION_QUERY,
@@ -23,6 +25,7 @@ from autoimmune_atlas.refresh import (
     main,
     merge_cells,
     normalize_drugs,
+    query_api,
     resolve_disease_ids,
     restrict_datasources,
     reusable_expression,
@@ -713,6 +716,45 @@ class MainTests(unittest.TestCase):
         ):
             self._run([VERSION, VERSION], fetch, save, directory)
         save.assert_not_called()
+
+
+def _graphql(bodies: list[httpx.Response]) -> httpx.MockTransport:
+    """応答を順に返す。要求の本文が GraphQL の形であることも確かめる。"""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        payload = cast(dict[str, object], json.loads(request.content))
+        assert set(payload) == {"query", "variables"}, payload
+        return bodies.pop(0)
+
+    return httpx.MockTransport(handle)
+
+
+class QueryApiTests(unittest.TestCase):
+    def test_returns_data_and_retries_transient_failures(self) -> None:
+        transport = _graphql(
+            [
+                httpx.Response(502),
+                httpx.Response(200, json={"data": {"meta": {"ok": True}}}),
+            ]
+        )
+        with patch("autoimmune_atlas.refresh.time.sleep"):
+            self.assertEqual(
+                query_api("query{meta}", transport=transport), {"meta": {"ok": True}}
+            )
+
+    def test_graphql_errors_and_missing_data_raise_after_retries(self) -> None:
+        for body in (
+            {"errors": [{"message": "bad"}]},
+            {"something": 1},
+            [1, 2],
+        ):
+            transport = _graphql([httpx.Response(200, json=body)] * 3)
+            with (
+                self.subTest(body=body),
+                patch("autoimmune_atlas.refresh.time.sleep"),
+                self.assertRaises(RuntimeError),
+            ):
+                query_api("query{meta}", transport=transport)
 
 
 if __name__ == "__main__":

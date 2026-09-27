@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import base64
-import http.client
 import json
 import math
-import os
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -14,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
-from urllib.parse import urlparse
 
+import httpx
 import msgspec
 
 from autoimmune_atlas.aggregation import (
@@ -252,6 +249,7 @@ _Query = Callable[[str, Mapping[str, object]], dict[str, object]]
 
 API_HOST = "api.platform.opentargets.org"
 API_PATH = "/api/v4/graphql"
+API_URL = f"https://{API_HOST}{API_PATH}"
 ROOT_ID = SCOPE_ROOTS[0][0]
 KNOWN_STAGES = STAGE_FILTERS["phase1"] | {
     "UNKNOWN",
@@ -281,38 +279,25 @@ VERSION_QUERY = "query{meta{dataVersion{year month iteration}}}"
 
 
 def query_api(
-    query: str, variables: Mapping[str, object] | None = None
+    query: str,
+    variables: Mapping[str, object] | None = None,
+    *,
+    transport: httpx.BaseTransport | None = None,
 ) -> dict[str, object]:
-    """proxy を含む既存の通信環境で照会し、不完全な応答を失敗として扱う。"""
-    proxy = urlparse(
-        os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY") or ""
-    )
+    """GraphQL を照会し、不完全な応答を失敗として扱う。3 回まで再試行する。
+
+    proxy は httpx が環境変数（HTTPS_PROXY、https_proxy）から読む。
+    transport はテストが偽の応答を差し込むためにある。
+    """
     for attempt in range(3):
-        connection = http.client.HTTPSConnection(
-            proxy.hostname or API_HOST,
-            proxy.port if proxy.hostname else 443,
-            timeout=45,
-        )
-        if proxy.hostname:
-            headers: dict[str, str] = {}
-            if proxy.username:
-                token = base64.b64encode(
-                    f"{proxy.username}:{proxy.password or ''}".encode()
-                ).decode()
-                headers["Proxy-Authorization"] = "Basic " + token
-            connection.set_tunnel(API_HOST, 443, headers)
         try:
-            connection.request(
-                "POST",
-                API_PATH,
-                json.dumps({"query": query, "variables": variables or {}}),
-                {"Content-Type": "application/json", "Accept": "application/json"},
-            )
-            response = connection.getresponse()
-            body = response.read()
-            if response.status != 200:
-                raise RuntimeError(f"Open Targets: HTTP {response.status}")
-            raw = cast(object, json.loads(body))
+            with httpx.Client(timeout=45, transport=transport) as client:
+                response = client.post(
+                    API_URL, json={"query": query, "variables": variables or {}}
+                )
+            if response.status_code != 200:
+                raise RuntimeError(f"Open Targets: HTTP {response.status_code}")
+            raw = cast(object, response.json())
             if not isinstance(raw, dict):
                 raise RuntimeError("Open Targets: response must be an object")
             payload = cast(dict[str, object], raw)
@@ -322,12 +307,10 @@ def query_api(
             if not isinstance(data, dict):
                 raise RuntimeError("Open Targets: data must be an object")
             return cast(dict[str, object], data)
-        except (OSError, http.client.HTTPException, ValueError, RuntimeError):
+        except (httpx.HTTPError, ValueError, RuntimeError):
             if attempt == 2:
                 raise
             time.sleep(attempt + 1)
-        finally:
-            connection.close()
     raise RuntimeError("Open Targets の照会が失敗しました")
 
 
@@ -835,7 +818,7 @@ def main() -> None:
         "roots": roots,
         "data_version": version,
         "retrieved_at": datetime.now(UTC).isoformat(),
-        "source": f"https://{API_HOST}{API_PATH}",
+        "source": API_URL,
         "diseases": sorted(diseases, key=lambda d: d["name"]),
         "records": list(records.values()),
         "associations": associations,
