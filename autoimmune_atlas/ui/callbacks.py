@@ -1,7 +1,7 @@
 """Dash アプリのコールバック。"""
 
 import math
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from functools import lru_cache
 from typing import TypedDict, cast
 
@@ -92,8 +92,11 @@ def _effective_number(
     default: float,
     label: str,
     maximum: float | None = None,
+    *,
+    minimum: float | None = None,
 ) -> tuple[float, str | None]:
     """空欄には初期値を使い、不正値は理由を示して初期値へ戻す。"""
+    lower = minimum if minimum is not None else 0
     if value is None or value == "":
         return default, None
     try:
@@ -103,17 +106,22 @@ def _effective_number(
     if (
         isinstance(value, bool)
         or not math.isfinite(number)
-        or number < 0
+        or number < lower
         or (maximum is not None and number > maximum)
     ):
         bound = (
-            f" between 0 and {maximum:g}" if maximum is not None else " at or above 0"
+            f" between {lower:g} and {maximum:g}"
+            if maximum is not None
+            else f" at or above {lower:g}"
         )
         return (
             default,
             f"{label[0].upper() + label[1:]} must be finite and{bound}; using {default:g}.",
         )
     return number, None
+
+
+effective_number = _effective_number
 
 
 def effective_filters(
@@ -174,7 +182,8 @@ def resolve_disease_selection(
     """表示中の疾患に限って、クリックまたは選択欄を受け付ける。"""
     selection = disease_id
     if (
-        triggered_id in {"target-heatmap", "drug-heatmap", "heatmap"}
+        triggered_id
+        in {"target-heatmap", "drug-heatmap", "heatmap", "genetics-heatmap"}
         and click_data
         and click_data.get("points")
     ):
@@ -182,6 +191,31 @@ def resolve_disease_selection(
         if isinstance(custom, (list, tuple)) and custom:
             selection = custom[0]
     return selection if selection in visible_ids else None
+
+
+def make_toggle(
+    valid_groups: set[str],
+) -> Callable[[list[int | None], list[str] | None], object]:
+    """行見出しのクリックで、大分類の展開を切り替える callback の本体を作る。"""
+
+    def toggle_cell_group(
+        _clicks: list[int | None], expanded: list[str] | None
+    ) -> object:
+        # Newly rendered buttons have zero clicks; only user clicks toggle a group.
+        triggered = cast(CellToggleId | str | None, ctx.triggered_id)
+        inputs_list = cast(list[list[dict[str, object]]], ctx.inputs_list)
+        if not isinstance(triggered, dict) or not any(
+            item["id"] == triggered and item.get("value") for item in inputs_list[0]
+        ):
+            return no_update
+        cell_id = triggered["cell"]
+        if cell_id not in valid_groups:
+            return no_update
+        expanded_set = set(expanded or ()) & valid_groups
+        expanded_set.symmetric_difference_update([cell_id])
+        return sorted(expanded_set)
+
+    return toggle_cell_group
 
 
 def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
@@ -215,29 +249,13 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             level="mixed",
         )
 
-    @application.callback(  # pyright: ignore[reportAny, reportUnknownMemberType] - Dash の callback デコレーターに型情報がない。
+    toggle_cell_group = make_toggle(heatmap_groups)
+    application.callback(  # pyright: ignore[reportUnknownMemberType] - Dash の callback メソッドの型が不完全である。
         Output("expanded-cell-groups", "data"),
         Input({"type": "heatmap-cell-toggle", "kind": ALL, "cell": ALL}, "n_clicks"),
         State("expanded-cell-groups", "data"),
         prevent_initial_call=True,
-    )
-    def toggle_cell_group(
-        _clicks: list[int | None], expanded: list[str] | None
-    ) -> object:
-        # Newly rendered buttons have zero clicks; only user clicks toggle a group.
-        triggered = cast(CellToggleId | str | None, ctx.triggered_id)
-        inputs_list = cast(list[list[dict[str, object]]], ctx.inputs_list)
-        if not isinstance(triggered, dict) or not any(
-            item["id"] == triggered and item.get("value") for item in inputs_list[0]
-        ):
-            return no_update
-        cell_id = triggered["cell"]
-        valid = heatmap_groups
-        if cell_id not in valid:
-            return no_update
-        expanded_set = set(expanded or ()) & valid
-        expanded_set.symmetric_difference_update([cell_id])
-        return sorted(expanded_set)
+    )(toggle_cell_group)
 
     application.callback(  # pyright: ignore[reportUnknownMemberType] - Dash の callback メソッドの型が不完全である。
         Output("expanded-expression-groups", "data"),

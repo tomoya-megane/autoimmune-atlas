@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from collections.abc import Iterator, Sequence
-from typing import Protocol, cast
+from pathlib import Path
+from typing import ClassVar, Protocol, TypedDict, cast, override
+
+from flask.testing import FlaskClient
 
 from autoimmune_atlas import genetics
 from autoimmune_atlas.models import DiseaseFamily, SummaryRow
 from autoimmune_atlas.ui import components, figures, genetics_layout
+from autoimmune_atlas.ui.application import create_app
+from autoimmune_atlas.ui.genetics_callbacks import effective_score
 from tests.genetics_fixture import genetics_snapshot
 from tests.test_genetics import snapshot as core_ui_snapshot
+
+ASSETS_PATH = Path(__file__).resolve().parents[1] / "assets"
 
 
 class _Title(Protocol):
@@ -224,3 +232,131 @@ class GeneticsLayoutTests(unittest.TestCase):
         self.assertEqual(cast(_Classed, cast(object, panel)).className, "empty-note")
         page = genetics_layout.genetics_unavailable_page("versions differ")
         self.assertIn("refresh-genetics", str(page))
+
+
+class _Dependency(Protocol):
+    component_id: str
+    component_property: str
+
+
+class _CallbackInput(TypedDict):
+    id: str
+    property: str
+
+
+class _CallbackDefinition(TypedDict):
+    inputs: list[_CallbackInput]
+    output: _Dependency | list[_Dependency]
+    state: list[_CallbackInput]
+
+
+class _Server(Protocol):
+    def test_client(self) -> FlaskClient: ...
+
+
+class _Application(Protocol):
+    callback_map: dict[str, _CallbackDefinition]
+    server: _Server
+
+
+class GeneticsCallbackTests(unittest.TestCase):
+    """HTTP 経由で遺伝子ページの比較図と詳細の callback を確かめる。"""
+
+    application: ClassVar[_Application]
+    client: ClassVar[FlaskClient]
+
+    @classmethod
+    @override
+    def setUpClass(cls) -> None:
+        app = create_app(
+            core_ui_snapshot(), assets_folder=ASSETS_PATH, genetics=genetics_snapshot()
+        )
+        cls.application = cast(_Application, cast(object, app))
+        cls.client = cls.application.server.test_client()
+
+    def _post(self, output_id: str, values: dict[str, object]) -> dict[str, object]:
+        """test_ui.py の CallbackTests._post と同じ形で callback を 1 回呼ぶ。"""
+        key = next(k for k in self.application.callback_map if output_id in k)
+        callback = self.application.callback_map[key]
+        outputs = callback["output"]
+        response = self.client.post(
+            "/_dash-update-component",
+            json={
+                "output": key,
+                "outputs": [
+                    {"id": o.component_id, "property": o.component_property}
+                    for o in outputs
+                ]
+                if isinstance(outputs, list)
+                else {
+                    "id": outputs.component_id,
+                    "property": outputs.component_property,
+                },
+                "inputs": [
+                    {**item, "value": values.get(f"{item['id']}.{item['property']}")}
+                    for item in callback["inputs"]
+                ],
+                "state": [
+                    {**item, "value": values.get(f"{item['id']}.{item['property']}")}
+                    for item in callback["state"]
+                ],
+                "changedPropIds": [
+                    f"{item['id']}.{item['property']}" for item in callback["inputs"]
+                ][:1],
+            },
+        )
+        try:
+            self.assertEqual(response.status_code, 200, response.get_data())
+            body = cast(dict[str, object], json.loads(response.get_data(as_text=True)))
+            return cast(dict[str, object], body["response"])
+        finally:
+            response.close()
+
+    def test_score_input_falls_back_below_floor_and_on_empty(self) -> None:
+        self.assertEqual(
+            effective_score(0.05),
+            (0.5, "Score threshold must be finite and between 0.1 and 1; using 0.5."),
+        )
+        self.assertEqual(effective_score(""), (0.5, None))
+        self.assertEqual(effective_score(0.3), (0.3, None))
+
+    def test_update_applies_parameters_and_details_follow(self) -> None:
+        applied = {
+            "genetics-measure": "count",
+            "genetics-score": 0.5,
+            "genetics-method": "fixed",
+            "genetics-threshold": 0.5,
+            "genetics-specificity": 0.5,
+            "genetics-diseases": ["D1", "D2"],
+        }
+        response = self._post(
+            "genetics-heatmap.figure",
+            {
+                "genetics-applied-parameters.data": applied,
+                "genetics-expanded-cell-groups.data": [],
+                "genetics-chart-type.value": "heatmap",
+            },
+        )
+        heatmap = cast(dict[str, dict[str, object]], response["genetics-heatmap"])
+        data = cast(list[dict[str, object]], heatmap["figure"]["data"])
+        self.assertEqual(data[0]["x"], ["Disease one", "Disease two"])
+        note = cast(dict[str, object], response["genetics-matrix-note"])["children"]
+        self.assertIn("Score threshold", json.dumps(note))
+        details = self._post(
+            "genetics-details.children",
+            {
+                "genetics-detail-disease.value": "D1",
+                "genetics-applied-parameters.data": applied,
+            },
+        )
+        self.assertIn(
+            "Genetically associated genes for Disease one", json.dumps(details)
+        )
+        empty = self._post(
+            "genetics-details.children",
+            {
+                "genetics-detail-disease.value": "D2",
+                "genetics-applied-parameters.data": applied,
+            },
+        )
+        self.assertIn("No genes at or above the score threshold", json.dumps(empty))
