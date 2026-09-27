@@ -656,6 +656,53 @@ class MainTests(unittest.TestCase):
         expression = cast(dict[str, list[dict[str, object]]], payload["expression"])
         self.assertEqual(expression["G1"][0]["median"], 7.0)
 
+    def test_reuse_and_fetch_mix_and_cells_match(self) -> None:
+        fetch, save = MagicMock(side_effect=_fetch), MagicMock()
+        with TemporaryDirectory() as directory:
+            (Path(directory) / "snapshot.json").write_text(
+                json.dumps(
+                    {
+                        "schema": 2,
+                        "data_version": VERSION,
+                        "expression": {"G1": [SCHEMA2_ROW]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self._run([VERSION, VERSION], fetch, save, directory)
+        self.assertEqual([c.args[0] for c in fetch.call_args_list], ["G2", "G3"])
+        payload = cast(dict[str, object], save.call_args.args[1])
+        self.assertEqual(
+            sorted(cast(dict[str, object], payload["expression"])), ["G1", "G2", "G3"]
+        )
+        self.assertEqual(payload["cells"], {"C1": CELL})
+
+    def test_saved_cells_are_limited_to_saved_expression(self) -> None:
+        row = {"cell_id": "C1", "median": 1.0, "specificity_score": None}
+        fetch, save = MagicMock(side_effect=_fetch), MagicMock()
+        with TemporaryDirectory() as directory:
+            (Path(directory) / "snapshot.json").write_text(
+                json.dumps(
+                    {
+                        "schema": 3,
+                        "data_version": VERSION,
+                        "cells": {"C1": CELL, "C9": {**CELL, "name": "extra"}},
+                        "expression": {
+                            "G1": [row],
+                            "G2": [row],
+                            "G3": [row],
+                            "GX": [{**row, "cell_id": "C9"}],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self._run([VERSION, VERSION], fetch, save, directory)
+        fetch.assert_not_called()
+        payload = cast(dict[str, object], save.call_args.args[1])
+        self.assertEqual(payload["cells"], {"C1": CELL})
+        self.assertNotIn("GX", cast(dict[str, object], payload["expression"]))
+
     def test_other_version_is_refetched(self) -> None:
         fetch, save = MagicMock(side_effect=_fetch), MagicMock()
         with TemporaryDirectory() as directory:
@@ -684,7 +731,7 @@ class MainTests(unittest.TestCase):
             self._run([VERSION, later], fetch, save, directory)
         save.assert_not_called()
 
-    def test_failed_association_paging_saves_nothing(self) -> None:
+    def test_error_before_fetch_skips_fetch_and_save(self) -> None:
         fetch, save = MagicMock(side_effect=_fetch), MagicMock()
         with (
             TemporaryDirectory() as directory,

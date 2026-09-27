@@ -46,7 +46,7 @@ ACPA 陽性関節リウマチのようなサブタイプは、疾患の選択欄
 `orderByScore: "genetic_association"` の並びは、genetic association のスコアを持つ遺伝子を降順に置き、スコアを持たない遺伝子をその後ろに置く。
 関節リウマチで確かめたところ、全件を取って数えた 0.1 以上の件数と、並べて 0.1 を下回るまで数えた件数が一致した。
 
-`snapshot.json` が無いか読めないときは、遺伝子ページに「Refresh the data with pixi run refresh」と表示し、比較図を出さない。
+`snapshot.json` が無いか読めないときは、遺伝子ページに「Refresh the data with pixi run refresh, then restart the app.」と表示し、比較図を出さない。
 薬剤ページも同じ理由で出ない。
 
 遺伝子ごとの代表的な根拠（GWAS の study、L2G スコア、変異）は初期版では保存しない。

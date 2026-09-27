@@ -789,6 +789,8 @@ def main() -> None:
         target_id: reused[target_id] for target_id in target_ids if target_id in reused
     }
     needed = [target_id for target_id in target_ids if target_id not in expression]
+    # 今回保存しない遺伝子を含む reused を、長い取得のあいだ持ち続けないように消す。
+    del reused
     print(
         f"細胞型別発現: 再利用 {len(expression)} / 取得 {len(needed)} / 全体 {len(target_ids)}",
         flush=True,
@@ -800,13 +802,15 @@ def main() -> None:
             expression[target] = rows
             merge_cells(cells, found)
             print(f"細胞型別発現: {index}/{len(needed)}", flush=True)
-    unknown_cells = {
-        row["cell_id"] for rows in expression.values() for row in rows
-    } - set(cells)
+    used_cells = {row["cell_id"] for rows in expression.values() for row in rows}
+    unknown_cells = used_cells - set(cells)
     if unknown_cells:
         raise ValueError(
             f"cells に無い細胞 ID が発現にあります: {sorted(unknown_cells)[:5]}"
         )
+    # 再利用した古いファイルには、今回保存しない遺伝子の細胞も入りうる。
+    # expression_metadata() は cells の全部を参照細胞と見なすので、保存する発現が使う細胞に絞る。
+    cells = {cell_id: cells[cell_id] for cell_id in sorted(used_cells)}
     final_version = msgspec.convert(query_api(VERSION_QUERY), _VersionResponse)["meta"][
         "dataVersion"
     ]
