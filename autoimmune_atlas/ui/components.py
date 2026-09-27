@@ -122,7 +122,9 @@ def _disease_tree(
     return top, children
 
 
-def disease_checklist_sections(family: DiseaseFamily) -> list[DiseaseSection]:
+def disease_checklist_sections(
+    family: DiseaseFamily, prefix: str = ""
+) -> list[DiseaseSection]:
     """疾患本体と各階層の選択欄を、描画と同期で同じ範囲に分ける。
 
     子を持つ語は、ファミリーと同じ形にする。
@@ -134,13 +136,13 @@ def disease_checklist_sections(family: DiseaseFamily) -> list[DiseaseSection]:
     members = {d["id"]: d for d in family["diseases"]}
     root = family["id"] if family["id"] in members else None
 
-    def section_id(prefix: str, node: str) -> str:
+    def section_id(kind: str, node: str) -> str:
         suffix = "" if node == root else f"-{node}"
-        return f"{prefix}-{family['id']}{suffix}"
+        return f"{prefix}{kind}-{family['id']}{suffix}"
 
     sections: list[DiseaseSection] = [
         {
-            "id": f"disease-family-{family['id']}",
+            "id": f"{prefix}disease-family-{family['id']}",
             "diseases": [members[d] for d in top if d == root or not children[d]],
             "node": None,
             "kind": "self",
@@ -173,14 +175,14 @@ def disease_checklist_sections(family: DiseaseFamily) -> list[DiseaseSection]:
 
 
 def _disease_family_selector(
-    family: DiseaseFamily, selected_ids: set[str]
+    family: DiseaseFamily, selected_ids: set[str], prefix: str = ""
 ) -> tuple[list[dict[str, str]], Component]:
     """1つの疾患ファミリーの選択肢と階層表示を組み立てる。"""
     choices = [
         {"label": disease["name"], "value": disease["id"]}
         for disease in family["diseases"]
     ]
-    sections = disease_checklist_sections(family)
+    sections = disease_checklist_sections(family, prefix)
     top, children = _disease_tree(family)
     root = (
         family["id"]
@@ -257,7 +259,9 @@ def _disease_family_selector(
     return choices, component
 
 
-def disease_selector(snapshot: Snapshot, selected: Iterable[str] | None) -> html.Div:
+def disease_selector(
+    snapshot: Snapshot, selected: Iterable[str] | None, prefix: str = ""
+) -> html.Div:
     """検索欄と、群から開けるチェック欄を同じ選択へ結び付ける。"""
     catalog: list[DiseaseCatalogGroup] = disease_catalog(snapshot)
     selected_ids = set(selected or ())
@@ -266,7 +270,7 @@ def disease_selector(snapshot: Snapshot, selected: Iterable[str] | None) -> html
     for group in catalog:
         families: list[Component] = []
         for family in group["families"]:
-            choices, component = _disease_family_selector(family, selected_ids)
+            choices, component = _disease_family_selector(family, selected_ids, prefix)
             options.extend(choices)
             families.append(component)
         groups.append(
@@ -281,9 +285,9 @@ def disease_selector(snapshot: Snapshot, selected: Iterable[str] | None) -> html
         [
             html.Div(
                 [
-                    html.Label("Diseases", htmlFor="diseases"),
+                    html.Label("Diseases", htmlFor=f"{prefix}diseases"),
                     info_tip(
-                        "diseases",
+                        f"{prefix}diseases",
                         "diseases",
                         "Diseases sets which diseases the comparison includes. Each checkbox selects one disease; selecting a parent does not select its children. The disease groups are navigation aids, not a diagnostic classification. Search by name or browse the disease groups, then click Update.",
                     ),
@@ -291,7 +295,7 @@ def disease_selector(snapshot: Snapshot, selected: Iterable[str] | None) -> html
                 className="label-help",
             ),
             dcc.Dropdown(
-                id="diseases",
+                id=f"{prefix}diseases",
                 options=options,
                 value=ordered_disease_ids(snapshot, list(selected_ids)),
                 multi=True,
@@ -320,9 +324,9 @@ def heatmap_row_controls(
         html.Button(
             names[cell_id],
             id={
-                "type": "expression-cell-toggle"
-                if kind == "expression"
-                else "heatmap-cell-toggle",
+                "type": "heatmap-cell-toggle"
+                if kind in ("target", "drug")
+                else f"{kind}-cell-toggle",
                 "kind": kind,
                 "cell": cell_id,
             },

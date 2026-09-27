@@ -36,7 +36,7 @@ type MetricValueKey = Literal["drug_percent", "drug_count", "percent", "count"]
 type UnknownKey = Literal["unknown_drugs", "unknown"]
 type DenominatorKey = Literal["drug_denominator", "denominator"]
 type Measure = Literal["percent", "count"]
-type Kind = Literal["target", "drug"]
+type Kind = Literal["target", "drug", "gene"]
 type ExpressionInput = ExpressionMetadata | ExpressionStateInput
 type ExpressionRecord = DrugRecord | FilteredRecord | EvidenceTableRow | TargetRecord
 
@@ -167,12 +167,27 @@ def display_value(row: SummaryRow, measure: Measure, kind: Kind = "target") -> s
     return "≥" + rendered if _is_lower_bound(row, measure, kind) else rendered
 
 
+def _kind_label(kind: Kind) -> str:
+    return {"drug": "Canonical drugs", "gene": "Genes"}.get(kind, "Targets")
+
+
+def _coverage_lines(row: SummaryRow, kind: Kind) -> list[str]:
+    """薬剤の網羅性の行。遺伝子には網羅性の概念が無いので出さない。"""
+    if kind == "gene":
+        return []
+    return [
+        f"Canonical drugs with targets / all canonical drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}"
+    ]
+
+
 def hover_text(row: SummaryRow, measure: Measure, kind: Kind) -> str:
     value_key, unknown_key, denominator_key = measure_fields(kind, measure)
     value = display_value(row, measure, kind) or "missing"
-    label = "Canonical drugs" if kind == "drug" else "Targets"
+    label = _kind_label(kind)
     if row["status"] == "unavailable":
         assessment = "Disease data not loaded"
+    elif kind == "gene" and row.get(denominator_key, 0) == 0:
+        assessment = "No genes at or above the score threshold"
     elif measure == "percent" and row.get(denominator_key, 0) == 0:
         assessment = "No eligible items in the percentage denominator"
     elif _is_lower_bound(row, measure, kind):
@@ -195,7 +210,7 @@ def hover_text(row: SummaryRow, measure: Measure, kind: Kind) -> str:
             ),
             f"Denominator: {row.get(denominator_key, 0)}",
             f"Unresolved in denominator: {row.get(unknown_key, 0)}",
-            f"Canonical drugs with targets / all canonical drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
+            *_coverage_lines(row, kind),
         )
     )
 
@@ -205,9 +220,11 @@ def dot_hover_text(row: SummaryRow, kind: Kind) -> str:
     _, unknown_key, denominator_key = measure_fields(kind, "percent")
     count = display_value(row, "count", kind) or "missing"
     percent = display_value(row, "percent", kind) or "missing"
-    label = "Canonical drugs" if kind == "drug" else "Targets"
+    label = _kind_label(kind)
     if row["status"] == "unavailable":
         assessment = "Disease data not loaded"
+    elif kind == "gene" and row.get(denominator_key, 0) == 0:
+        assessment = "No genes at or above the score threshold"
     elif row.get(denominator_key, 0) == 0:
         assessment = "No eligible items in the percentage denominator"
     elif _is_lower_bound(row, "count", kind) or _is_lower_bound(row, "percent", kind):
@@ -229,7 +246,7 @@ def dot_hover_text(row: SummaryRow, kind: Kind) -> str:
             assessment,
             f"Denominator: {row.get(denominator_key, 0)}",
             f"Unresolved in denominator: {row.get(unknown_key, 0)}",
-            f"Canonical drugs with targets / all canonical drugs: {row.get('mapped_drugs', 0)} / {row.get('total_drugs', 0)}",
+            *_coverage_lines(row, kind),
         )
     )
 
@@ -292,7 +309,7 @@ def build_figure(
     color_max = max(values, default=1)
     if color_min == color_max:
         color_min, color_max = 0, max(1, color_max)
-    title = "Canonical drugs" if kind == "drug" else "Targets"
+    title = _kind_label(kind)
     figure = go.Figure(
         go.Heatmap(
             x=[disease_names.get(item, item) for item in disease_ids],
@@ -436,7 +453,7 @@ def build_dot_figure(
     color_max = max(scale_percents, default=1)
     if color_min == color_max:
         color_min, color_max = 0, max(1, color_max)
-    title = "Canonical drugs" if kind == "drug" else "Targets"
+    title = _kind_label(kind)
     has_values = bool(x)
     value_x = x if has_values else [None, None]
     value_y = y if has_values else [None, None]
