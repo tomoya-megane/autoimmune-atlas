@@ -574,6 +574,11 @@ def _percent(positives: set[str], unknown: set[str], denominator: int) -> float 
     return None if unknown else 0
 
 
+# genetics.py が同じ三値の集約と割合の規則を使うための公開名。
+aggregate_states = _aggregate
+percent_of = _percent
+
+
 def summarize(
     snapshot: SnapshotInput,
     modality: str,
