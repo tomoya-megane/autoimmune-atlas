@@ -123,6 +123,16 @@ schema 2 の行からは `cell_id`、`median`、`specificity_score` だけを取
 - 実データで、schema 3 の `snapshot.json` の大きさ、起動時のメモリ、起動時間を測り、ここに書く
 - 実ブラウザーで、閾値 0 のときに関節リウマチの分母がスコアを持つ遺伝子の数（版 26.09 で 697）になること
 
+版 26.09 で測った結果は次のとおりである。
+`snapshot.json` は 96 MB で、schema 2 の 2 ファイル（`snapshot.json` 101 MB と `genetics.json` 521 MB）の 6 分の 1 になった。
+読み込みに 0.2 秒、画面の構成に 1.1 秒かかり、プロセスのメモリは 0.97 GB だった。
+schema 2 のときは、2 つのファイルを読むとメモリが約 3 GB、画面の構成を作り始めるまでに約 9 秒かかっていた。
+再利用が働き、7,299 遺伝子のうち 4,913 遺伝子を既存の 2 ファイルから取り、取得したのは 2,386 遺伝子だった。
+関連遺伝子と発現の取得を合わせて 18 分で終わった。
+genetic association に属する datasource は 5 つ（`eva`、`gene_burden`、`gwas_credible_sets`、`orphanet`、`uniprot_variants`）だった。
+関節リウマチの閾値 0 の分母は 697 で、`associations` の配列の長さと一致した。
+閾値 0.02 でも同じ 697 で、入力欄は 0.01 刻みの値を受け付けた。
+
 ## 根拠
 
 - [Open Targets: association scores](https://platform-docs.opentargets.org/associations)：genetic association の datatype スコアと datasource スコア
