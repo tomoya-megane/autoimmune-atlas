@@ -527,6 +527,7 @@ def collect_associations(
     for disease_id in disease_ids:
         genes: list[GeneAssociation] = []
         index = 0
+        received = 0
         while True:
             response = msgspec.convert(
                 query(
@@ -563,7 +564,10 @@ def collect_associations(
                     }
                 )
             index += 1
-            if stop or index * PAGE_SIZE >= block["count"]:
+            received += len(block["rows"])
+            # 受け取った行数で終わりを判定する。ページ数で判定すると、総件数が 1 ページに
+            # 収まる疾患で 1 ページ目が空でも止まってしまい、空の配列を保存する。
+            if stop or received >= block["count"]:
                 break
             if not block["rows"]:
                 # HTTP と GraphQL が成功しても、ページが途中で切れることがある。保存させない。

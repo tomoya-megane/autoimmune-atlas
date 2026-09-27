@@ -357,6 +357,16 @@ class AssociationTests(unittest.TestCase):
         ):
             collect_associations(truncated, ["D1"])
 
+    def test_empty_first_page_below_page_size_fails(self) -> None:
+        # count が 1 ページに収まる疾患で 1 ページ目が空で返っても、空の配列を保存しない。
+        def empty(query: str, variables: Mapping[str, object]) -> dict[str, object]:
+            if "associatedTargets" in query:
+                return {"disease": {"associatedTargets": {"count": 10, "rows": []}}}
+            return fake_query(query, variables)
+
+        with self.assertRaisesRegex(ValueError, "途中のページが空"):
+            collect_associations(empty, ["D1"])
+
     def test_datasources_are_classified_by_one_evidence_each(self) -> None:
         associations = collect_associations(fake_query, ["D1"])
         datasources = classify_datasources(fake_query, associations)
