@@ -13,7 +13,7 @@ from flask.testing import FlaskClient
 
 from autoimmune_atlas import genetics
 from autoimmune_atlas.models import DiseaseFamily, SummaryRow
-from autoimmune_atlas.ui import components, figures, genetics_layout, layout
+from autoimmune_atlas.ui import components, drugs_layout, figures, genetics_layout
 from autoimmune_atlas.ui.application import create_app
 from autoimmune_atlas.ui.genetics_callbacks import effective_score
 from tests.test_genetics import snapshot as core_ui_snapshot
@@ -472,7 +472,7 @@ class RouterTests(unittest.TestCase):
         self.assertIn("snapshot is not available", json.dumps(_layout_json(app)))
 
     def test_nav_marks_current_page(self) -> None:
-        drug = layout.dashboard_layout(core_ui_snapshot())
+        drug = drugs_layout.dashboard_layout(core_ui_snapshot())
         links = _page_links(drug)
         self.assertEqual([cast(_Linked, c).href for c in links], ["/", "/genetics"])
         self.assertTrue(all(isinstance(c, dcc.Link) for c in links))

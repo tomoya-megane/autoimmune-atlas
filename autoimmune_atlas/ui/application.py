@@ -5,10 +5,10 @@ from pathlib import Path
 from dash import Dash, Input, Output, dcc, html
 
 from autoimmune_atlas.models import Snapshot
-from autoimmune_atlas.ui.callbacks import register_callbacks
+from autoimmune_atlas.ui.drugs_callbacks import register_callbacks
+from autoimmune_atlas.ui.drugs_layout import dashboard_layout, unavailable_layout
 from autoimmune_atlas.ui.genetics_callbacks import register_genetics_callbacks
 from autoimmune_atlas.ui.genetics_layout import genetics_page, genetics_unavailable_page
-from autoimmune_atlas.ui.layout import dashboard_layout, unavailable_layout
 
 NO_SNAPSHOT = "The snapshot is not available, so the genetics page cannot be shown."
 

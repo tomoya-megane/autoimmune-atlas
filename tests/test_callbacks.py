@@ -18,9 +18,9 @@ from autoimmune_atlas.models import (
 )
 from autoimmune_atlas.ui import (
     application,
-    callbacks,
     components,
     config,
+    drugs_callbacks,
     figures,
 )
 from tests.ui_fixture import (
@@ -562,7 +562,7 @@ class CallbackTests(unittest.TestCase):
         )
         values[("expanded-expression-groups", "data")] = ["group:CL_B_GROUP"]
         with patch.object(
-            callbacks,
+            drugs_callbacks,
             "expression_figure",
             side_effect=AssertionError("Expansion recomputed expression"),
         ):
@@ -597,7 +597,7 @@ class CallbackTests(unittest.TestCase):
         )
         values[("expression-chart-type", "value")] = "dot"
         with patch.object(
-            callbacks,
+            drugs_callbacks,
             "expression_figure",
             side_effect=AssertionError("Chart switch recomputed expression"),
         ):

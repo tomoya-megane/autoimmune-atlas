@@ -28,13 +28,14 @@ autoimmune_atlas/
 ├── snapshot.py                保存済みデータの読み込みと検証
 └── ui/
     ├── application.py         Dash アプリの組み立てとページの切り替え
-    ├── callbacks.py           画面操作への応答
     ├── components.py          再利用する画面部品と上部バー
     ├── config.py              画面で共有する固定値
+    ├── controls.py            両ページの callback が共有する入力値の検証と行の切り替え
+    ├── drugs_callbacks.py     薬剤ページの画面操作への応答
+    ├── drugs_layout.py        薬剤ページの初期画面と詳細欄の配置
     ├── figures.py             比較図と発現図
     ├── genetics_callbacks.py  遺伝子ページの画面操作への応答
-    ├── genetics_layout.py     遺伝子ページの初期画面と詳細欄の配置
-    └── layout.py              初期画面と詳細欄の配置
+    └── genetics_layout.py     遺伝子ページの初期画面と詳細欄の配置
 assets/                        CSS、JavaScript、アイコン
 ├── help.js                    ツールチップの位置調整と Escape キー
 └── router.js                  ページ切り替え後の図の再描画

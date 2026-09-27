@@ -16,13 +16,6 @@ from autoimmune_atlas.models import (
     SummaryRow,
     TargetRecord,
 )
-from autoimmune_atlas.ui.callbacks import (
-    NumberInput,
-    ParameterValue,
-    effective_filters,
-    effective_number,
-    make_toggle,
-)
 from autoimmune_atlas.ui.components import (
     disease_checklist_sections,
     heatmap_row_controls,
@@ -32,6 +25,13 @@ from autoimmune_atlas.ui.config import (
     DEFAULT_SCORE_THRESHOLD,
     GENETICS_PARAMETER_IDS,
     METHOD_LABELS,
+)
+from autoimmune_atlas.ui.controls import (
+    NumberInput,
+    ParameterValue,
+    effective_filters,
+    effective_number,
+    make_toggle,
 )
 from autoimmune_atlas.ui.figures import (
     Measure,

@@ -14,7 +14,13 @@ from autoimmune_atlas.models import (
     Snapshot,
     SummaryRow,
 )
-from autoimmune_atlas.ui.components import disease_selector, info_tip, page_nav
+from autoimmune_atlas.ui.components import (
+    choose_defaults,
+    disease_selector,
+    format_data_version,
+    info_tip,
+    page_nav,
+)
 from autoimmune_atlas.ui.config import (
     DEFAULT_DISEASE_TERMS,
     DEFAULT_EXPRESSION_THRESHOLD,
@@ -24,7 +30,6 @@ from autoimmune_atlas.ui.config import (
     METHOD_LABELS,
     SOURCE_PAGE_SIZE,
 )
-from autoimmune_atlas.ui.layout import choose_defaults, format_data_version
 
 OPEN_TARGETS = "https://platform.opentargets.org/"
 

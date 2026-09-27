@@ -1,7 +1,7 @@
 """Dash の再利用可能な画面部品。"""
 
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 
 import dash_ag_grid as dag  # pyright: ignore[reportMissingTypeStubs] - dash-ag-grid に型スタブがない。
 from dash import dcc, html
@@ -17,6 +17,59 @@ from autoimmune_atlas.models import (
     Snapshot,
 )
 from autoimmune_atlas.ui.config import SOURCE_PAGE_SIZE
+
+
+def choose_defaults(
+    items: Sequence[tuple[str, str]],
+    terms: Iterable[str],
+    limit: int,
+    preferred_ids: Collection[str] | None = None,
+) -> list[str]:
+    """名前と実データの有無から、存在する項目だけを初期選択する。"""
+    selected: list[str] = []
+    terms = list(terms)
+    names = {item_id: name.casefold() for item_id, name in items}
+    # 完全一致した語は、部分一致で別の用語を足さない。
+    exact_terms: set[str] = set()
+    for term in terms:
+        exact = next(
+            (item_id for item_id, name in names.items() if name == term.casefold()),
+            None,
+        )
+        if exact is not None:
+            exact_terms.add(term)
+            if exact not in selected:
+                selected.append(exact)
+    for term in terms:
+        if term in exact_terms:
+            continue
+        for item_id, name in items:
+            if term.casefold() in name.casefold() and item_id not in selected:
+                selected.append(item_id)
+                break
+    preferred = preferred_ids or set()
+    for item_id, _ in sorted(items, key=lambda item: item[0] not in preferred):
+        if len(selected) >= limit:
+            break
+        if item_id not in selected:
+            selected.append(item_id)
+    return selected[:limit]
+
+
+def format_data_version(value: object) -> str:
+    """Open Targets の版を画面で使える短い文字列にする。"""
+    if not isinstance(value, dict):
+        return str(value or "")
+    version = cast(dict[str, object], value)
+    return ".".join(
+        str(part)
+        for part in (
+            version.get("year"),
+            version.get("month"),
+            version.get("iteration"),
+        )
+        if part is not None
+    )
 
 
 class DiseaseSection(TypedDict):

@@ -17,10 +17,10 @@ from autoimmune_atlas.models import (
     TargetRecord,
 )
 from autoimmune_atlas.ui import (
-    callbacks,
     components,
+    drugs_callbacks,
+    drugs_layout,
     figures,
-    layout,
 )
 from tests.ui_fixture import (
     JsonValue,
@@ -77,7 +77,7 @@ class EvidenceTests(unittest.TestCase):
     @override
     def setUp(self) -> None:
         self.snapshot = fixture()
-        self.rows = callbacks.visible_rows(
+        self.rows = drugs_callbacks.visible_rows(
             self.snapshot, "all", 0.5, ["MONDO_RA_TEST"], ["CL_B_GROUP"]
         )
 
@@ -96,7 +96,7 @@ class EvidenceTests(unittest.TestCase):
             }
         )
         all_rows = atlas.summarize(self.snapshot, "all", 0.5, level="all")
-        panel = layout.detail_panel(all_rows, "MONDO_RA_TEST", self.snapshot)
+        panel = drugs_layout.detail_panel(all_rows, "MONDO_RA_TEST", self.snapshot)
         self.assertNotIn("Drug–target pairs", str(panel))
         self.assertNotIn("Targets meeting rule in any source cell", str(panel))
         self.assertNotIn("rheumatoid arthritis · all source cell types", str(panel))
@@ -520,7 +520,7 @@ class EvidenceTests(unittest.TestCase):
         )
 
     def test_detail_expression_markers_use_applied_rule(self) -> None:
-        panel = layout.detail_panel(
+        panel = drugs_layout.detail_panel(
             self.rows, "MONDO_RA_TEST", self.snapshot, method="specificity"
         )
         panel_children = _component_list(panel)
