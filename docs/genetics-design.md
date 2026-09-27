@@ -2,7 +2,7 @@
 
 薬剤の標的の代わりに、Open Targets の genetic association で疾患と結びついた遺伝子を使って、同じ細胞型別の比較を別ページに表示する。
 この文書は、遺伝学的関連遺伝子のページの設計である。
-[現行の設計](design.md)は、遺伝子集合の定め方、保存の形、表示の規則についてこの文書を参照する。
+[現行の設計](design.md)は、遺伝子集合の定め方と表示の規則についてこの文書を参照し、保存の形は[保存データの形と取得の手順](data.md)にある。
 
 薬剤ページは「疾患 → 臨床開発された薬剤 → 標的遺伝子 → 健常参照での細胞型別発現」を比較する。
 遺伝子ページはこの鎖の前半を「疾患 → 遺伝学的に関連する遺伝子」に置き換え、後半の発現データ、3 つの発現基準、細胞の大分類と展開、実数と割合の表示規則をそのまま使う。
@@ -31,32 +31,16 @@ ACPA 陽性関節リウマチのようなサブタイプは、疾患の選択欄
 未取得（not loaded）とは理由を分ける。
 確かめた範囲では、pemphigus と dermatomyositis がこれにあたる。
 
-## データは snapshot.json に保存し、下限を設けない
+## 関連遺伝子は snapshot.json から読み、代表の根拠は持たない
 
 関連遺伝子は `pixi run refresh` が薬剤の記録と一緒に取得し、`data/snapshot.json` の `associations` と `datasources` に保存する。
-保存の形と取得の手順は[保存データの統合と一括取得の設計](snapshot-design.md)にある。
-初期版では `data/genetics.json` を別に置き、スコア 0.1 以上だけを保存していた。
-2 つのファイルの版を突き合わせる手間と、下限のせいで弱い関連が見えないことが分かったので、1 ファイルに戻し、下限を無くした。
-
-取得の規則は次のとおり。
-
-- 疾患ごとに `Disease.associatedTargets(enableIndirect: false, orderByScore: "genetic_association")` を 500 件ずつ取得し、genetic association のスコアを持たない遺伝子に当たった時点でその疾患のページングを止める。総件数に達する前に空のページが返れば失敗にし、保存しない
-- 遺伝子ごとに、`datatypeScores` の genetic association のスコアと、`datasourceScores` のうち genetic association に属する datasource のスコアを保存する。どの datasource が genetic association に属するかは、取得した結果から決める。全疾患の `datasourceScores` に現れた datasource ID ごとに、それを持つ疾患と遺伝子の組を 1 つ選び、`Disease.evidences(ensemblIds: [遺伝子], datasourceIds: [datasource], size: 1)` で根拠を 1 件取り、その `datatypeId` が `genetic_association` のものだけを残す。datasource の一覧をコードに書かないのは、版が上がって datasource が増えても取りこぼさないためである。API の `associationDatasources` は版 26.09 で空の配列を返したので、使わない
-
-`orderByScore: "genetic_association"` の並びは、genetic association のスコアを持つ遺伝子を降順に置き、スコアを持たない遺伝子をその後ろに置く。
-関節リウマチで確かめたところ、全件を取って数えた 0.1 以上の件数と、並べて 0.1 を下回るまで数えた件数が一致した。
-
+取得の規則と保存の形は[保存データの形と取得の手順](data.md)にある。
 `snapshot.json` が無いか読めないときは、遺伝子ページに「Refresh the data with pixi run refresh, then restart the app.」と表示し、比較図を出さない。
-薬剤ページも同じ理由で出ない。
 
 遺伝子ごとの代表的な根拠（GWAS の study、L2G スコア、変異）は初期版では保存しない。
 根拠の行は疾患と遺伝子の組ごとに数十件あり、疾患全体では数万件になる。
 代表 1 件を選ぶと、それが疾患関連スコアの唯一の根拠と読まれる。
 詳細の表からは Open Targets の evidence ページ（`/evidence/<遺伝子 ID>/<疾患 ID>`）へリンクし、根拠はそこで読む。
-
-初期版の `genetics.json` は `snapshot.json` のおよそ 5 倍の大きさで、2 つのファイルを読むとプロセスのメモリは約 3 GB まで増え、画面の構成を作り始めるまでに約 9 秒かかった。
-発現の行ごとに、細胞で決まる値（`ancestor_ids`、`parent`、`cell`）を繰り返し持っていたためである。
-schema 3 で細胞の表を 1 回だけ持つようにした結果は、[保存データの統合と一括取得の設計](snapshot-design.md)の「検証」にある。
 
 ## 集計は発現判定と細胞分類だけを共有する
 

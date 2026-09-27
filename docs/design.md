@@ -51,8 +51,7 @@ Open Targets は[複数の親と祖先を持つ疾患階層](https://community.o
 Hailey-Hailey disease と MASS syndrome は病型としての配置を保留し、`UNCLASSIFIED_IDS` で `Other / unclassified` に残す。
 親情報がない既存データや、新しく増えた分類先不明の用語も同じ欄に残し、比較対象から落とさない。
 
-`autoimmune_atlas/refresh.py` は薬剤情報と一緒に疾患の親 ID を保存する。
-既存スナップショットには同じ Open Targets の版から親 ID だけを補い、薬剤記録と発現データは変えていない。
+疾患の親 ID を含め、スナップショットが保存する値は[保存データの形と取得の手順](data.md)にある。
 分類を保守するときは、起点 ID、全疾患の配置先、独立して表示すべき疾患を確認し、`tests/test_disease_catalog.py` の回帰テストも更新する。
 
 臨床段階は薬剤全体の段階ではなく、疾患と薬剤の組合せで到達した最高段階を使う。
@@ -282,14 +281,11 @@ CPM はドナー間中央値として表示し、生カウントと誤読され�
 
 画面は英語、コードのコメント・docstring・設計ノートは日本語とする。
 Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケージは導入しない。
-起動時は保存済みスナップショットを使い、再取得が全件成功したときだけデータを置き換える。
-大容量の `data/` は Git で追跡せず、別環境では `pixi run refresh` で新たに取得する。
-取得日時と取得元の版は環境ごとのスナップショットに保存し、結果を比較するときに確認する。
-旧形式にない段階や特異性を、推測で補完した完成データとして扱わない。
+保存データの形、取得の手順、取得日時と版の記録は[保存データの形と取得の手順](data.md)にある。
 
 遺伝学的関連遺伝子のページは、`snapshot.json` の `associations` を読む別の集計（`autoimmune_atlas/genetics.py`）で `/genetics` に置き、薬剤ページの発現判定と細胞分類と図を共有する。
 ページの切り替えは `dcc.Location` で行い、両ページのレイアウトを起動時に組み立てて `hidden` を入れ替える。
-遺伝子集合の定め方、保存の形、表示の規則は[遺伝学的関連遺伝子のページの設計](genetics-design.md)にある。
+遺伝子集合の定め方と表示の規則は[遺伝学的関連遺伝子のページの設計](genetics-design.md)にある。
 
 分子 X の入力と横並び比較、組織別の比較、治療目的の分類、薬効細胞の手作業注釈は今回実装しない。
 新たな総合コンフィデンススコアや臨床有効性の確率も作らない。
@@ -300,7 +296,7 @@ Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケー�
 - [Open Targets: clinical report](https://platform-docs.opentargets.org/drug/clinical-report)：臨床段階、元資料、品質管理。
 - [Open Targets: drugs and clinical candidates](https://platform-docs.opentargets.org/disease-or-phenotype/drugs)：疾患内の最高段階と撤回歴の承認到達への集約。
 - [Open Targets: association scores](https://platform-docs.opentargets.org/associations)：genetic association の datatype スコアと datasource スコアの合成。`autoimmune_atlas/refresh.py` が取得し、`autoimmune_atlas/genetics.py` が集計する。
-- `autoimmune_atlas/refresh.py`：実際の取得項目と検証、`autoimmune_atlas/aggregation.py`：集計規則、`autoimmune_atlas/ui/`：表示。
+- [保存データの形と取得の手順](data.md)：実際の取得項目と検証、`autoimmune_atlas/aggregation.py`：集計規則、`autoimmune_atlas/ui/`：表示。
 
 ## 検証と残る確認範囲
 

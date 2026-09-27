@@ -245,7 +245,7 @@ pixi run refresh
 版が変わっていれば全部取り直す。
 schema 2 の `snapshot.json` と `genetics.json` を使っている場合も、この更新で schema 3 の 1 ファイルに切り替わる。
 切り替えが済んだら `data/genetics.json` は消してよい。
-保存の形と取得の手順は[保存データの統合と一括取得の設計](docs/snapshot-design.md)にある。
+保存の形と取得の手順は[保存データの形と取得の手順](docs/data.md)にある。
 
 ```bash
 pixi run test
