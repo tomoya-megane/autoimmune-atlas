@@ -9,12 +9,14 @@ import math
 import os
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 from urllib.parse import urlparse
+
+import msgspec
 
 from autoimmune_atlas.aggregation import (
     DRUG_TYPE_TO_MODALITY,
@@ -28,6 +30,7 @@ from autoimmune_atlas.models import (
     Disease,
     DrugRecord,
     ExpressionRow,
+    GeneAssociation,
     Reference,
     Snapshot,
     SnapshotRoot,
@@ -180,7 +183,72 @@ class _VersionResponse(TypedDict):
     meta: _Meta
 
 
+class _Score(TypedDict):
+    id: str
+    score: float
+
+
+class _AssociationTarget(TypedDict):
+    id: str
+    approvedSymbol: str
+
+
+class _AssociationRow(TypedDict):
+    target: _AssociationTarget
+    datatypeScores: list[_Score]
+    datasourceScores: list[_Score]
+
+
+class _AssociationBlock(TypedDict):
+    count: int
+    rows: list[_AssociationRow]
+
+
+class _AssociationDisease(TypedDict):
+    associatedTargets: _AssociationBlock
+
+
+class _AssociationResponse(TypedDict):
+    disease: _AssociationDisease | None
+
+
+class _EvidenceRow(TypedDict):
+    datasourceId: str
+    datatypeId: str
+
+
+class _EvidenceBlock(TypedDict):
+    rows: list[_EvidenceRow]
+
+
+class _EvidenceDisease(TypedDict):
+    evidences: _EvidenceBlock
+
+
+class _EvidenceResponse(TypedDict):
+    disease: _EvidenceDisease | None
+
+
+class _StoredRow(TypedDict):
+    """再利用のために読む発現の行。schema 2 と genetics.json は cell などを持ち、schema 3 は持たない。"""
+
+    cell_id: str
+    median: float | None
+    specificity_score: NotRequired[float | None]
+    cell: NotRequired[str]
+    parent_id: NotRequired[str | None]
+    parent: NotRequired[str | None]
+    ancestor_ids: NotRequired[list[str] | None]
+
+
+class _StoredFile(TypedDict):
+    data_version: NotRequired[DataVersion]
+    cells: NotRequired[dict[str, CellDefinition]]
+    expression: NotRequired[dict[str, list[_StoredRow]]]
+
+
 _DiseaseQuery = Callable[[str, dict[str, str]], dict[str, object]]
+_Query = Callable[[str, Mapping[str, object]], dict[str, object]]
 
 API_HOST = "api.platform.opentargets.org"
 API_PATH = "/api/v4/graphql"
@@ -194,6 +262,22 @@ KNOWN_STAGES = STAGE_FILTERS["phase1"] | {
     "PHASE_0",
 }
 DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "snapshot.json"
+LEGACY_GENETICS_PATH = DATA_PATH.parent / "genetics.json"
+PAGE_SIZE = 500
+GENETIC_DATATYPE = "genetic_association"
+
+ASSOCIATION_QUERY = """query($id:String!,$index:Int!,$size:Int!){
+  disease(efoId:$id){ associatedTargets(
+    page:{index:$index,size:$size}, enableIndirect:false, orderByScore:"genetic_association"
+  ){ count rows{ target{id approvedSymbol} datatypeScores{id score} datasourceScores{id score} } } }
+}"""
+
+EVIDENCE_QUERY = """query($id:String!,$gene:String!,$datasource:String!){
+  disease(efoId:$id){ evidences(ensemblIds:[$gene], datasourceIds:[$datasource], size:1){
+    rows{ datasourceId datatypeId } } }
+}"""
+
+VERSION_QUERY = "query{meta{dataVersion{year month iteration}}}"
 
 
 def query_api(
@@ -254,15 +338,12 @@ def resolve_disease_ids(
     roots: list[SnapshotRoot] = []
     ids: set[str] = set()
     for root_id, include_descendants in SCOPE_ROOTS:
-        response = cast(
-            _DiseaseScopeResponse,
-            cast(
-                object,
-                query(
-                    "query($id:String!){disease(efoId:$id){id name descendants}}",
-                    {"id": root_id},
-                ),
+        response = msgspec.convert(
+            query(
+                "query($id:String!){disease(efoId:$id){id name descendants}}",
+                {"id": root_id},
             ),
+            _DiseaseScopeResponse,
         )
         disease = response["disease"]
         if disease is None:
@@ -426,9 +507,8 @@ def fetch_expression(
     rows: list[ExpressionApiRow] = []
     page = 0
     while True:
-        response = cast(
-            _ExpressionResponse,
-            cast(object, query_api(query, {"id": target_id, "page": page})),
+        response = msgspec.convert(
+            query_api(query, {"id": target_id, "page": page}), _ExpressionResponse
         )
         target = response["target"]
         if target is None:
@@ -456,6 +536,157 @@ def merge_cells(
         cells[cell_id] = definition
 
 
+def collect_associations(
+    query: _Query, disease_ids: list[str]
+) -> dict[str, list[GeneAssociation]]:
+    """疾患ごとに genetic スコアの降順で取り、スコアを持たない遺伝子に当たった時点で止める。"""
+    output: dict[str, list[GeneAssociation]] = {}
+    for disease_id in disease_ids:
+        genes: list[GeneAssociation] = []
+        index = 0
+        while True:
+            response = msgspec.convert(
+                query(
+                    ASSOCIATION_QUERY,
+                    {"id": disease_id, "index": index, "size": PAGE_SIZE},
+                ),
+                _AssociationResponse,
+            )
+            disease = response["disease"]
+            if disease is None:
+                raise ValueError(f"疾患が見つかりません: {disease_id}")
+            block = disease["associatedTargets"]
+            stop = False
+            for row in block["rows"]:
+                genetic = next(
+                    (
+                        s["score"]
+                        for s in row["datatypeScores"]
+                        if s["id"] == GENETIC_DATATYPE
+                    ),
+                    None,
+                )
+                if genetic is None:
+                    stop = True
+                    break
+                genes.append(
+                    {
+                        "target_id": row["target"]["id"],
+                        "target": row["target"]["approvedSymbol"],
+                        "score": genetic,
+                        "datasource_scores": {
+                            s["id"]: s["score"] for s in row["datasourceScores"]
+                        },
+                    }
+                )
+            index += 1
+            if stop or index * PAGE_SIZE >= block["count"]:
+                break
+            if not block["rows"]:
+                # HTTP と GraphQL が成功しても、ページが途中で切れることがある。保存させない。
+                raise ValueError(f"関連遺伝子の途中のページが空です: {disease_id}")
+        # API は降順で返すが、保存の形として並びを保証する
+        output[disease_id] = sorted(genes, key=lambda g: (-g["score"], g["target_id"]))
+    return output
+
+
+def classify_datasources(
+    query: _Query, associations: Mapping[str, list[GeneAssociation]]
+) -> list[str]:
+    """現れた datasource ごとに根拠を 1 件取り、genetic_association のものだけ残す。"""
+    sample: dict[str, tuple[str, str]] = {}
+    for disease_id, genes in associations.items():
+        for gene in genes:
+            for datasource in gene["datasource_scores"]:
+                sample.setdefault(datasource, (disease_id, gene["target_id"]))
+    genetic: list[str] = []
+    for datasource, (disease_id, gene_id) in sorted(sample.items()):
+        response = msgspec.convert(
+            query(
+                EVIDENCE_QUERY,
+                {"id": disease_id, "gene": gene_id, "datasource": datasource},
+            ),
+            _EvidenceResponse,
+        )
+        disease = response["disease"]
+        rows = disease["evidences"]["rows"] if disease else []
+        if not rows:
+            raise ValueError(f"datasource の根拠が取れません: {datasource}")
+        if rows[0]["datatypeId"] == GENETIC_DATATYPE:
+            genetic.append(datasource)
+    return genetic
+
+
+def restrict_datasources(
+    associations: Mapping[str, list[GeneAssociation]], datasources: list[str]
+) -> dict[str, list[GeneAssociation]]:
+    """datasource ごとのスコアを genetic association のものに絞る。"""
+    keep = set(datasources)
+    return {
+        disease_id: [
+            {
+                **gene,
+                "datasource_scores": {
+                    key: value
+                    for key, value in gene["datasource_scores"].items()
+                    if key in keep
+                },
+            }
+            for gene in genes
+        ]
+        for disease_id, genes in associations.items()
+    }
+
+
+def reusable_expression(
+    paths: Sequence[Path], version: DataVersion
+) -> tuple[dict[str, list[ExpressionRow]], dict[str, CellDefinition]]:
+    """同じ版の保存データから、発現の行と細胞の定数を取り出す。
+
+    schema 2 の snapshot.json、schema 1 の genetics.json、schema 3 の snapshot.json を読む。
+    発現の値は先に読んだファイルの遺伝子を優先する。
+    細胞の定数は、後のファイルにある遺伝子の行でも全部確かめ、食い違えば失敗にする。
+    無い、読めない、版が違うファイルは飛ばす。
+    load_snapshot() は schema 3 しか受け付けないので、ここでは緩い型で読む。
+    """
+    expression: dict[str, list[ExpressionRow]] = {}
+    cells: dict[str, CellDefinition] = {}
+    for path in paths:
+        try:
+            data = msgspec.json.decode(path.read_bytes(), type=_StoredFile)
+        except (OSError, msgspec.DecodeError, msgspec.ValidationError):
+            continue
+        if data.get("data_version") != version:
+            continue
+        merge_cells(cells, data.get("cells") or {})
+        for target_id, rows in (data.get("expression") or {}).items():
+            kept: list[ExpressionRow] = []
+            for row in rows:
+                if "cell" in row:
+                    # schema 2 と genetics.json の行。細胞の定数を表へ移す。
+                    merge_cells(
+                        cells,
+                        {
+                            row["cell_id"]: {
+                                "name": row["cell"],
+                                "parent_id": row.get("parent_id"),
+                                "parent": row.get("parent"),
+                                "ancestor_ids": list(row.get("ancestor_ids") or []),
+                            }
+                        },
+                    )
+                kept.append(
+                    {
+                        "cell_id": row["cell_id"],
+                        "median": row["median"],
+                        "specificity_score": row.get("specificity_score"),
+                    }
+                )
+            if target_id not in expression:
+                expression[target_id] = kept
+    return expression, cells
+
+
 def save_snapshot(path: Path, snapshot: object) -> None:
     """全取得が成功してからファイルを置き換え、失敗時は前回の内容を保つ。"""
     content = json.dumps(
@@ -476,12 +707,11 @@ def save_snapshot(path: Path, snapshot: object) -> None:
 
 
 def main() -> None:
-    """疾患、薬剤の標的、発現量を順番に取得する。"""
-    version_query = "query{meta{dataVersion{year month iteration}}}"
-    version = cast(_VersionResponse, cast(object, query_api(version_query)))["meta"][
+    """疾患、薬剤の標的、関連遺伝子、発現量を順番に取得し、schema 3 で保存する。"""
+    version = msgspec.convert(query_api(VERSION_QUERY), _VersionResponse)["meta"][
         "dataVersion"
     ]
-    roots, ids = resolve_disease_ids()
+    roots, ids = resolve_disease_ids(query_api)
     for root in roots:
         print(f"起点: {root['name']} {root['count']} 疾患", flush=True)
     print(f"対象: {len(roots)} 起点の和集合 {len(ids)} 疾患", flush=True)
@@ -492,9 +722,8 @@ def main() -> None:
     }}"""
     for start in range(0, len(ids), 5):
         chunk = ids[start : start + 5]
-        result = cast(
-            _ClinicalResponse,
-            cast(object, query_api(clinical_query, {"ids": chunk})),
+        result = msgspec.convert(
+            query_api(clinical_query, {"ids": chunk}), _ClinicalResponse
         )["diseases"]
         if {d["id"] for d in result} != set(chunk):
             raise ValueError("下位疾患の取得結果に不足があります")
@@ -526,17 +755,14 @@ def main() -> None:
     mechanisms: dict[str, list[_MechanismRecord]] = {}
     for start in range(0, len(drug_ids), 20):
         chunk = drug_ids[start : start + 20]
-        result = cast(
-            _DrugsResponse,
-            cast(
-                object,
-                query_api(
-                    """query($ids:[String!]!){drugs(chemblIds:$ids){id mechanismsOfAction {rows{
+        result = msgspec.convert(
+            query_api(
+                """query($ids:[String!]!){drugs(chemblIds:$ids){id mechanismsOfAction {rows{
           mechanismOfAction actionType targets{id approvedSymbol} references{source ids urls}
         }}}}""",
-                    {"ids": chunk},
-                ),
+                {"ids": chunk},
             ),
+            _DrugsResponse,
         )["drugs"]
         if {d["id"] for d in result} != set(chunk):
             raise ValueError("薬剤の標的情報に不足があります")
@@ -561,21 +787,46 @@ def main() -> None:
             key = row["disease_id"], row["drug_id"], target["target_id"]
             record: DrugRecord = {**row, **target}
             records[key] = record
-    target_ids = sorted(
-        {target_id for record in records.values() if (target_id := record["target_id"])}
+    disease_ids = [disease["id"] for disease in diseases]
+    associations = collect_associations(query_api, disease_ids)
+    print(
+        f"疾患: {len(disease_ids)} / 関連遺伝子を持つ疾患: {sum(bool(g) for g in associations.values())}",
+        flush=True,
     )
-    expression: dict[str, list[ExpressionRow]] = {}
-    cells: dict[str, CellDefinition] = {}
+    datasources = classify_datasources(query_api, associations)
+    print(f"genetic association の datasource: {', '.join(datasources)}", flush=True)
+    associations = restrict_datasources(associations, datasources)
+    drug_targets = {
+        target_id for record in records.values() if (target_id := record["target_id"])
+    }
+    gene_targets = {g["target_id"] for genes in associations.values() for g in genes}
+    target_ids = sorted(drug_targets | gene_targets)
+    reused, cells = reusable_expression([DATA_PATH, LEGACY_GENETICS_PATH], version)
+    expression: dict[str, list[ExpressionRow]] = {
+        target_id: reused[target_id] for target_id in target_ids if target_id in reused
+    }
+    needed = [target_id for target_id in target_ids if target_id not in expression]
+    print(
+        f"細胞型別発現: 再利用 {len(expression)} / 取得 {len(needed)} / 全体 {len(target_ids)}",
+        flush=True,
+    )
     with ThreadPoolExecutor(max_workers=2) as pool:
         for index, (target, rows, found) in enumerate(
-            pool.map(fetch_expression, target_ids), 1
+            pool.map(fetch_expression, needed), 1
         ):
             expression[target] = rows
             merge_cells(cells, found)
-            print(f"細胞型別発現: {index}/{len(target_ids)}", flush=True)
-    final_version = cast(_VersionResponse, cast(object, query_api(version_query)))[
-        "meta"
-    ]["dataVersion"]
+            print(f"細胞型別発現: {index}/{len(needed)}", flush=True)
+    unknown_cells = {
+        row["cell_id"] for rows in expression.values() for row in rows
+    } - set(cells)
+    if unknown_cells:
+        raise ValueError(
+            f"cells に無い細胞 ID が発現にあります: {sorted(unknown_cells)[:5]}"
+        )
+    final_version = msgspec.convert(query_api(VERSION_QUERY), _VersionResponse)["meta"][
+        "dataVersion"
+    ]
     if final_version != version:
         raise ValueError("取得中にデータの版が変わりました。再取得してください")
     snapshot: Snapshot = {
@@ -587,16 +838,15 @@ def main() -> None:
         "source": f"https://{API_HOST}{API_PATH}",
         "diseases": sorted(diseases, key=lambda d: d["name"]),
         "records": list(records.values()),
-        # Task 3 で関連遺伝子の取得を足すまでの仮の値。
-        "associations": {},
-        "datasources": [],
+        "associations": associations,
+        "datasources": datasources,
         "cells": cells,
         "expression": expression,
     }
     cell_catalog(snapshot)
     save_snapshot(DATA_PATH, snapshot)
     print(
-        f"保存: {DATA_PATH}\n疾患 {len(diseases)} / 薬剤 {len(drug_ids)} / 標的 {len(target_ids)}",
+        f"保存: {DATA_PATH}\n疾患 {len(diseases)} / 薬剤 {len(drug_ids)} / 標的 {len(drug_targets)} / 関連遺伝子 {len(gene_targets)}",
         flush=True,
     )
 
