@@ -1,6 +1,7 @@
 # Autoimmune Atlas
 
 自己免疫疾患ごとに、臨床開発された薬剤の標的遺伝子がどの細胞型で発現するかを比較するローカルアプリ。
+同じ比較を Open Targets の genetic association で疾患と結びついた遺伝子について行う、遺伝学的関連遺伝子のページ（`/genetics`）も持つ。
 Python の Dash と Plotly を使う。
 実行環境には Python 3.13 を使う。
 集計規則と判断理由は[設計ノート](docs/design.md)に記録する。
@@ -13,7 +14,7 @@ Python の Dash と Plotly を使う。
 ## コード構成
 
 起動の入口 `app.py` だけをリポジトリ直下に置き、処理の実体は `autoimmune_atlas/` パッケージにまとめている。
-データ更新は `pixi run refresh` が `autoimmune_atlas.refresh` をモジュールとして実行する。
+データ更新は `pixi run refresh` が `autoimmune_atlas.refresh` を、`pixi run refresh-genetics` が `autoimmune_atlas.refresh_genetics` を、それぞれモジュールとして実行する。
 集計、データ取得、画面表示のどこを読むべきかを、ファイル名から判断できる構成である。
 
 ```text
@@ -21,23 +22,32 @@ app.py                         Dash アプリの起動
 autoimmune_atlas/
 ├── aggregation.py             薬剤、標的、細胞型の集計
 ├── disease_catalog.py         対象疾患と表示順の定義
+├── genetics.py                遺伝学的関連遺伝子の読み込みと集計
 ├── models.py                  スナップショットと集計結果の共有データ型
 ├── refresh.py                 公開 API の取得、正規化、保存（python -m で実行）
+├── refresh_genetics.py        遺伝学的関連遺伝子の取得と保存（python -m で実行）
 ├── snapshot.py                保存済みデータの読み込みと検証
 └── ui/
-    ├── application.py         Dash アプリの組み立て
+    ├── application.py         Dash アプリの組み立てとページの切り替え
     ├── callbacks.py           画面操作への応答
-    ├── components.py          再利用する画面部品
+    ├── components.py          再利用する画面部品と上部バー
     ├── config.py              画面で共有する固定値
     ├── figures.py             比較図と発現図
+    ├── genetics_callbacks.py  遺伝子ページの画面操作への応答
+    ├── genetics_layout.py     遺伝子ページの初期画面と詳細欄の配置
     └── layout.py              初期画面と詳細欄の配置
 assets/                        CSS、JavaScript、アイコン
+├── help.js                    ツールチップの位置調整と Escape キー
+└── router.js                  ページ切り替え後の図の再描画
 data/                          取得済みスナップショット
 docs/                          設計ノートと対象疾患の根拠
 tests/
 ├── test_aggregation.py        集計規則
 ├── test_refresh.py            公開 API の取得と保存
+├── test_refresh_genetics.py   遺伝学的関連遺伝子の取得と保存
 ├── test_disease_catalog.py    対象疾患と表示順
+├── test_genetics.py           遺伝子ページの集計規則
+├── test_genetics_ui.py        遺伝子ページの図、画面、callback
 ├── test_ui.py                 図、画面、callback
 └── test_help.cjs              ツールチップの JavaScript
 ```
@@ -232,6 +242,16 @@ pixi run refresh
 取得時点の公開データを使うため、環境間で取得日時や版が異なると結果も変わり得る。
 更新後はアプリを再起動する。
 schema 1 の旧データを使っている場合も、この更新で schema 2 に切り替える。
+
+遺伝子ページのデータは、`pixi run refresh` のあとに別に取り直す。
+
+```bash
+pixi run refresh-genetics
+```
+
+取得を始める前に Open Targets の版を `data/snapshot.json` と比べ、違えば取得せずに止まる。
+全件の取得が成功したときだけ `data/genetics.json` を置き換える。
+`data/genetics.json` が無いか版が一致しないときは、遺伝子ページに再取得の案内を表示し、薬剤ページはそのまま使える。
 
 ```bash
 pixi run test

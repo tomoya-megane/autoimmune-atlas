@@ -124,7 +124,7 @@ Dot plot では割合を色、実数を圧縮した円の面積に割り当て�
 色の濃さを異なる表示条件や標的と薬剤の図の間で直接比較しない。
 比較ヒートマップの欠測・未判定は、Percent では 0%、Count では 0 と表示し、ホバーで実測の 0 と区別する。
 Dot plot は Count と Percent がともに 0 の組み合わせと、どちらかが欠測・未判定の組み合わせを空白にする。
-正の値だけをクリックとホバーの対象にする。
+正の値だけをホバーの対象にする。
 正の値では円の面積を Count の 0.75 乗に比例させ、最大の円を 22 px とする。
 面積と色の範囲は折りたたみ中の元細胞も含めて決めるため、行の展開だけでは変わらない。
 PNG 出力の設定では `width` と `height` を省き、HTML 上の可変サイズを固定の出力寸法で上書きしない。
@@ -224,8 +224,8 @@ Comparison scope には疾患の選択欄だけを置き、細胞の表示はヒ
 初期表示は `Distinct targets` とし、縦方向の移動を減らして同じ位置で比較できるようにする。
 切り替えても疾患・細胞の並びを保ち、フィルターと実数／割合の選択を共有する。
 疾患名はヒートマップの上部に表示し、長い名称に合わせて余白を確保する。
-クリックまたは選択欄から、寄与した薬剤、標的、臨床段階、発現量、所属細胞型、出典を確認できるようにする。
-ヒートマップのクリックを詳細の選択欄へ反映し、詳細はその選択欄を基準に更新する。
+選択欄から、寄与した薬剤、標的、臨床段階、発現量、所属細胞型、出典を確認できるようにする。
+詳細は選択欄の疾患を基準に更新する。
 フィルター変更後も表示対象に残る選択を維持する。
 元記録表は選択した疾患と薬剤条件に合う記録を対象とし、元薬剤と標的の組み合わせごとに1行を表示する。
 細胞別発現と発現判定は元記録表に含めず、選択ページの10行だけを生成して表の下でページを切り替える。
@@ -287,6 +287,10 @@ Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケー�
 取得日時と取得元の版は環境ごとのスナップショットに保存し、結果を比較するときに確認する。
 旧形式にない段階や特異性を、推測で補完した完成データとして扱わない。
 
+遺伝学的関連遺伝子のページは、別の取得データ（`data/genetics.json`）と別の集計（`autoimmune_atlas/genetics.py`）で `/genetics` に置き、薬剤ページの発現判定と細胞分類と図を共有する。
+ページの切り替えは `dcc.Location` で行い、両ページのレイアウトを起動時に組み立てて `hidden` を入れ替える。
+遺伝子集合の定め方、保存の形、表示の規則は[遺伝学的関連遺伝子のページの設計](genetics-design.md)にある。
+
 分子 X の入力と横並び比較、組織別の比較、治療目的の分類、薬効細胞の手作業注釈は今回実装しない。
 新たな総合コンフィデンススコアや臨床有効性の確率も作らない。
 
@@ -295,6 +299,7 @@ Dash と Plotly、現在の pixi 環境を使い、新しい依存パッケー�
 - [Open Targets: baseline expression](https://github.com/opentargets/platform-docs/blob/main/target/baseline-expression.md)：pseudobulk、ドナー間要約、CELLEX の定義。
 - [Open Targets: clinical report](https://platform-docs.opentargets.org/drug/clinical-report)：臨床段階、元資料、品質管理。
 - [Open Targets: drugs and clinical candidates](https://platform-docs.opentargets.org/disease-or-phenotype/drugs)：疾患内の最高段階と撤回歴の承認到達への集約。
+- [Open Targets: association scores](https://platform-docs.opentargets.org/associations)：genetic association の datatype スコアと datasource スコアの合成。`autoimmune_atlas/refresh_genetics.py` が取得し、`autoimmune_atlas/genetics.py` が集計する。
 - `autoimmune_atlas/refresh.py`：実際の取得項目と検証、`autoimmune_atlas/aggregation.py`：集計規則、`autoimmune_atlas/ui/`：表示。
 
 ## 検証と残る確認範囲
