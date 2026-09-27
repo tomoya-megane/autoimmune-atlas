@@ -11,7 +11,6 @@ from autoimmune_atlas import genetics as gene_data
 from autoimmune_atlas.disease_catalog import ordered_disease_ids
 from autoimmune_atlas.models import (
     GeneAssociation,
-    GeneticsSnapshot,
     Snapshot,
     SummaryRow,
 )
@@ -23,7 +22,6 @@ from autoimmune_atlas.ui.config import (
     DEFAULT_SPECIFICITY_THRESHOLD,
     GENETICS_PARAMETER_IDS,
     METHOD_LABELS,
-    SCORE_FLOOR,
     SOURCE_PAGE_SIZE,
 )
 from autoimmune_atlas.ui.layout import choose_defaults, format_data_version
@@ -118,7 +116,7 @@ def gene_grid(rows: Sequence[dict[str, str]], datasources: Sequence[str]) -> dag
 def genetics_detail_panel(
     rows: Sequence[SummaryRow],
     selection: str | None,
-    genetics: GeneticsSnapshot,
+    snapshot: Snapshot,
     *,
     score_threshold: float,
     threshold: float,
@@ -137,7 +135,7 @@ def genetics_detail_panel(
             "The previous disease is outside the current filters. Select a visible disease.",
             className="empty-note",
         )
-    genes = gene_data.genes_for_disease(genetics, row["disease_id"], score_threshold)
+    genes = gene_data.genes_for_disease(snapshot, row["disease_id"], score_threshold)
     source_context: dict[str, str | float] = {
         "disease_id": row["disease_id"],
         "score": score_threshold,
@@ -148,8 +146,8 @@ def genetics_detail_panel(
     # 遺伝子が無くても発現欄は残し、発現の callback が空の旨を表示する。
     table: Component = (
         gene_grid(
-            gene_rows(genes, row["disease_id"], genetics["datasources"]),
-            genetics["datasources"],
+            gene_rows(genes, row["disease_id"], snapshot["datasources"]),
+            snapshot["datasources"],
         )
         if genes
         else html.P(
@@ -259,7 +257,7 @@ def genetics_detail_panel(
 
 
 def genetics_unavailable_page(reason: str) -> html.Main:
-    """genetics.json が無いか版が合わないときの案内。"""
+    """snapshot.json が無いか読めないときの案内。"""
     return html.Main(
         [
             page_nav("genetics"),
@@ -268,7 +266,7 @@ def genetics_unavailable_page(reason: str) -> html.Main:
                     html.H1("Genetic associations are not available"),
                     html.P(reason),
                     html.P(
-                        "Refresh the genetic association data with pixi run refresh-genetics after pixi run refresh, then restart the app."
+                        "Refresh the data with pixi run refresh, then restart the app."
                     ),
                 ],
                 className="panel",
@@ -303,22 +301,20 @@ def _meta(label: str, value: Component | str) -> html.Div:
     return html.Div([html.Span(label, className="meta-label"), value])
 
 
-def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
+def genetics_page(snapshot: Snapshot) -> html.Main:
     """遺伝子ページの初期画面を作る。"""
     default_diseases = choose_defaults(
         [(d["id"], d["name"]) for d in snapshot["diseases"]],
         DEFAULT_DISEASE_TERMS,
         10,
-        set(genetics["associations"]),
+        set(snapshot["associations"]),
     )
     retrieved_at = (
-        datetime.fromisoformat(genetics["retrieved_at"])
+        datetime.fromisoformat(snapshot["retrieved_at"])
         .astimezone(timezone(timedelta(hours=9)))
         .strftime("%Y-%m-%d %H:%M JST")
     )
-    loaded = sum(d["id"] in genetics["associations"] for d in snapshot["diseases"])
-    # 保存した下限を入力欄の下限にする。古いファイルにキーが無ければ定数を使う。
-    score_floor = genetics.get("score_floor", SCORE_FLOOR)
+    loaded = sum(d["id"] in snapshot["associations"] for d in snapshot["diseases"])
     applied = dict(
         zip(
             GENETICS_PARAMETER_IDS,
@@ -365,31 +361,24 @@ def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
                                 ),
                             ),
                             _meta(
-                                "Gene–disease associations (score ≥ 0.1)",
+                                "Gene–disease associations",
                                 html.Strong(
                                     str(
                                         sum(
                                             len(g)
-                                            for g in genetics["associations"].values()
+                                            for g in snapshot["associations"].values()
                                         )
                                     )
                                 ),
                             ),
                             _meta(
                                 "Genes with expression",
-                                html.Strong(
-                                    str(
-                                        len(
-                                            set(snapshot["expression"])
-                                            | set(genetics["expression"])
-                                        )
-                                    )
-                                ),
+                                html.Strong(str(len(snapshot["expression"]))),
                             ),
                             _meta(
                                 "Retrieved at",
                                 html.Strong(
-                                    retrieved_at, title=genetics["retrieved_at"]
+                                    retrieved_at, title=snapshot["retrieved_at"]
                                 ),
                             ),
                             _meta(
@@ -398,7 +387,7 @@ def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
                             _meta(
                                 "Data source",
                                 html.A(
-                                    f"Open Targets {format_data_version(genetics['data_version'])}".strip(),
+                                    f"Open Targets {format_data_version(snapshot.get('data_version'))}".strip(),
                                     href=OPEN_TARGETS,
                                     target="_blank",
                                     rel="noreferrer",
@@ -452,12 +441,12 @@ def genetics_page(snapshot: Snapshot, genetics: GeneticsSnapshot) -> html.Main:
                                         dcc.Input(
                                             id="genetics-score",
                                             type="number",
-                                            min=score_floor,
+                                            min=0,
                                             max=1,
-                                            step=0.05,
+                                            step=0.01,
                                             value=DEFAULT_SCORE_THRESHOLD,
                                         ),
-                                        f"The score threshold keeps genes whose Open Targets genetic association score for the disease is at or above this value. Scores below {score_floor:g} are not stored, so the threshold cannot go below {score_floor:g}. Empty or out-of-range values use 0.5.",
+                                        "The score threshold keeps genes whose Open Targets genetic association score for the disease is at or above this value. Empty or out-of-range values use 0.5.",
                                     ),
                                 ],
                                 className="filter-group",

@@ -1,8 +1,6 @@
 """集計と取得のテストが共有する最小のスナップショット。"""
 
-from autoimmune_atlas.models import (
-    CoreSnapshot,
-)
+from autoimmune_atlas.models import CoreSnapshot
 
 
 def core_snapshot() -> CoreSnapshot:
@@ -12,6 +10,36 @@ def core_snapshot() -> CoreSnapshot:
             {"id": "D1", "name": "Disease one", "status": "ready"},
             {"id": "D2", "name": "Disease two", "status": "ready"},
         ],
+        "datasources": ["gwas_credible_sets", "eva"],
+        "associations": {
+            "D1": [
+                {
+                    "target_id": "G1",
+                    "target": "Gene 1",
+                    "score": 0.9,
+                    "datasource_scores": {"gwas_credible_sets": 0.9},
+                },
+                {
+                    "target_id": "G2",
+                    "target": "Gene 2",
+                    "score": 0.6,
+                    "datasource_scores": {"gwas_credible_sets": 0.4, "eva": 0.6},
+                },
+                {
+                    "target_id": "G9",
+                    "target": "Gene 9",
+                    "score": 0.5,
+                    "datasource_scores": {"eva": 0.5},
+                },
+                {
+                    "target_id": "G3",
+                    "target": "Gene 3",
+                    "score": 0.2,
+                    "datasource_scores": {"eva": 0.2},
+                },
+            ],
+            "D2": [],
+        },
         "records": [
             {
                 "disease_id": "D1",
@@ -129,6 +157,12 @@ def core_snapshot() -> CoreSnapshot:
                 {"cell_id": "T4", "median": None, "specificity_score": None},
                 {"cell_id": "T8", "median": 0.1, "specificity_score": 0.9},
                 {"cell_id": "X", "median": 2.0, "specificity_score": 0.9},
+            ],
+            "G9": [
+                {"cell_id": "T4", "median": 5.0, "specificity_score": 0.9},
+                {"cell_id": "T8", "median": 0.0, "specificity_score": 0.0},
+                {"cell_id": "B1", "median": 0.0, "specificity_score": 0.0},
+                {"cell_id": "X", "median": 0.0, "specificity_score": 0.0},
             ],
         },
     }

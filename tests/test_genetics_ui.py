@@ -16,7 +16,6 @@ from autoimmune_atlas.models import DiseaseFamily, SummaryRow
 from autoimmune_atlas.ui import components, figures, genetics_layout, layout
 from autoimmune_atlas.ui.application import create_app
 from autoimmune_atlas.ui.genetics_callbacks import effective_score
-from tests.genetics_fixture import genetics_snapshot
 from tests.test_genetics import snapshot as core_ui_snapshot
 
 ASSETS_PATH = Path(__file__).resolve().parents[1] / "assets"
@@ -45,6 +44,7 @@ class _Button(Protocol):
 class _NumberInput(Protocol):
     min: float
     max: float
+    step: float
     value: float
 
 
@@ -171,7 +171,7 @@ def _page_links(node: object) -> list[object]:
 
 class GeneticsLayoutTests(unittest.TestCase):
     def test_page_has_prefixed_controls_and_nav_marks_current(self) -> None:
-        page = genetics_layout.genetics_page(core_ui_snapshot(), genetics_snapshot())
+        page = genetics_layout.genetics_page(core_ui_snapshot())
         found = {
             cast(_Identified, c).id
             for c in _walk(page)
@@ -204,27 +204,18 @@ class GeneticsLayoutTests(unittest.TestCase):
         self.assertEqual([cast(_Linked, c).href for c in current], ["/genetics"])
 
     def test_score_input_range_and_default(self) -> None:
-        page = genetics_layout.genetics_page(core_ui_snapshot(), genetics_snapshot())
+        page = genetics_layout.genetics_page(core_ui_snapshot())
         score = cast(
             _NumberInput,
             next(c for c in _walk(page) if getattr(c, "id", None) == "genetics-score"),
         )
-        self.assertEqual(score.min, 0.1)
+        self.assertEqual(score.min, 0)
         self.assertEqual(score.max, 1)
+        self.assertEqual(score.step, 0.01)
         self.assertEqual(score.value, 0.5)
 
-    def test_score_input_minimum_follows_stored_floor(self) -> None:
-        data = genetics_snapshot()
-        data["score_floor"] = 0.2
-        page = genetics_layout.genetics_page(core_ui_snapshot(), data)
-        score = cast(
-            _NumberInput,
-            next(c for c in _walk(page) if getattr(c, "id", None) == "genetics-score"),
-        )
-        self.assertEqual(score.min, 0.2)
-
     def test_gene_rows_have_scores_datasource_columns_and_evidence_link(self) -> None:
-        data = genetics_snapshot()
+        data = core_ui_snapshot()
         genes = genetics.genes_for_disease(data, "D1", 0.5)
         rows = genetics_layout.gene_rows(genes, "D1", data["datasources"])
         self.assertEqual(rows[0]["gene"], "Gene 1 (G1)")
@@ -246,7 +237,7 @@ class GeneticsLayoutTests(unittest.TestCase):
         panel = genetics_layout.genetics_detail_panel(
             [],
             None,
-            genetics_snapshot(),
+            core_ui_snapshot(),
             score_threshold=0.5,
             threshold=0.5,
             method="fixed",
@@ -254,7 +245,7 @@ class GeneticsLayoutTests(unittest.TestCase):
         )
         self.assertEqual(cast(_Classed, cast(object, panel)).className, "empty-note")
         page = genetics_layout.genetics_unavailable_page("versions differ")
-        self.assertIn("refresh-genetics", str(page))
+        self.assertIn("pixi run refresh", str(page))
 
 
 class _Dependency(Protocol):
@@ -361,9 +352,7 @@ class GeneticsCallbackTests(unittest.TestCase):
     @classmethod
     @override
     def setUpClass(cls) -> None:
-        app = create_app(
-            core_ui_snapshot(), assets_folder=ASSETS_PATH, genetics=genetics_snapshot()
-        )
+        app = create_app(core_ui_snapshot(), assets_folder=ASSETS_PATH)
         cls.application = cast(_Application, cast(object, app))
         cls.client = cls.application.server.test_client()
 
@@ -382,10 +371,12 @@ class GeneticsCallbackTests(unittest.TestCase):
             [f"{item['id']}.{item['property']}" for item in inputs],
         )
 
-    def test_score_input_falls_back_below_floor_and_on_empty(self) -> None:
+    def test_score_input_accepts_zero_and_falls_back_on_negative_or_empty(self) -> None:
+        self.assertEqual(effective_score(0), (0, None))
+        self.assertEqual(effective_score(0.02), (0.02, None))
         self.assertEqual(
-            effective_score(0.05),
-            (0.5, "Score threshold must be finite and between 0.1 and 1; using 0.5."),
+            effective_score(-0.1),
+            (0.5, "Score threshold must be finite and between 0 and 1; using 0.5."),
         )
         self.assertEqual(effective_score(""), (0.5, None))
         self.assertEqual(effective_score(0.3), (0.3, None))
@@ -440,11 +431,7 @@ class RouterTests(unittest.TestCase):
             _Application,
             cast(
                 object,
-                create_app(
-                    core_ui_snapshot(),
-                    assets_folder=ASSETS_PATH,
-                    genetics=genetics_snapshot(),
-                ),
+                create_app(core_ui_snapshot(), assets_folder=ASSETS_PATH),
             ),
         )
         client = app.server.test_client()
@@ -477,39 +464,12 @@ class RouterTests(unittest.TestCase):
             finally:
                 page.close()
 
-    def test_version_mismatch_and_missing_genetics_show_notice_but_keep_drug_page(
-        self,
-    ) -> None:
-        stale = genetics_snapshot()
-        stale["data_version"] = {"year": "26", "month": "06", "iteration": None}
-        for data in (stale, None):
-            app = create_app(
-                core_ui_snapshot(), assets_folder=ASSETS_PATH, genetics=data
-            )
-            layout_data = _layout_json(app)
-            ids = _collect_ids(layout_data)
-            self.assertIn("drug-page", ids)
-            self.assertIn("genetics-page", ids)
-            self.assertNotIn("genetics-heatmap", ids)
-            self.assertIn("refresh-genetics", json.dumps(layout_data))
-
     def test_missing_snapshot_keeps_both_pages(self) -> None:
-        app = create_app(None, assets_folder=ASSETS_PATH, genetics=genetics_snapshot())
+        app = create_app(None, assets_folder=ASSETS_PATH)
         ids = _collect_ids(_layout_json(app))
         self.assertTrue({"url", "drug-page", "genetics-page"} <= ids)
         self.assertNotIn("genetics-heatmap", ids)
-        self.assertIn("drug snapshot is not available", json.dumps(_layout_json(app)))
-
-    def test_genetics_read_error_is_shown_in_the_notice(self) -> None:
-        app = create_app(
-            core_ui_snapshot(),
-            assets_folder=ASSETS_PATH,
-            genetics_error=ValueError("broken file"),
-        )
-        self.assertIn(
-            "The genetic association data could not be read: broken file",
-            json.dumps(_layout_json(app)),
-        )
+        self.assertIn("snapshot is not available", json.dumps(_layout_json(app)))
 
     def test_nav_marks_current_page(self) -> None:
         drug = layout.dashboard_layout(core_ui_snapshot())

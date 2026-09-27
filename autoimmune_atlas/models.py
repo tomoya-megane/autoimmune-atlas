@@ -121,6 +121,13 @@ class DataVersion(TypedDict):
     iteration: str | int | None
 
 
+class GeneAssociation(TypedDict):
+    target_id: str
+    target: str
+    score: float
+    datasource_scores: dict[str, float]
+
+
 class Snapshot(TypedDict):
     schema: int
     root: str | RootIdentity
@@ -130,6 +137,8 @@ class Snapshot(TypedDict):
     source: str
     diseases: list[Disease]
     records: list[DrugRecord]
+    associations: dict[str, list[GeneAssociation]]
+    datasources: list[str]
     cells: dict[str, CellDefinition]
     expression: dict[str, list[ExpressionRow]]
 
@@ -138,6 +147,8 @@ class AggregationSnapshot(TypedDict):
     schema: int
     diseases: NotRequired[list[Disease]]
     records: NotRequired[list[DrugRecord]]
+    associations: NotRequired[dict[str, list[GeneAssociation]]]
+    datasources: NotRequired[list[str]]
     cells: NotRequired[dict[str, CellDefinition]]
     expression: NotRequired[dict[str, list[ExpressionRow]]]
 
@@ -146,6 +157,8 @@ class CoreSnapshot(TypedDict):
     schema: int
     diseases: list[Disease]
     records: list[DrugRecord]
+    associations: dict[str, list[GeneAssociation]]
+    datasources: list[str]
     cells: dict[str, CellDefinition]
     expression: dict[str, list[ExpressionRow]]
 
@@ -203,21 +216,3 @@ class SummaryRow(TypedDict):
     total_drugs: int
     mapped_drugs: int
     member_cell_ids: list[str]
-
-
-class GeneAssociation(TypedDict):
-    target_id: str
-    target: str
-    score: float
-    datasource_scores: dict[str, float]
-
-
-class GeneticsSnapshot(TypedDict):
-    schema: int
-    data_version: DataVersion
-    retrieved_at: str
-    source: str
-    score_floor: float
-    datasources: list[str]
-    associations: dict[str, list[GeneAssociation]]
-    expression: dict[str, list[ExpressionRow]]

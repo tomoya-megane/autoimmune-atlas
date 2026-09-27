@@ -587,6 +587,9 @@ def main() -> None:
         "source": f"https://{API_HOST}{API_PATH}",
         "diseases": sorted(diseases, key=lambda d: d["name"]),
         "records": list(records.values()),
+        # Task 3 で関連遺伝子の取得を足すまでの仮の値。
+        "associations": {},
+        "datasources": [],
         "cells": cells,
         "expression": expression,
     }

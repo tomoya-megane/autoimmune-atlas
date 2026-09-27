@@ -1,4 +1,4 @@
-"""schema 2 の Dash UI と表示用ロジックを検証する。"""
+"""schema 3 の Dash UI と表示用ロジックを検証する。"""
 
 from __future__ import annotations
 
@@ -368,6 +368,8 @@ def fixture() -> Snapshot:
             {"id": "MONDO_RA_TEST", "name": "rheumatoid arthritis", "status": "ready"}
         ],
         "records": records,
+        "datasources": [],
+        "associations": {"MONDO_RA_TEST": []},
         "cells": {
             "CL_B_ONE": {
                 "name": "memory B cell",
@@ -1520,7 +1522,12 @@ class CallbackTests(unittest.TestCase):
         return self.client
 
     def _callback_key(self, output_id: str) -> str:
-        return next(key for key in self._application().callback_map if output_id in key)
+        # 遺伝子ページの genetics- の ID と取り違えないよう、出力の ID を完全一致で比べる。
+        return next(
+            key
+            for key in self._application().callback_map
+            if output_id in key.strip(".").split("...")
+        )
 
     def _post(self, output_id: str, values: CallbackValues, changed: str) -> JsonObject:
         key = self._callback_key(output_id)

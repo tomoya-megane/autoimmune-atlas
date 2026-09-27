@@ -7,9 +7,9 @@ from collections.abc import Mapping
 from typing import cast
 from unittest.mock import MagicMock, patch
 
-from autoimmune_atlas.genetics import GENETICS_SCHEMA, SCORE_FLOOR
-from autoimmune_atlas.models import GeneticsSnapshot
 from autoimmune_atlas.refresh_genetics import (
+    GENETICS_SCHEMA,
+    SCORE_FLOOR,
     VERSION_QUERY,
     classify_datasources,
     collect_associations,
@@ -158,7 +158,7 @@ class RefreshGeneticsMainTests(unittest.TestCase):
         self._run([VERSION, VERSION], fetch, save)
         self.assertEqual([c.args[0] for c in fetch.call_args_list], ["G2"])
         save.assert_called_once()
-        payload = cast(GeneticsSnapshot, save.call_args.args[1])
+        payload = cast(dict[str, object], save.call_args.args[1])
         self.assertEqual(payload["schema"], GENETICS_SCHEMA)
         self.assertEqual(payload["score_floor"], SCORE_FLOOR)
         self.assertEqual(payload["data_version"], VERSION)
@@ -166,11 +166,13 @@ class RefreshGeneticsMainTests(unittest.TestCase):
         self.assertEqual(
             [
                 (g["target_id"], g["datasource_scores"])
-                for g in payload["associations"]["D1"]
+                for g in cast(
+                    dict[str, list[dict[str, object]]], payload["associations"]
+                )["D1"]
             ],
             [("G1", {"gwas_credible_sets": 0.9}), ("G2", {"eva": 0.5})],
         )
-        self.assertEqual(list(payload["expression"]), ["G2"])
+        self.assertEqual(list(cast(dict[str, object], payload["expression"])), ["G2"])
 
     def test_version_change_during_refresh_raises_and_saves_nothing(self) -> None:
         later = {"year": "26", "month": "12", "iteration": None}

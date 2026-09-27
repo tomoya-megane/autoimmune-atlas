@@ -4,21 +4,13 @@ from pathlib import Path
 
 from dash import Dash, Input, Output, dcc, html
 
-from autoimmune_atlas.genetics import merged_snapshot, version_matches
-from autoimmune_atlas.models import GeneticsSnapshot, Snapshot
+from autoimmune_atlas.models import Snapshot
 from autoimmune_atlas.ui.callbacks import register_callbacks
 from autoimmune_atlas.ui.genetics_callbacks import register_genetics_callbacks
 from autoimmune_atlas.ui.genetics_layout import genetics_page, genetics_unavailable_page
 from autoimmune_atlas.ui.layout import dashboard_layout, unavailable_layout
 
-NOT_RETRIEVED = "The genetic association data have not been retrieved."
-VERSION_MISMATCH = (
-    "The genetic association data were retrieved from a different Open Targets "
-    "release than the drug data."
-)
-NO_SNAPSHOT = (
-    "The drug snapshot is not available, so the genetics page cannot be shown."
-)
+NO_SNAPSHOT = "The snapshot is not available, so the genetics page cannot be shown."
 
 
 def create_app(
@@ -26,8 +18,6 @@ def create_app(
     error: Exception | None = None,
     *,
     assets_folder: str | Path,
-    genetics: GeneticsSnapshot | None = None,
-    genetics_error: Exception | None = None,
 ) -> Dash:
     """保存済みデータまたは明示的な fixture から、2 ページの Dash アプリを作る。"""
     application = Dash(
@@ -36,23 +26,13 @@ def create_app(
         suppress_callback_exceptions=True,
         assets_folder=str(assets_folder),
     )
-    drug_page = (
-        unavailable_layout(error) if snapshot is None else dashboard_layout(snapshot)
-    )
     if snapshot is None:
+        drug_page = unavailable_layout(error)
         gene_page = genetics_unavailable_page(NO_SNAPSHOT)
-    elif genetics is None:
-        gene_page = genetics_unavailable_page(
-            NOT_RETRIEVED
-            if genetics_error is None
-            else f"The genetic association data could not be read: {genetics_error}"
-        )
-    elif not version_matches(snapshot, genetics):
-        gene_page = genetics_unavailable_page(VERSION_MISMATCH)
     else:
-        merged = merged_snapshot(snapshot, genetics)
-        gene_page = genetics_page(merged, genetics)
-        register_genetics_callbacks(application, merged, genetics)
+        drug_page = dashboard_layout(snapshot)
+        gene_page = genetics_page(snapshot)
+        register_genetics_callbacks(application, snapshot)
     # 初期表示は薬剤ページにし、URL の callback が正しいほうを出す。
     gene_page.hidden = True  # pyright: ignore[reportAttributeAccessIssue] - Dash の型定義に hidden がない。
     application.layout = html.Div(

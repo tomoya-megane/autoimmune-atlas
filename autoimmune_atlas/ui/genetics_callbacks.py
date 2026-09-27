@@ -12,7 +12,6 @@ from autoimmune_atlas import genetics as gene_data
 from autoimmune_atlas.disease_catalog import disease_catalog, ordered_disease_ids
 from autoimmune_atlas.models import (
     CellCatalogEntry,
-    GeneticsSnapshot,
     Snapshot,
     SummaryRow,
     TargetRecord,
@@ -33,7 +32,6 @@ from autoimmune_atlas.ui.config import (
     DEFAULT_SCORE_THRESHOLD,
     GENETICS_PARAMETER_IDS,
     METHOD_LABELS,
-    SCORE_FLOOR,
 )
 from autoimmune_atlas.ui.figures import (
     Measure,
@@ -79,16 +77,12 @@ def _applied_parameters(values: tuple[ParameterValue, ...]) -> GeneticsParameter
 
 
 def effective_score(value: NumberInput) -> tuple[float, str | None]:
-    """空欄は初期値、0.1 未満と 1 超と不正値は理由を示して初期値へ戻す。"""
-    return effective_number(
-        value, DEFAULT_SCORE_THRESHOLD, "score threshold", 1, minimum=SCORE_FLOOR
-    )
+    """空欄は初期値、0 未満と 1 超と不正値は理由を示して初期値へ戻す。"""
+    return effective_number(value, DEFAULT_SCORE_THRESHOLD, "score threshold", 1)
 
 
-def register_genetics_callbacks(
-    application: Dash, snapshot: Snapshot, genetics: GeneticsSnapshot
-) -> None:
-    """遺伝子ページのコールバックを登録する。snapshot は merged_snapshot を通したもの。"""
+def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
+    """遺伝子ページのコールバックを登録する。"""
     # 遺伝子は薬剤の標的より桁違いに多く、発現の表と細胞の一覧を毎回作ると 1 回の更新に数秒かかる。
     # 登録時に 1 度だけ作り、各 callback で使い回す。
     metadata = atlas.expression_metadata(snapshot)
@@ -117,7 +111,6 @@ def register_genetics_callbacks(
         # ponytail: retain one filter combination per app; enlarge only for concurrent users.
         return gene_data.summarize_genes(
             snapshot,
-            genetics,
             score,
             minimum,
             method=method,
@@ -158,7 +151,7 @@ def register_genetics_callbacks(
         # ponytail: retain one selected disease; enlarge only for concurrent users.
         records: list[TargetRecord] = [
             {"target_id": gene["target_id"], "target": gene["target"]}
-            for gene in gene_data.genes_for_disease(genetics, disease, score)
+            for gene in gene_data.genes_for_disease(snapshot, disease, score)
         ]
         return expression_figure(
             snapshot,
@@ -510,7 +503,6 @@ def register_genetics_callbacks(
         )
         rows = gene_data.summarize_genes(
             snapshot,
-            genetics,
             score,
             minimum,
             method=method,
@@ -523,7 +515,7 @@ def register_genetics_callbacks(
         return genetics_detail_panel(
             rows,
             selected,
-            genetics,
+            snapshot,
             score_threshold=score,
             threshold=minimum,
             method=method,

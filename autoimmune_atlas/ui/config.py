@@ -1,8 +1,5 @@
 """画面表示とコールバックで共有する固定値。"""
 
-# 下限は genetics.py が持ち、既存の import のためにここからも読めるようにする。
-from autoimmune_atlas.genetics import SCORE_FLOOR as SCORE_FLOOR
-
 DEFAULT_EXPRESSION_THRESHOLD = 0.5
 DEFAULT_SPECIFICITY_THRESHOLD = 0.5
 SOURCE_PAGE_SIZE = 10

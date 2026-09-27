@@ -5,14 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TypedDict, cast
 
-from autoimmune_atlas.genetics import GENETICS_PATH, GENETICS_SCHEMA, SCORE_FLOOR
 from autoimmune_atlas.models import (
     DataVersion,
     ExpressionRow,
     GeneAssociation,
-    GeneticsSnapshot,
     Snapshot,
 )
 from autoimmune_atlas.refresh import (
@@ -24,6 +23,9 @@ from autoimmune_atlas.refresh import (
 )
 from autoimmune_atlas.snapshot import load_snapshot
 
+GENETICS_PATH = Path(__file__).resolve().parent.parent / "data" / "genetics.json"
+GENETICS_SCHEMA = 1
+SCORE_FLOOR = 0.1
 PAGE_SIZE = 500
 GENETIC_DATATYPE = "genetic_association"
 
@@ -241,7 +243,7 @@ def main() -> None:
     ]["dataVersion"]
     if final_version != version:
         raise ValueError("取得中にデータの版が変わりました。再取得してください")
-    genetics: GeneticsSnapshot = {
+    genetics: dict[str, object] = {
         "schema": GENETICS_SCHEMA,
         "data_version": version,
         "retrieved_at": datetime.now(UTC).isoformat(),
