@@ -2191,9 +2191,14 @@ class CallbackTests(unittest.TestCase):
             ["all", *[value for _, value in atlas.DRUG_TYPE_MODALITIES]],
         )
         layout = _response_json(self._client().get("/_dash-layout"))
+        drug_page = next(
+            node
+            for node in _json_array(_at(layout, "props", "children"))
+            if _at(node, "props", "id") == "drug-page"
+        )
         controls = next(
             _json_object(node)
-            for node in _json_array(_at(layout, "props", "children"))
+            for node in _json_array(_at(drug_page, "props", "children"))
             if _at(node, "props", "className") == "panel controls"
         )
         self.assertEqual(

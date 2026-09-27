@@ -12,7 +12,7 @@ from flask.testing import FlaskClient
 
 from autoimmune_atlas import genetics
 from autoimmune_atlas.models import DiseaseFamily, SummaryRow
-from autoimmune_atlas.ui import components, figures, genetics_layout
+from autoimmune_atlas.ui import components, figures, genetics_layout, layout
 from autoimmune_atlas.ui.application import create_app
 from autoimmune_atlas.ui.genetics_callbacks import effective_score
 from tests.genetics_fixture import genetics_snapshot
@@ -259,6 +259,76 @@ class _Application(Protocol):
     server: _Server
 
 
+def _post(
+    test: unittest.TestCase,
+    application: _Application,
+    client: FlaskClient,
+    output_id: str,
+    values: dict[str, object],
+) -> dict[str, object]:
+    """test_ui.py の CallbackTests._post と同じ形で callback を 1 回呼ぶ。"""
+    key = next(k for k in application.callback_map if output_id in k)
+    callback = application.callback_map[key]
+    outputs = callback["output"]
+    response = client.post(
+        "/_dash-update-component",
+        json={
+            "output": key,
+            "outputs": [
+                {"id": o.component_id, "property": o.component_property}
+                for o in outputs
+            ]
+            if isinstance(outputs, list)
+            else {
+                "id": outputs.component_id,
+                "property": outputs.component_property,
+            },
+            "inputs": [
+                {**item, "value": values.get(f"{item['id']}.{item['property']}")}
+                for item in callback["inputs"]
+            ],
+            "state": [
+                {**item, "value": values.get(f"{item['id']}.{item['property']}")}
+                for item in callback["state"]
+            ],
+            "changedPropIds": [
+                f"{item['id']}.{item['property']}" for item in callback["inputs"]
+            ][:1],
+        },
+    )
+    try:
+        test.assertEqual(response.status_code, 200, response.get_data())
+        body = cast(dict[str, object], json.loads(response.get_data(as_text=True)))
+        return cast(dict[str, object], body["response"])
+    finally:
+        response.close()
+
+
+def _layout_json(app: object) -> object:
+    """/_dash-layout の JSON を返す。"""
+    response = cast(_Application, app).server.test_client().get("/_dash-layout")
+    try:
+        return cast(object, json.loads(response.get_data(as_text=True)))
+    finally:
+        response.close()
+
+
+def _collect_ids(node: object) -> set[str]:
+    """レイアウトの JSON から、文字列の id を全部集める。"""
+    found: set[str] = set()
+    if isinstance(node, dict):
+        mapping = cast(dict[str, object], node)
+        component_id = mapping.get("id")
+        if isinstance(component_id, str):
+            found.add(component_id)
+        for value in mapping.values():
+            found |= _collect_ids(value)
+    elif isinstance(node, list):
+        for item in cast(list[object], node):
+            found |= _collect_ids(item)
+    return found
+
+
 class GeneticsCallbackTests(unittest.TestCase):
     """HTTP 経由で遺伝子ページの比較図と詳細の callback を確かめる。"""
 
@@ -275,42 +345,7 @@ class GeneticsCallbackTests(unittest.TestCase):
         cls.client = cls.application.server.test_client()
 
     def _post(self, output_id: str, values: dict[str, object]) -> dict[str, object]:
-        """test_ui.py の CallbackTests._post と同じ形で callback を 1 回呼ぶ。"""
-        key = next(k for k in self.application.callback_map if output_id in k)
-        callback = self.application.callback_map[key]
-        outputs = callback["output"]
-        response = self.client.post(
-            "/_dash-update-component",
-            json={
-                "output": key,
-                "outputs": [
-                    {"id": o.component_id, "property": o.component_property}
-                    for o in outputs
-                ]
-                if isinstance(outputs, list)
-                else {
-                    "id": outputs.component_id,
-                    "property": outputs.component_property,
-                },
-                "inputs": [
-                    {**item, "value": values.get(f"{item['id']}.{item['property']}")}
-                    for item in callback["inputs"]
-                ],
-                "state": [
-                    {**item, "value": values.get(f"{item['id']}.{item['property']}")}
-                    for item in callback["state"]
-                ],
-                "changedPropIds": [
-                    f"{item['id']}.{item['property']}" for item in callback["inputs"]
-                ][:1],
-            },
-        )
-        try:
-            self.assertEqual(response.status_code, 200, response.get_data())
-            body = cast(dict[str, object], json.loads(response.get_data(as_text=True)))
-            return cast(dict[str, object], body["response"])
-        finally:
-            response.close()
+        return _post(self, self.application, self.client, output_id, values)
 
     def test_score_input_falls_back_below_floor_and_on_empty(self) -> None:
         self.assertEqual(
@@ -360,3 +395,81 @@ class GeneticsCallbackTests(unittest.TestCase):
             },
         )
         self.assertIn("No genes at or above the score threshold", json.dumps(empty))
+
+
+class RouterTests(unittest.TestCase):
+    """URL で 2 ページを切り替える shell を確かめる。"""
+
+    def test_layout_holds_both_pages_and_url_toggles_hidden(self) -> None:
+        app = cast(
+            _Application,
+            cast(
+                object,
+                create_app(
+                    core_ui_snapshot(),
+                    assets_folder=ASSETS_PATH,
+                    genetics=genetics_snapshot(),
+                ),
+            ),
+        )
+        client = app.server.test_client()
+        ids = _collect_ids(_layout_json(app))
+        for component_id in (
+            "url",
+            "drug-page",
+            "genetics-page",
+            "diseases",
+            "genetics-diseases",
+        ):
+            self.assertIn(component_id, ids)
+        for path, expected in (
+            ("/genetics", [True, False]),
+            ("/", [False, True]),
+            (None, [False, True]),
+        ):
+            response = cast(
+                dict[str, dict[str, object]],
+                _post(self, app, client, "drug-page.hidden", {"url.pathname": path}),
+            )
+            self.assertEqual(
+                [response["drug-page"]["hidden"], response["genetics-page"]["hidden"]],
+                expected,
+            )
+        for route in ("/", "/genetics"):
+            page = client.get(route)
+            try:
+                self.assertEqual(page.status_code, 200)
+            finally:
+                page.close()
+
+    def test_version_mismatch_and_missing_genetics_show_notice_but_keep_drug_page(
+        self,
+    ) -> None:
+        stale = genetics_snapshot()
+        stale["data_version"] = {"year": "26", "month": "06", "iteration": None}
+        for data in (stale, None):
+            app = create_app(
+                core_ui_snapshot(), assets_folder=ASSETS_PATH, genetics=data
+            )
+            layout_data = _layout_json(app)
+            ids = _collect_ids(layout_data)
+            self.assertIn("drug-page", ids)
+            self.assertIn("genetics-page", ids)
+            self.assertNotIn("genetics-heatmap", ids)
+            self.assertIn("refresh-genetics", json.dumps(layout_data))
+
+    def test_missing_snapshot_keeps_both_pages(self) -> None:
+        app = create_app(None, assets_folder=ASSETS_PATH, genetics=genetics_snapshot())
+        ids = _collect_ids(_layout_json(app))
+        self.assertTrue({"url", "drug-page", "genetics-page"} <= ids)
+        self.assertNotIn("genetics-heatmap", ids)
+
+    def test_nav_marks_current_page(self) -> None:
+        drug = layout.dashboard_layout(core_ui_snapshot())
+        links = [
+            c for c in _walk(drug) if getattr(c, "className", None) == "app-page-link"
+        ]
+        self.assertEqual([cast(_Linked, c).href for c in links], ["/", "/genetics"])
+        current = [c for c in links if getattr(c, "aria-current", None) == "page"]
+        self.assertEqual([cast(_Linked, c).href for c in current], ["/"])
+        self.assertEqual(getattr(drug, "id", None), "drug-page")

@@ -15,6 +15,7 @@ from autoimmune_atlas.ui.components import (
     evidence_grid,
     evidence_rows,
     info_tip,
+    page_nav,
 )
 from autoimmune_atlas.ui.config import (
     DEFAULT_DISEASE_TERMS,
@@ -247,6 +248,7 @@ def unavailable_layout(error: Exception | None = None) -> html.Main:
             )
         ],
         className="shell unavailable",
+        id="drug-page",
     )
 
 
@@ -303,30 +305,7 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
     )
     return html.Main(
         [
-            html.Nav(
-                [
-                    html.A(
-                        "Autoimmune Atlas",
-                        href="#",
-                        className="app-brand",
-                    ),
-                    html.Div(
-                        [
-                            html.A(
-                                "Open Targets",
-                                href=source,
-                                target="_blank",
-                                rel="noreferrer",
-                            ),
-                        ],
-                        className="app-nav",
-                    ),
-                ],
-                className="app-bar",
-                **{  # pyright: ignore[reportArgumentType] - Dash の型定義に ARIA kwargs がない。
-                    "aria-label": "Main navigation"
-                },
-            ),
+            page_nav("drugs"),
             html.Header(
                 [
                     html.Div(
@@ -799,4 +778,5 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
             ),
         ],
         className="shell",
+        id="drug-page",
     )
