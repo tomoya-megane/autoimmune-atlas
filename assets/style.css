@@ -49,9 +49,10 @@ summary:focus-visible,
 }
 
 .app-brand { color: #fff; font-size: 18px; font-weight: 700; text-decoration: none; }
-.app-brand:hover, .app-nav a, .app-nav a:hover { color: #fff; }
+.app-brand:hover, .app-pages a, .app-pages a:hover, .app-nav a, .app-nav a:hover { color: #fff; }
+.app-pages { display: flex; align-items: baseline; gap: 24px; font-size: 13px; }
+.app-pages a, .app-nav a { text-decoration: none; }
 .app-nav { display: flex; gap: 24px; font-size: 13px; }
-.app-nav a { text-decoration: none; }
 .app-page-link.current { text-decoration: underline; text-underline-offset: 4px; }
 
 .hero { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 24px; padding: 0 0 24px; }
@@ -256,7 +257,8 @@ h4, .control label, .radio-control legend, .disease-browser h4 { color: var(--te
 @media (max-width: 560px) {
     .shell { padding: 12px; }
     .app-bar { margin: -12px -12px 16px; padding: 12px; }
-    .app-nav { width: 100%; justify-content: space-between; gap: 8px; }
+    .app-pages { flex-wrap: wrap; gap: 12px; }
+    .app-nav { gap: 8px; }
     h1 { font-size: 24px; }
     .panel, .filter-groups > .filter-group { padding: 12px; }
 }

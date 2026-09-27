@@ -98,12 +98,18 @@ def page_nav(current: Literal["drugs", "genetics"]) -> html.Nav:
 
     return html.Nav(
         [
-            # dcc.Link なので、ロゴから薬剤ページへ戻るときも再読み込みしない。
-            dcc.Link("Autoimmune Atlas", href="/", className="app-brand"),
+            # ページのリンクはアプリ名の隣に左寄せで置き、外部リンクだけを右端に置く。
             html.Div(
                 [
+                    # dcc.Link なので、ロゴから薬剤ページへ戻るときも再読み込みしない。
+                    dcc.Link("Autoimmune Atlas", href="/", className="app-brand"),
                     link("Drug targets", "/", "drugs"),
                     link("Genetic associations", "/genetics", "genetics"),
+                ],
+                className="app-pages",
+            ),
+            html.Div(
+                [
                     html.A(
                         "Open Targets",
                         href="https://platform.opentargets.org/",

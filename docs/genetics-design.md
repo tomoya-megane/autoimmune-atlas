@@ -88,10 +88,10 @@ Plotly の図は `hidden` の中では幅 0 で描かれ、表示に戻しても
 `dcc.Location` によるパスの変化は `popstate` では検出できないので、`hidden` の変化を手がかりにする。
 これで足りるかは実ブラウザーで確かめる。
 
-上部バーのアプリ名の右に、`Drug targets` と `Genetic associations` の 2 つのリンクを置く。
+上部バーのアプリ名のすぐ右に、`Drug targets` と `Genetic associations` の 2 つのリンクを左寄せで置く。
 2 つのリンクは `dcc.Link` なので、切り替えてもページを再読み込みせず、もう一方のページの状態が残る。
 `dcc.Link` は `aria-current` を受け取らないので、表示中のページは `current` クラスで示す。
-Open Targets へのリンクはその右に残す。
+Open Targets へのリンクは、外部へのリンクだと分かるようにバーの右端に置く。
 上部バーは両ページで使うので、`page_nav` として `ui/components.py` に置く。
 
 ## 遺伝子ページの操作と表示
