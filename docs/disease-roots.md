@@ -7,10 +7,14 @@ MONDO は idiopathic inflammatory myopathy、lupus nephritis、ANCA 関連血管
 
 ## このノートの読み方
 
+### 表は調査時点の記録である
+
 表は、対象疾患の起点を採用または除外した理由と、調査時点の対応づけを残す記録である。
 候補数、下位語数、Open Targets の版、調査日は当時の値であり、現在の対象範囲を示す値ではない。
 現行の対象範囲は `autoimmune_atlas/disease_catalog.py` の `SCOPE_ROOTS` が定め、`autoimmune_atlas/refresh.py` がその下位語を取得してスナップショットへ保存する。
 表の ID と採否は、`SCOPE_ROOTS` を変更するときに根拠を確認するために読む。
+
+### 起点を選ぶ基準は 3 層である
 
 基準は 3 層にする。
 
@@ -18,21 +22,40 @@ MONDO は idiopathic inflammatory myopathy、lupus nephritis、ANCA 関連血管
 2. 追加の起点は、MeSH の `Autoimmune Diseases`（D001327）と Disease Ontology の `autoimmune disease`（DOID:417）が自己免疫に置く語、臨床の分類で自己免疫疾患とされる語、そして自己炎症性疾患のうち、MONDO の基底の下に無いものとする。起点 1 件ごとに、どの分類が根拠かを表に残す。
 3. 起点にしないものを名指しする。アレルギー性疾患、非免疫性の疾患を多く含む包括語、動物モデル、Open Targets に語が無いものがこれにあたる。
 
+### 自己炎症性疾患は含め、アレルギー性疾患は含めない
+
 自己炎症性疾患を含めるのは利用者の判断である。
 治療薬の標的が自己免疫疾患と重なり、比較の材料になるためで、対象は「自己免疫疾患」より「免疫介在性の炎症疾患」に近くなる。
 アレルギー性疾患は含めない。
 
+### 候補は 4 つの源から集めた
+
 候補は 4 つの源から機械的に集めた。
-Open Targets 26.06 の基底の下位語が 170 語、MeSH の枝が 74 語、DOID の枝が 96 語、これに加えて臨床の分類で自己免疫疾患とされる 80 語を手で挙げた。
+
+| 源 | 語数 |
+| --- | --- |
+| Open Targets 26.06 の基底の下位語 | 170 語 |
+| MeSH の枝 | 74 語 |
+| DOID の枝 | 96 語 |
+| 臨床の分類で自己免疫疾患とされる語（手で挙げた） | 80 語 |
+
+### 候補を MONDO の ID に対応づけた方法
+
 MeSH と DOID の語は、MONDO が公開している ID の対応表（`mondo.sssom.tsv`、Monarch Initiative の GitHub リポジトリの `src/ontology/mappings/`、2026-09-01 版）で MONDO の ID に対応づけた。
 170 語のうち 156 語が対応表で決まり、決まらなかった 14 語と、対応表の MONDO の ID が Open Targets に無い 24 語は、Open Targets の名前検索で補った。
 手書きの語は ID を持たないので、すべて名前検索で対応づけた。
 Open Targets の疾患 1 語ごとの `dbXRefs` にも同じ対応が入っており、一括の `disease.parquet`（約 7 MB）から逆引きの表を作れる。
 parquet を読むパッケージが環境に無いので、今回は MONDO の対応表を使った。
-参照する予定の Hayter & Cook 2012（81 疾患）は本文を入手できていないので、入手できたらこの一覧と差分を取る。
+参照する予定の Hayter & Cook 2012（81 疾患）は本文を入手できていないので、入手できたら候補の一覧と差分を取る。
+
+### 利用者の判定
 
 判定は 2026-09-24 に利用者が行った。
-表 A と表 B の語は全部入れ、自己炎症は MONDO の `autoinflammatory syndrome` を起点にし、アレルギー性の 3 語だけを外した。
+
+- 表 A と表 B の語は全部入れた
+- 自己炎症は MONDO の `autoinflammatory syndrome` を起点にした
+- アレルギー性の 3 語だけを外した
+
 基底と追加の起点を合わせた対象は 370 語になる。
 
 ## 起点の書き方
@@ -155,4 +178,8 @@ lichen planus の下位語には lichenoid drug reaction が、psoriasis の下�
 起点と下位語を含めるかどうかは、`autoimmune_atlas/disease_catalog.py` の `SCOPE_ROOTS` に定義している。
 `autoimmune_atlas/refresh.py` は起点ごとの対象語を集めて和集合を作り、起点の一覧とともにスナップショットへ保存する。
 閲覧用の群と各群の起点は、`autoimmune_atlas/disease_catalog.py` の `DISEASE_GROUPS` に定義している。
-対象を保守するときは、表の採否と `SCOPE_ROOTS`、全疾患の配置先、独立して表示する疾患を確認し、`tests/test_disease_catalog.py` の回帰テストも更新する。
+対象を保守するときは、次を確認し、`tests/test_disease_catalog.py` の回帰テストも更新する。
+
+- 表の採否と `SCOPE_ROOTS`
+- 全疾患の配置先
+- 独立して表示する疾患

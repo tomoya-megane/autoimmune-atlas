@@ -30,6 +30,8 @@
 
 ## 疾患と薬剤の記録は Open Targets の値をそのまま持つ
 
+### 疾患
+
 `diseases` の 1 件は、`Disease` の 5 つのキーを持つ。
 
 | キー | 中身 |
@@ -41,6 +43,8 @@
 | `unclassified_stages` | その疾患の臨床候補のうち、`maxClinicalStage` が `UNKNOWN` か `WITHDRAWAL` の行の数。段階で絞る前に数える |
 
 `parent_ids` と `unclassified_stages` は型の上では `NotRequired` だが、`refresh` は必ず書く。
+
+### 薬剤の記録
 
 `records` の 1 件は、疾患、元の薬剤、標的の組に対応する。
 キーは `DrugRecord` の 14 個である。
@@ -60,19 +64,32 @@
 
 `modality` と `action_types` は型の上では `NotRequired` だが、`refresh` は必ず書く。
 
+### 標的を持たない薬剤
+
 作用機序の標的を持たない薬剤も、記録から外さない。
 `target_id` を空文字列、`target` を `Unknown`、`mechanism` を空文字列、`action_types` と `references` を空の配列にした 1 行を置く。
 型は `target_id`、`target`、`mechanism` に `null` も許すが、`refresh` は `null` を書かない。
+
+### 保存する段階
 
 保存するのは、段階が Phase I 以降（`PHASE_1`、`PHASE_1_2`、`PHASE_2`、`PHASE_2_3`、`PHASE_3`、`PREAPPROVAL`、`APPROVAL`、`PHASE_4`）の行だけである。
 `UNKNOWN`、`WITHDRAWAL`、`EARLY_PHASE_1`、`IND`、`PRECLINICAL`、`PHASE_0` は既知の段階として読み、保存しない。
 この 14 個のどれでもない段階が現れたら、取得を失敗にする。
 Phase II 以降などの絞り込みは、集計が `stage` を読んで行う。
 
-同じ疾患の中で同じ薬剤 ID が 2 回現れたとき、段階を満たす行に薬剤の情報が無いとき、`drugType` が既知の 11 種のどれでもないときも、取得を失敗にする。
+### 段階のほかに取得を失敗にする条件
+
+次のときも、取得を失敗にする。
+
+- 同じ疾患の中で同じ薬剤 ID が 2 回現れたとき
+- 段階を満たす行に薬剤の情報が無いとき
+- `drugType` が既知の 11 種のどれでもないとき
+
 同じ有効成分の記録をまとめるのは集計の仕事で、保存の時点では元の薬剤ごとに行を分けたままにする。
 
 ## 関連遺伝子は下限なしでスコアの降順に持つ
+
+### 疾患ごとの関連遺伝子
 
 `associations` は、`diseases` にある全部の疾患 ID をキーに持つ。
 genetic association のスコアを持つ遺伝子が 1 件も無い疾患は、空の配列になる。
@@ -87,10 +104,14 @@ genetic association のスコアを持つ遺伝子が 1 件も無い疾患は、
 | `score` | datatype `genetic_association` のスコア |
 | `datasource_scores` | datasource ID ごとのスコア。`datasources` にある datasource だけを残す |
 
+### 下限と並び
+
 スコアを持つ遺伝子は全部保存し、下限を設けない。
 遺伝子ページの閾値は 0 から 1 で変えられるので、どの閾値でも分母を保存データから数えられる。
 並びはスコアの降順で、同じスコアなら `target_id` の順である。
 API も降順で返すが、保存の形として並びを保証するために、保存の前に並べ直す。
+
+### genetic association の datasource
 
 `datasources` は、genetic association に属する datasource の ID を名前の順に並べたものである。
 一覧はコードに書かず、取得のたびに決める。
@@ -99,6 +120,8 @@ API も降順で返すが、保存の形として並びを保証するために�
 版 26.09 では、`eva`、`gene_burden`、`gwas_credible_sets`、`orphanet`、`uniprot_variants` の 5 つだった。
 
 ## 細胞の定数は 1 回だけ持ち、発現の行は 3 キーである
+
+### 細胞の定数
 
 細胞の名前、親分類、祖先は、遺伝子が違っても同じ値になる。
 そのため、発現の行には持たせず、`cells` に細胞ごとに 1 回だけ置く。
@@ -115,6 +138,8 @@ API も降順で返すが、保存の形として並びを保証するために�
 `parent` は、`parent_id` から作れないので保存する。
 集計は大分類の表示名を `parent` から作る。
 
+### 発現の行
+
 `expression` の値は、1 遺伝子の細胞型別の発現の行の配列で、1 行の `ExpressionRow` は 3 つのキーを持つ。
 
 | キー | 中身 |
@@ -125,6 +150,8 @@ API も降順で返すが、保存の形として並びを保証するために�
 
 `expression` は、薬剤の標的と関連遺伝子の和集合の全部をキーに持つ。
 Tabula Sapiens の細胞型別の値が無い遺伝子は、空の配列になる。
+
+### `cells` と `expression` の不変条件
 
 `cells` と `expression` のあいだには、2 つの不変条件がある。
 
@@ -139,11 +166,15 @@ Target-relative median の基準になる標的内中央値は、その遺伝子
 `cells` に使われない細胞が残っていると、全部の遺伝子で標的内中央値が `null` になる。
 2 つ目の不変条件は、これを防ぐためにある。
 
+### 発現の行を dict のままにする理由
+
 発現の行は、名前付きの dict のままにする。
 配列にすればファイルはさらに小さくなるが、読むときにキーの順序を覚えておく必要がある。
 dict のままでも 96 MB に収まったので、読みやすさを優先する。
 
 ## 読み込みは msgspec で型ごと検証する
+
+### 検証の結果
 
 `autoimmune_atlas/snapshot.py` の `load_snapshot()` は、`msgspec.json.decode()` で `Snapshot` の型を指定してファイルを読む。
 入れ子の `Disease`、`DrugRecord`、`GeneAssociation`、`CellDefinition`、`ExpressionRow` まで、キーと値の型をこの時点で確かめる。
@@ -160,12 +191,16 @@ schema 1 と 2 のファイルは `cells` などのキーを持たないので�
 古い形を読み替える処理は、アプリに置かない。
 `data/` は環境ごとに取り直す規約なので、`pixi run refresh` を 1 回打てば済む。
 
+### 読めないときの画面
+
 `app.py` は、`None` のときも `ValueError` のときも、データ無しでアプリを組み立てる。
 薬剤ページには `pixi run refresh` を打つ案内を表示する。
 見出しは、ファイルが無ければ「No data loaded yet」、読めなければ「Data refresh required」で、後者ではエラーの文面も表示する。
 遺伝子ページには「Genetic associations are not available」と、`pixi run refresh` のあとにアプリを再起動する案内を表示する。
 
 ## 取得は 1 本で、全件成功したときだけ保存する
+
+### 手順
 
 `pixi run refresh` は `autoimmune_atlas/refresh.py` の `main()` を実行する。
 `main()` は次の順に進み、どこかで失敗すれば何も保存せずに止まる。
@@ -184,12 +219,18 @@ schema 1 と 2 のファイルは `cells` などのキーを持たないので�
 12. `cell_catalog()` を 1 回呼び、同じ親分類 ID に別の名前が付いていないかを確かめる
 13. 一時ファイルに書いてから `data/snapshot.json` を置き換える
 
+### 関連遺伝子のページングの前提
+
 手順 5 のページングは、`orderByScore: "genetic_association"` の並びに頼っている。
 この並びでは、genetic association のスコアを持つ遺伝子が降順に先に並び、スコアを持たない遺伝子がその後ろに続く。
 関節リウマチで、全件を取って数えた件数と、並べて途中で止めて数えた件数が一致することを確かめた。
 HTTP と GraphQL が成功していても、ページが途中で空になることがあるので、空のページは失敗として扱う。
 
+### datasource の区分を API の一覧から取らない理由
+
 手順 6 で datasource の区分を API の一覧から取らないのは、`associationDatasources` が版 26.09 で空の配列を返したためである。
+
+### 発現の行の検証
 
 発現の行は、Tabula Sapiens（datasource `tabula_sapiens`）の細胞型別 pseudobulk だけを残す。
 組織を持つ行と、細胞型を持たない行は捨てる。
@@ -201,21 +242,36 @@ HTTP と GraphQL が成功していても、ページが途中で空になるこ
 - 1 遺伝子の中で同じ細胞 ID の行が 2 つある
 - 同じ細胞 ID の名前、親分類、祖先が、遺伝子のあいだで食い違う（`merge_cells()`）
 
+### API への照会と再試行
+
 API への照会は、すべて `query_api()` を通る。
 `httpx` でタイムアウト 45 秒の POST を送り、proxy は環境変数（`HTTPS_PROXY`、`https_proxy`）から `httpx` が読む。
 HTTP の状態が 200 でないとき、応答に `errors` があるとき、`data` が無いときは失敗とみなし、1 秒、2 秒と待って最大 3 回まで試す。
 3 回目も失敗すれば、例外をそのまま上げる。
 呼び出し元は応答を `msgspec.convert()` で照会ごとの型へ変換するので、キーの欠けや型の違いもここで失敗になる。
 
+### 保存
+
 `save_snapshot()` は、`json.dumps(allow_nan=False)` で書く。
 `NaN` や `Infinity` が混ざっていれば、書く前に失敗する。
 一時ファイルは `data/` の中に作り、書き終えてから `Path.replace()` で置き換える。
 途中で失敗したときは一時ファイルを消すので、前回の `snapshot.json` はそのまま残る。
 
-`main()` は、起点ごとの疾患数、チャンクごとの進み、関連遺伝子を持つ疾患の数、genetic association の datasource、発現の再利用と取得の件数を表示する。
+### 進みの表示
+
+`main()` は、次を表示する。
+
+- 起点ごとの疾患数
+- チャンクごとの進み
+- 関連遺伝子を持つ疾患の数
+- genetic association の datasource
+- 発現の再利用と取得の件数
+
 最後に、保存先と、疾患、薬剤、標的、関連遺伝子の件数を表示する。
 
 ## 同じ版の発現は既存のファイルから再利用する
+
+### 読むファイルと条件
 
 発現の取得は、全体の時間の大半を占める。
 そこで `reusable_expression()` が、`data/snapshot.json` と `data/genetics.json` をこの順に読み、`data_version` が今回と同じなら発現の行を再利用する。
@@ -230,8 +286,12 @@ HTTP の状態が 200 でないとき、応答に `errors` があるとき、`da
 `load_snapshot()` は schema 3 しか受け付けないので、再利用では別の緩い型で読む。
 再利用した遺伝子のうち、今回の和集合に無いものは保存しない。
 
+### `genetics.json` を読む理由
+
 `genetics.json` を読むのは、schema 2 から schema 3 へ切り替える最初の取得で、約 4,000 遺伝子ぶんの取得を省くためである。
 schema 3 の `snapshot.json` が一度できれば、`data/genetics.json` は消してよい。
+
+### 途中から再開する手段は無い
 
 再利用できるのは、完成した保存データにある遺伝子だけである。
 途中で失敗した取得は何も保存しないので、長い取得を途中から再開する手段は無い。
@@ -252,24 +312,29 @@ schema 3 の `snapshot.json` が一度できれば、`data/genetics.json` は消
 | 関節リウマチの関連遺伝子 | 697（閾値 0 と 0.02 のどちらでも分母が 697 で、`associations` の配列の長さと一致した） |
 | genetic association の datasource | 5 つ |
 
+### schema 2 との比較
+
 schema 2 のときは、`snapshot.json` が 101 MB、`genetics.json` が 521 MB だった。
 `genetics.json` は `snapshot.json` のおよそ 5 倍で、発現の行ごとに `cell`、`parent`、`ancestor_ids` を繰り返していたためである。
 2 つのファイルを読むとプロセスのメモリは約 3 GB まで増え、画面の構成を作り始めるまでに約 9 秒かかっていた。
 schema 3 の 1 ファイルは、2 ファイルの合計の 6 分の 1 になった。
 
+### 全部を取り直すときの見積もり
+
 発現の取得時間は、schema 2 のときに 4,148 遺伝子で約 55 分（2 スレッド）だった。
 この実績から、再利用できるファイルが無い環境で約 7,300 遺伝子を全部取ると、1.5 時間から 2 時間かかると見積もっている。
 並列数を増やせば短くなるが、API のエラー率を測っていないので、2 のままにしている。
 
-これらの値は、版が変わると変わる。
+この節の値は、どれも版が変わると変わる。
 
 ## 経緯
 
 遺伝子ページを作ったとき、`snapshot.json`（schema 2）とは別に `data/genetics.json` を置き、関連遺伝子はスコア 0.1 以上だけを保存した。
 使ってみて、3 つの問題が分かった。
-2 つのファイルの版が一致しているかを、読み込みのたびに確かめる必要があった。
-下限 0.1 のせいで、それより弱い関連が画面から見えなかった。
-発現の行が細胞の定数を繰り返し、2 つのファイルを読むとメモリが約 3 GB になった。
+
+- 2 つのファイルの版が一致しているかを、読み込みのたびに確かめる必要があった
+- 下限 0.1 のせいで、それより弱い関連が画面から見えなかった
+- 発現の行が細胞の定数を繰り返し、2 つのファイルを読むとメモリが約 3 GB になった
 
 schema 3 で、2 つのファイルを 1 つにまとめ、下限を無くし、細胞の定数を `cells` に 1 回だけ置いた。
 版 26.09 では、スコアを持つ遺伝子の和集合は約 6,800 件で、薬剤の標的と合わせると約 7,300 件になった。
