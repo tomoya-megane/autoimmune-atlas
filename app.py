@@ -23,12 +23,23 @@ if __name__ == "__main__":
 
     class Arguments(argparse.Namespace):
         dev: bool = False
+        host: str = "127.0.0.1"
+        port: int = 8050
 
     parser = argparse.ArgumentParser(description="Run Autoimmune Atlas")
     parser.add_argument(
         "--dev", action="store_true", help="Automatically reload when code changes"
     )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Address to listen on. Use 0.0.0.0 to accept other machines",
+    )
+    parser.add_argument("--port", type=int, default=8050, help="Port to listen on")
     args = parser.parse_args(namespace=Arguments())
+    if args.dev and args.host not in ("127.0.0.1", "localhost"):
+        # 開発モードは Werkzeug のデバッガを公開するので、外から繋がる host では起動しない。
+        parser.error("--dev は --host 127.0.0.1 でしか使えない")
     app.run(  # pyright: ignore[reportUnknownMemberType] -- Dash の可変長引数が Unknown。
-        host="127.0.0.1", port=8050, debug=args.dev
+        host=args.host, port=args.port, debug=args.dev
     )
