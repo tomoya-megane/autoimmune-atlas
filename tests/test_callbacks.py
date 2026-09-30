@@ -804,7 +804,13 @@ class CallbackTests(unittest.TestCase):
                     _json_object(_at(group, "props")).get("className", "")
                 ).split()
             ],
-            ["Comparison scope", "Drug evidence", "Expression criteria", "Display"],
+            [
+                "Comparison scope",
+                "Drug evidence",
+                "Target annotation",
+                "Expression criteria",
+                "Display",
+            ],
         )
         browser = _at(scope_controls, "props", "children", 0, "props", "children", 2)
         self.assertEqual(_at(browser, "type"), "Div")

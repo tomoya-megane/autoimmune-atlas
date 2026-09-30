@@ -344,7 +344,7 @@ Comparison scope には疾患の選択欄だけを置き、細胞の表示はヒ
 
 ### 上部パネルを操作の順序に沿って分ける
 
-上部パネルは、左2/5に Comparison scope の疾患選択、右3/5に Drug evidence、Expression criteria、Display と Update を上から配置する。
+上部パネルは、左2/5に Comparison scope の疾患選択、右3/5に Drug evidence と Target annotation を横に並べ、その下に Expression criteria、Display と Update を配置する。
 疾患群の一覧は常時表示し、各群は個別に開閉できるようにする。
 一覧の高さには上限を設け、長くなった部分は一覧内でスクロールする。
 対象と判定条件を決めてから、その結果を標的数と薬剤数のどちらで見るかを選べるようにする。
@@ -356,6 +356,7 @@ Comparison scope には疾患の選択欄だけを置き、細胞の表示はヒ
 | 区分 | 項目 |
 | --- | --- |
 | Drug evidence | 臨床段階、モダリティ |
+| Target annotation | 標的の分類（ChEMBL の l1）、標的の局在の粗い分類。薬の証拠ではなく標的の注釈なので区分を分ける |
 | Expression criteria | 発現基準、最低 CPM、CELLEX の閾値 |
 | Comparison scope | 疾患 |
 | Display | 標的／薬剤、Heatmap の実数／割合 |
@@ -372,7 +373,7 @@ Dot plot の表示中は Measure を操作できないようにし、Heatmap に
 比較対象を選ぶ欄は折りたたまず常に表示する。
 
 - **広い画面**：各区分の項目を横に並べ、Display の View と Measure も横に置く
-- **狭い画面**：Comparison scope、Drug evidence、Expression criteria、Display、Update の順に縦一列に並べ、各区分の項目も縦に並べる
+- **狭い画面**：Comparison scope、Drug evidence、Target annotation、Expression criteria、Display、Update の順に縦一列に並べ、各区分の項目も縦に並べる
 
 ## 説明を判断に使う場所へ置く
 

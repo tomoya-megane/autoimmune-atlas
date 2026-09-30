@@ -476,6 +476,12 @@ def genetics_page(snapshot: Snapshot) -> html.Main:
                                         ),
                                         "The score threshold keeps genes whose Open Targets genetic association score for the disease is at or above this value. Empty or out-of-range values use 0.5.",
                                     ),
+                                ],
+                                className="filter-group",
+                            ),
+                            html.Section(
+                                [
+                                    html.H3("Target annotation"),
                                     _labelled(
                                         "Target class",
                                         "genetics-target-class",

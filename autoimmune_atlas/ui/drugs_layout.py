@@ -427,6 +427,12 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                         ),
                                         "The drug modality filter uses the modality that Open Targets records for each original drug form. All includes every modality; Unknown means no mapped modality.",
                                     ),
+                                ],
+                                className="filter-group",
+                            ),
+                            html.Section(
+                                [
+                                    html.H3("Target annotation"),
                                     control(
                                         "Target class",
                                         "target-class",

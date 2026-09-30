@@ -137,6 +137,7 @@ Plotly の図は `hidden` の中では幅 0 で描かれ、表示に戻しても
 | --- | --- |
 | Comparison scope | 疾患。薬剤ページと同じ選択欄の部品を、別の ID で置く |
 | Genetic evidence | genetic association のスコアの閾値。0 から 1 の数値入力、初期値 0.5。空欄と範囲外は初期値に戻し、適用した値を画面に記録する |
+| Target annotation | 標的の分類と局在。薬剤ページと同じ選択肢を、別の ID で置く |
 | Expression criteria | 発現基準、最低 CPM、CELLEX の閾値。薬剤ページと同じ |
 | Display | Heatmap の実数／割合。標的／薬剤の切り替えは無い |
 
