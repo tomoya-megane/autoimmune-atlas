@@ -9,13 +9,18 @@ from autoimmune_atlas.aggregation import (
     expression_metadata,
     expression_state,
     filtered_records,
+    location_classes,
     summarize,
+    target_class_of,
+    target_class_options,
+    target_matches,
 )
 from autoimmune_atlas.models import (
     AggregationSnapshot,
     CellDefinition,
     ExpressionRow,
     ExpressionStateInput,
+    TargetAnnotation,
 )
 from tests.core_fixture import core_snapshot
 
@@ -269,7 +274,7 @@ class AggregationTests(unittest.TestCase):
             for cell_id, *_ in definitions
         ]
         snapshot: AggregationSnapshot = {
-            "schema": 3,
+            "schema": 4,
             "diseases": [],
             "records": [],
             "cells": cell_table,
@@ -385,7 +390,7 @@ class AggregationTests(unittest.TestCase):
             for cell_id, *_ in definitions
         ]
         snapshot: AggregationSnapshot = {
-            "schema": 3,
+            "schema": 4,
             "diseases": [],
             "records": [],
             "cells": cells,
@@ -450,3 +455,98 @@ class AggregationTests(unittest.TestCase):
             summarize(core_snapshot(), "all", 0.5, specificity_threshold=1.1)
         with self.assertRaises(ValueError):
             filtered_records(core_snapshot(), "other", "phase3")
+
+
+def _annotation(*locations: str, target_class: str | None = None) -> TargetAnnotation:
+    return {
+        "target_class": target_class,
+        "locations": [
+            {"location": location, "source": "uniprot"} for location in locations
+        ],
+    }
+
+
+class TargetFilterTests(unittest.TestCase):
+    def test_location_classes_follow_leading_term_in_class_order(self) -> None:
+        cases: tuple[tuple[TargetAnnotation | None, list[str]], ...] = (
+            (None, ["unknown"]),
+            (_annotation(), ["unknown"]),
+            (_annotation("Cytoplasm"), ["intracellular"]),
+            (_annotation("Nucleus, nucleoplasm"), ["intracellular"]),
+            (
+                _annotation("Nucleus", "Secreted", "Cell membrane ; Single-pass"),
+                ["secreted", "cell_surface", "intracellular"],
+            ),
+            (_annotation("Extracellular space"), ["secreted"]),
+            (_annotation("Predicted to be secreted"), ["secreted"]),
+            (_annotation("Apical cell membrane"), ["cell_surface"]),
+            (_annotation("Plasma membrane"), ["cell_surface"]),
+            (_annotation("Cell junctions"), ["cell_surface"]),
+            (_annotation("Golgi apparatus membrane"), ["intracellular"]),
+            (_annotation("Late endosome membrane"), ["intracellular"]),
+            (_annotation("Rough endoplasmic reticulum"), ["intracellular"]),
+            (_annotation("Membrane ; Multi-pass membrane protein"), ["unknown"]),
+            (_annotation("Note=Found in the cytoplasm"), ["unknown"]),
+            (_annotation("Cell projection, cilium"), ["unknown"]),
+        )
+        for annotation, expected in cases:
+            with self.subTest(annotation=annotation):
+                self.assertEqual(location_classes(annotation), expected)
+
+    def test_target_class_of_uses_unknown_when_missing(self) -> None:
+        self.assertEqual(target_class_of(_annotation(target_class="Enzyme")), "Enzyme")
+        self.assertEqual(target_class_of(_annotation()), "unknown")
+        self.assertEqual(target_class_of(None), "unknown")
+
+    def test_target_matches_requires_both_class_and_location(self) -> None:
+        enzyme = _annotation("Cytoplasm", target_class="Enzyme")
+        self.assertTrue(target_matches(enzyme, "all", "all"))
+        self.assertTrue(target_matches(enzyme, "Enzyme", "intracellular"))
+        self.assertFalse(target_matches(enzyme, "Enzyme", "secreted"))
+        self.assertFalse(target_matches(enzyme, "Kinase", "intracellular"))
+        self.assertTrue(target_matches(None, "unknown", "unknown"))
+
+    def test_class_options_are_sorted_and_exclude_unknown(self) -> None:
+        self.assertEqual(
+            target_class_options(core_snapshot()), ["Enzyme", "Membrane receptor"]
+        )
+
+    def test_filtered_records_keep_matching_targets_and_carry_classes(self) -> None:
+        rows = filtered_records(core_snapshot(), "all", "phase3")
+        by_target = {r["target_id"]: r for r in rows}
+        self.assertEqual(by_target["G1"].get("target_class"), "Enzyme")
+        self.assertEqual(by_target["G1"].get("location_classes"), ["intracellular"])
+        self.assertEqual(
+            by_target["G2"].get("location_classes"), ["secreted", "cell_surface"]
+        )
+        self.assertEqual(by_target["G3"].get("target_class"), "unknown")
+        self.assertEqual(by_target[""].get("location_classes"), ["unknown"])
+        enzyme = filtered_records(core_snapshot(), "all", "phase3", "Enzyme")
+        # 標的で絞っても、canonical stage は絞る前の全元記録から求める。
+        self.assertEqual(
+            [(r["drug_id"], r["canonical_stage"]) for r in enzyme],
+            [("A-SALT", "PHASE_3")],
+        )
+        surface = filtered_records(
+            core_snapshot(), "all", "phase3", location="cell_surface"
+        )
+        self.assertEqual([r["target_id"] for r in surface], ["G2"])
+        unknown = filtered_records(core_snapshot(), "all", "phase3", "unknown")
+        self.assertEqual({r["target_id"] for r in unknown}, {"G3", ""})
+        row = summarize(
+            core_snapshot(),
+            "all",
+            0.5,
+            level="all",
+            disease_ids=["D1"],
+            target_class="Membrane receptor",
+        )[0]
+        self.assertEqual(row["denominator"], 1)
+
+    def test_invalid_target_filters_fail(self) -> None:
+        with self.assertRaises(ValueError):
+            filtered_records(core_snapshot(), "all", "phase3", "Kinase")
+        with self.assertRaises(ValueError):
+            filtered_records(core_snapshot(), "all", "phase3", location="organ")
+        with self.assertRaises(ValueError):
+            summarize(core_snapshot(), "all", 0.5, location="organ")

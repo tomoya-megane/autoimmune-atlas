@@ -287,7 +287,7 @@ def fixture() -> Snapshot:
         },
     ]
     return {
-        "schema": 3,
+        "schema": 4,
         "root": root,
         "data_version": {"year": "26", "month": "6", "iteration": None},
         "retrieved_at": "2026-09-22T12:00:00Z",
@@ -298,6 +298,16 @@ def fixture() -> Snapshot:
         "records": records,
         "datasources": [],
         "associations": {"MONDO_RA_TEST": []},
+        "targets": {
+            "ENSG_TARGET_1": {
+                "target_class": "Enzyme",
+                "locations": [{"location": "Cytoplasm", "source": "uniprot"}],
+            },
+            "ENSG_TARGET_2": {
+                "target_class": "Membrane receptor",
+                "locations": [{"location": "Cell membrane", "source": "uniprot"}],
+            },
+        },
         "cells": {
             "CL_B_ONE": {
                 "name": "memory B cell",

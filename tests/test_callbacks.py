@@ -202,6 +202,8 @@ class CallbackTests(unittest.TestCase):
         values: CallbackValues = {
             ("measure", "value"): "percent",
             ("modality", "value"): "all",
+            ("target-class", "value"): "all",
+            ("target-location", "value"): "all",
             ("stage", "value"): "phase3",
             ("method", "value"): "fixed",
             ("threshold", "value"): None,
@@ -431,6 +433,8 @@ class CallbackTests(unittest.TestCase):
             "threshold",
             "specificity",
             "modality",
+            "target-class",
+            "target-location",
             "stage",
             "method",
             "diseases",
@@ -448,6 +452,19 @@ class CallbackTests(unittest.TestCase):
                 parameter_ids
                 & {item["id"] for item in callback["inputs"] + callback["state"]}
             )
+
+    def test_target_filters_narrow_records_and_appear_in_note(self) -> None:
+        values = self._values()
+        values[("target-class", "value")] = "Membrane receptor"
+        values[("target-location", "value")] = "cell_surface"
+        after = self._post_applied("target-heatmap.figure", values)
+        note = json.dumps(after["matrix-note"], ensure_ascii=False)
+        self.assertIn("Target class: Membrane receptor", note)
+        self.assertIn("Target location: Cell surface", note)
+        details = json.dumps(self._select_details(values), ensure_ascii=False)
+        self.assertIn("TARGET2", details)
+        self.assertNotIn("TARGET1", details)
+        self.assertIn("Cell surface", details)
 
     def test_disease_tree_and_search_sync_without_selecting_descendants(self) -> None:
         snapshot = fixture()
@@ -549,6 +566,8 @@ class CallbackTests(unittest.TestCase):
             ("source-context", "data"): {
                 "disease_id": "MONDO_RA_TEST",
                 "modality": "all",
+                "target_class": "all",
+                "location": "all",
                 "stage": "phase3",
                 "threshold": 0.5,
                 "method": "specificity",
@@ -666,6 +685,8 @@ class CallbackTests(unittest.TestCase):
                 "Modality",
                 "Canonical stage",
                 "Target",
+                "Target class",
+                "Target location",
                 "Action / mechanism",
                 "Open Targets links",
             ],
@@ -725,6 +746,28 @@ class CallbackTests(unittest.TestCase):
                 for option in _json_array(_at(self.components["modality"], "options"))
             ],
             ["all", *[value for _, value in atlas.DRUG_TYPE_MODALITIES]],
+        )
+        self.assertEqual(
+            [
+                _at(option, "value")
+                for option in _json_array(
+                    _at(self.components["target-class"], "options")
+                )
+            ],
+            ["all", "Enzyme", "Membrane receptor", "unknown"],
+        )
+        self.assertEqual(
+            [
+                _at(option, "value")
+                for option in _json_array(
+                    _at(self.components["target-location"], "options")
+                )
+            ],
+            ["all", *[value for value, _ in atlas.LOCATION_CLASSES]],
+        )
+        self.assertEqual(
+            _at(self.components["applied-parameters"], "data", "target-location"),
+            "all",
         )
         layout = _response_json(self._client().get("/_dash-layout"))
         drug_page = next(

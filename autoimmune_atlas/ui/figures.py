@@ -187,7 +187,7 @@ def hover_text(row: SummaryRow, measure: Measure, kind: Kind) -> str:
     if row["status"] == "unavailable":
         assessment = "Disease data not loaded"
     elif kind == "gene" and row.get(denominator_key, 0) == 0:
-        assessment = "No genes at or above the score threshold"
+        assessment = "No genes match the applied filters"
     elif measure == "percent" and row.get(denominator_key, 0) == 0:
         assessment = "No eligible items in the percentage denominator"
     elif _is_lower_bound(row, measure, kind):
@@ -224,7 +224,7 @@ def dot_hover_text(row: SummaryRow, kind: Kind) -> str:
     if row["status"] == "unavailable":
         assessment = "Disease data not loaded"
     elif kind == "gene" and row.get(denominator_key, 0) == 0:
-        assessment = "No genes at or above the score threshold"
+        assessment = "No genes match the applied filters"
     elif row.get(denominator_key, 0) == 0:
         assessment = "No eligible items in the percentage denominator"
     elif _is_lower_bound(row, "count", kind) or _is_lower_bound(row, "percent", kind):

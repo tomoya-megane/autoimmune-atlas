@@ -28,6 +28,8 @@ class DrugRecord(TypedDict):
 
 class FilteredRecord(DrugRecord):
     canonical_stage: str
+    target_class: NotRequired[str]
+    location_classes: NotRequired[list[str]]
 
 
 class EvidenceRecord(FilteredRecord):
@@ -128,6 +130,18 @@ class GeneAssociation(TypedDict):
     datasource_scores: dict[str, float]
 
 
+class TargetLocation(TypedDict):
+    location: str
+    source: str
+
+
+class TargetAnnotation(TypedDict):
+    """標的 1 つの分類。Open Targets の targetClass と subcellularLocations から作る。"""
+
+    target_class: str | None
+    locations: list[TargetLocation]
+
+
 class Snapshot(TypedDict):
     schema: int
     root: str | RootIdentity
@@ -141,6 +155,7 @@ class Snapshot(TypedDict):
     datasources: list[str]
     cells: dict[str, CellDefinition]
     expression: dict[str, list[ExpressionRow]]
+    targets: dict[str, TargetAnnotation]
 
 
 class AggregationSnapshot(TypedDict):
@@ -151,6 +166,7 @@ class AggregationSnapshot(TypedDict):
     datasources: NotRequired[list[str]]
     cells: NotRequired[dict[str, CellDefinition]]
     expression: NotRequired[dict[str, list[ExpressionRow]]]
+    targets: NotRequired[dict[str, TargetAnnotation]]
 
 
 class CoreSnapshot(TypedDict):
@@ -161,6 +177,7 @@ class CoreSnapshot(TypedDict):
     datasources: list[str]
     cells: dict[str, CellDefinition]
     expression: dict[str, list[ExpressionRow]]
+    targets: dict[str, TargetAnnotation]
 
 
 class DiseaseCatalogInput(TypedDict):

@@ -18,6 +18,7 @@ from autoimmune_atlas.models import (
     FilteredRecord,
     Snapshot,
     SummaryRow,
+    TargetAnnotation,
 )
 
 type SnapshotInput = Snapshot | CoreSnapshot | AggregationSnapshot
@@ -66,6 +67,78 @@ STAGE_ORDER = {
     )
     for stage in stages
 }
+# 標的の局在の粗い分類。UniProt と HPA の局在の先頭語（; と , の手前）で決める。
+LOCATION_CLASSES = (
+    ("secreted", "Secreted / extracellular"),
+    ("cell_surface", "Cell surface"),
+    ("intracellular", "Intracellular"),
+    ("unknown", "Unknown"),
+)
+SECRETED_TERMS = ("secreted", "predicted to be secreted")
+SECRETED_PREFIXES = ("extracellular",)
+CELL_SURFACE_PARTS = ("cell membrane", "plasma membrane")
+CELL_SURFACE_TERMS = (
+    "cell surface",
+    "membrane raft",
+    "cell junction",
+    "cell junctions",
+)
+# 裸の membrane、cell projection、synapse、focal adhesion sites、Note= などはどれにも当てない。
+INTRACELLULAR_PREFIXES = (
+    "cytoplasm",
+    "cytosol",
+    "nucle",
+    "golgi",
+    "mitochondri",
+    "endoplasmic reticulum",
+    "rough endoplasmic reticulum",
+    "smooth endoplasmic reticulum",
+    "sarcoplasmic reticulum",
+    "microsome",
+    "vesicle",
+    "endosome",
+    "early endosome",
+    "late endosome",
+    "recycling endosome",
+    "lysosome",
+    "autolysosome",
+    "peroxisome",
+    "lipid droplet",
+    "melanosome",
+    "acrosome",
+    "chromosome",
+    "centrosome",
+    "centriol",
+    "basal body",
+    "primary cilium",
+    "microtubule",
+    "actin filaments",
+    "intermediate filaments",
+    "mitotic",
+    "midbody",
+    "cytokinetic bridge",
+    "cleavage furrow",
+    "kinetochore",
+    "endomembrane",
+    "autophagosom",
+    "preautophagosomal",
+    "aggresome",
+    "inflammasome",
+    "perikaryon",
+    "postsynaptic density",
+    "principal piece",
+    "mid piece",
+    "end piece",
+    "connecting piece",
+    "annulus",
+    "equatorial segment",
+    "perinuclear theca",
+    "calyx",
+    "flagellar",
+    "cytolytic granule",
+    "zymogen granule",
+    "rods & rings",
+)
 T_CELL_ID = "CL_0000084"
 CELL_GROUP_ORDER = (
     # 免疫・造血・幹細胞：T、B、自然リンパ球、骨髄系、樹状、顆粒球、造血、赤血球、幹細胞
@@ -295,8 +368,69 @@ CELL_DISPLAY_ORDER = {
 
 
 def _validate_snapshot(snapshot: SnapshotInput) -> None:
-    if snapshot.get("schema") != 3:
-        raise ValueError("snapshot must use schema 3")
+    if snapshot.get("schema") != 4:
+        raise ValueError("snapshot must use schema 4")
+
+
+def _location_term(location: str) -> str:
+    """局在の文字列から、; と , の手前の先頭語を小文字で取る。"""
+    return location.split(";", 1)[0].split(",", 1)[0].strip().lower()
+
+
+def location_classes(annotation: TargetAnnotation | None) -> list[str]:
+    """標的の局在を粗い分類へまとめる。当たらなければ unknown だけを返す。"""
+    terms = [
+        _location_term(row["location"])
+        for row in (annotation["locations"] if annotation else [])
+    ]
+    matched = {
+        "secreted": any(
+            term in SECRETED_TERMS or term.startswith(SECRETED_PREFIXES)
+            for term in terms
+        ),
+        "cell_surface": any(
+            any(part in term for part in CELL_SURFACE_PARTS)
+            or term in CELL_SURFACE_TERMS
+            for term in terms
+        ),
+        "intracellular": any(term.startswith(INTRACELLULAR_PREFIXES) for term in terms),
+    }
+    return [key for key, _ in LOCATION_CLASSES if matched.get(key)] or ["unknown"]
+
+
+def target_class_of(annotation: TargetAnnotation | None) -> str:
+    """ChEMBL の蛋白質分類（level 1）を返す。無ければ unknown。"""
+    return (annotation and annotation["target_class"]) or "unknown"
+
+
+def target_matches(
+    annotation: TargetAnnotation | None, target_class: str, location: str
+) -> bool:
+    """分類と局在の両方の条件に合うかを返す。all はその条件で絞らない。"""
+    return (target_class in {"all", target_class_of(annotation)}) and (
+        location == "all" or location in location_classes(annotation)
+    )
+
+
+def target_class_options(snapshot: SnapshotInput) -> list[str]:
+    """snapshot にある標的の分類を重複なく並べる。unknown は含めない。"""
+    return sorted(
+        {
+            annotation["target_class"]
+            for annotation in snapshot.get("targets", {}).values()
+            if annotation["target_class"]
+        }
+    )
+
+
+def validate_target_filters(
+    snapshot: SnapshotInput, target_class: str, location: str
+) -> None:
+    """標的の分類と局在の絞り込みの値を確かめる。"""
+    if target_class not in {"all", "unknown", *target_class_options(snapshot)}:
+        raise ValueError(f"未対応の標的分類: {target_class}")
+    if location != "all" and location not in dict(LOCATION_CLASSES):
+        raise ValueError(f"未対応の標的局在: {location}")
 
 
 def _record_modality(row: DrugRecord) -> str:
@@ -310,13 +444,20 @@ def filtered_records(
     snapshot: SnapshotInput,
     modality: str = "all",
     stage: str = "phase3",
+    target_class: str = "all",
+    location: str = "all",
 ) -> list[FilteredRecord]:
-    """疾患内の有効成分ごとの最高段階を使って元記録を絞る。"""
+    """疾患内の有効成分ごとの最高段階を使って元記録を絞る。
+
+    標的の分類と局在で絞った行にも、canonical stage は絞る前の全元記録から求めた値を付ける。
+    """
     _validate_snapshot(snapshot)
     if modality != "all" and modality not in DRUG_TYPE_TO_MODALITY.values():
         raise ValueError(f"未対応のモダリティ: {modality}")
     if stage not in STAGE_FILTERS:
         raise ValueError(f"未対応の臨床段階フィルター: {stage}")
+    validate_target_filters(snapshot, target_class, location)
+    targets = snapshot.get("targets", {})
     candidates: list[DrugRecord] = []
     maximum: dict[tuple[str, str], str] = {}
     for row in snapshot.get("records", []):
@@ -334,11 +475,20 @@ def filtered_records(
             or STAGE_ORDER[clinical_stage] > STAGE_ORDER[maximum[key]]
         ):
             maximum[key] = clinical_stage
-        if modality == "all" or row_modality == modality:
+        annotation = targets.get(row["target_id"] or "")
+        if (modality == "all" or row_modality == modality) and target_matches(
+            annotation, target_class, location
+        ):
             candidates.append({**row, "modality": row_modality})
     return [
-        {**row, "canonical_stage": maximum[row["disease_id"], row["canonical_drug_id"]]}
+        {
+            **row,
+            "canonical_stage": maximum[row["disease_id"], row["canonical_drug_id"]],
+            "target_class": target_class_of(annotation),
+            "location_classes": location_classes(annotation),
+        }
         for row in candidates
+        for annotation in [targets.get(row["target_id"] or "")]
         if maximum[row["disease_id"], row["canonical_drug_id"]] in STAGE_FILTERS[stage]
     ]
 
@@ -591,6 +741,8 @@ def summarize(
     level: str = "group",
     cell_ids: list[str] | None = None,
     disease_ids: list[str] | None = None,
+    target_class: str = "all",
+    location: str = "all",
 ) -> list[SummaryRow]:
     """疾患・細胞または全元細胞の標的数と有効成分数を三値判定で集計する。"""
     if method not in {"fixed", "relative", "specificity"}:
@@ -612,7 +764,7 @@ def summarize(
     ):
         raise ValueError("特異性閾値は 0 以上 1 以下の有限の数値にしてください")
     records_by_disease: defaultdict[str, list[FilteredRecord]] = defaultdict(list)
-    for row in filtered_records(snapshot, modality, stage):
+    for row in filtered_records(snapshot, modality, stage, target_class, location):
         records_by_disease[row["disease_id"]].append(row)
     metadata = expression_metadata(snapshot)
     catalog: list[CellCatalogEntry] = (

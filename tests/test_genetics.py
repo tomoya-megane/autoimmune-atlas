@@ -153,3 +153,31 @@ class SummarizeTests(unittest.TestCase):
         )
         self.assertEqual(t_cell["count"], 3)
         self.assertEqual(t_cell["status"], "complete")
+
+    def test_target_filters_narrow_genes_and_summaries(self) -> None:
+        genes = genetics.genes_for_disease(self.base, "D1", 0, "Enzyme")
+        self.assertEqual([g["target_id"] for g in genes], ["G1"])
+        # G9 は targets に無く、G3 は局在を持たないので、どちらも unknown にあたる。
+        genes = genetics.genes_for_disease(self.base, "D1", 0, location="unknown")
+        self.assertEqual([g["target_id"] for g in genes], ["G9", "G3"])
+        genes = genetics.genes_for_disease(
+            self.base, "D1", 0, "Membrane receptor", "secreted"
+        )
+        self.assertEqual([g["target_id"] for g in genes], ["G2"])
+        rows = genetics.summarize_genes(
+            self.base,
+            0.5,
+            0.5,
+            level="all",
+            disease_ids=["D1"],
+            target_class="unknown",
+        )
+        self.assertEqual(rows[0]["denominator"], 1)
+        with self.assertRaises(ValueError):
+            genetics.summarize_genes(
+                self.base, 0.5, 0.5, disease_ids=["D2"], target_class="Kinase"
+            )
+        with self.assertRaises(ValueError):
+            genetics.summarize_genes(
+                self.base, 0.5, 0.5, disease_ids=["D2"], location="organ"
+            )

@@ -5,7 +5,7 @@ from autoimmune_atlas.models import CoreSnapshot
 
 def core_snapshot() -> CoreSnapshot:
     return {
-        "schema": 3,
+        "schema": 4,
         "diseases": [
             {"id": "D1", "name": "Disease one", "status": "ready"},
             {"id": "D2", "name": "Disease two", "status": "ready"},
@@ -114,6 +114,24 @@ def core_snapshot() -> CoreSnapshot:
                 "references": [],
             },
         ],
+        # G1 は細胞内、G2 は細胞表面と分泌の両方、G3 は分類も局在も無い。G9 は targets に無い。
+        "targets": {
+            "G1": {
+                "target_class": "Enzyme",
+                "locations": [{"location": "Cytoplasm", "source": "uniprot"}],
+            },
+            "G2": {
+                "target_class": "Membrane receptor",
+                "locations": [
+                    {
+                        "location": "Cell membrane ; Single-pass type I membrane protein",
+                        "source": "uniprot",
+                    },
+                    {"location": "Secreted", "source": "uniprot"},
+                ],
+            },
+            "G3": {"target_class": None, "locations": []},
+        },
         "cells": {
             "T4": {
                 "name": "CD4 T cell",

@@ -15,6 +15,7 @@ from autoimmune_atlas.ui.components import (
     disease_checklist_sections,
     heatmap_row_controls,
     info_tip,
+    target_filter_note,
 )
 from autoimmune_atlas.ui.config import (
     DEFAULT_SPECIFICITY_THRESHOLD,
@@ -47,6 +48,8 @@ AppliedParameters = TypedDict(
     {
         "measure": Measure,
         "modality": str,
+        "target-class": str,
+        "target-location": str,
         "stage": str,
         "method": str,
         "threshold": NumberInput,
@@ -60,6 +63,8 @@ AppliedParameters = TypedDict(
 class SourceContext(TypedDict):
     disease_id: str
     modality: str
+    target_class: str
+    location: str
     stage: str
     threshold: float
     method: str
@@ -86,6 +91,8 @@ def visible_rows(
     method: str = "fixed",
     specificity: NumberInput = DEFAULT_SPECIFICITY_THRESHOLD,
     level: str = "group",
+    target_class: str = "all",
+    location: str = "all",
 ) -> list[SummaryRow]:
     """集計結果を現在の表示範囲へ絞る。"""
     minimum, specificity_value, _ = effective_filters(threshold, specificity)
@@ -99,6 +106,8 @@ def visible_rows(
         level=level,
         cell_ids=list(cell_ids or ()),
         disease_ids=list(disease_ids or ()),
+        target_class=target_class,
+        location=location,
     )
 
 
@@ -119,6 +128,8 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         stage: str,
         method: str,
         specificity: float,
+        target_class: str,
+        location: str,
     ) -> list[SummaryRow]:
         # ponytail: retain one filter combination per app; enlarge only for concurrent users.
         return visible_rows(
@@ -131,6 +142,8 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             method=method,
             specificity=specificity,
             level="mixed",
+            target_class=target_class,
+            location=location,
         )
 
     toggle_cell_group = make_toggle(heatmap_groups)
@@ -152,6 +165,8 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
     def expression_base(
         disease: str,
         modality: str,
+        target_class: str,
+        location: str,
         stage: str,
         threshold: float,
         method: str,
@@ -160,7 +175,9 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         # ponytail: retain one selected disease; enlarge only for concurrent users.
         records = [
             record
-            for record in atlas.filtered_records(snapshot, modality, stage)
+            for record in atlas.filtered_records(
+                snapshot, modality, stage, target_class, location
+            )
             if record["disease_id"] == disease
         ]
         return expression_figure(
@@ -196,6 +213,8 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
                 for key in (
                     "disease_id",
                     "modality",
+                    "target_class",
+                    "location",
                     "stage",
                     "threshold",
                     "method",
@@ -368,6 +387,8 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
     ]:
         measure = applied["measure"]
         modality = applied["modality"]
+        target_class = applied["target-class"]
+        location = applied["target-location"]
         stage = applied["stage"]
         method = applied["method"]
         threshold = applied["threshold"]
@@ -393,6 +414,8 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             stage,
             method,
             specificity_value,
+            target_class,
+            location,
         )
         rows = [row for row in scale_rows if row["cell_id"] in cell_ids]
         names = {row["id"]: row["name"] for row in snapshot["diseases"]}
@@ -483,7 +506,7 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             if chart_type == "dot"
             else f"Heatmap measure: {measure.capitalize()}, missing entries shown as zero (targets {target_missing}, canonical drugs {drug_missing})"
         )
-        note = f"Applied · Clinical stage: {STAGE_LABELS[stage]} · Drug modality: {modality_label} · Expression rule: {METHOD_LABELS[method]} ({condition}) · Cells: all groups and expanded cell types · {display} · {len(rows)} disease–cell combinations"
+        note = f"Applied · Clinical stage: {STAGE_LABELS[stage]} · Drug modality: {modality_label} · {target_filter_note(target_class, location)} · Expression rule: {METHOD_LABELS[method]} ({condition}) · Cells: all groups and expanded cell types · {display} · {len(rows)} disease–cell combinations"
         status = html.Span(f"{len(rows)} disease–cell combinations")
         error_note = (
             html.Span(" ".join(errors), className="filter-errors", role="alert")
@@ -570,6 +593,8 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
         detail_disease: str | None, applied: AppliedParameters
     ) -> html.Div:
         modality = applied["modality"]
+        target_class = applied["target-class"]
+        location = applied["target-location"]
         stage = applied["stage"]
         method = applied["method"]
         threshold = applied["threshold"]
@@ -586,12 +611,16 @@ def register_callbacks(application: Dash, snapshot: Snapshot) -> None:
             specificity_threshold=specificity_value,
             level="all",
             disease_ids=[selected] if selected else [],
+            target_class=target_class,
+            location=location,
         )
         return detail_panel(
             rows,
             selected,
             snapshot,
             modality=modality,
+            target_class=target_class,
+            location=location,
             stage=stage,
             threshold=minimum,
             method=method,

@@ -22,6 +22,7 @@ from autoimmune_atlas.refresh import (
     collect_associations,
     extract_expression,
     extract_mechanisms,
+    fetch_target_annotations,
     main,
     merge_cells,
     normalize_drugs,
@@ -580,6 +581,13 @@ def _api(versions: list[Mapping[str, object]]) -> Callable[..., dict[str, object
                     }
                 ]
             }
+        if "subcellularLocations" in text:
+            return {
+                "targets": [
+                    {"id": target_id, "targetClass": [], "subcellularLocations": []}
+                    for target_id in cast(list[str], variables["ids"])
+                ]
+            }
         return fake_query(text, variables)
 
     return query
@@ -591,6 +599,73 @@ def _fetch(target: str) -> tuple[str, list[ExpressionRow], dict[str, CellDefinit
         [{"cell_id": "C1", "median": 1.0, "specificity_score": None}],
         {"C1": CELL},
     )
+
+
+class TargetAnnotationTests(unittest.TestCase):
+    """標的の分類と局在を 150 件ずつ取り、欠けや食い違いを失敗にすることを確かめる。"""
+
+    @staticmethod
+    def _query(
+        overrides: Mapping[str, object] | None = None, drop: str | None = None
+    ) -> MagicMock:
+        def query(_text: str, variables: Mapping[str, object]) -> dict[str, object]:
+            ids = cast(list[str], variables["ids"])
+            return {
+                "targets": [
+                    (overrides or {}).get(
+                        target_id,
+                        {
+                            "id": target_id,
+                            "targetClass": [
+                                {"label": "Enzyme", "level": "l1"},
+                                {"label": "Kinase", "level": "l2"},
+                            ],
+                            "subcellularLocations": [
+                                {"location": "Cytoplasm", "source": "uniprot"}
+                            ],
+                        },
+                    )
+                    for target_id in ids
+                    if target_id != drop
+                ]
+            }
+
+        return MagicMock(side_effect=query)
+
+    def test_batches_of_150_keep_l1_label_and_locations(self) -> None:
+        ids = [f"G{index:03d}" for index in range(151)]
+        query = self._query(
+            {"G000": {"id": "G000", "targetClass": None, "subcellularLocations": None}}
+        )
+        result = fetch_target_annotations(query, ids)
+        self.assertEqual(
+            [len(cast(list[str], c.args[1]["ids"])) for c in query.call_args_list],
+            [150, 1],
+        )
+        self.assertEqual(result["G000"], {"target_class": None, "locations": []})
+        self.assertEqual(
+            result["G150"],
+            {
+                "target_class": "Enzyme",
+                "locations": [{"location": "Cytoplasm", "source": "uniprot"}],
+            },
+        )
+
+    def test_missing_ids_and_two_l1_classes_fail(self) -> None:
+        with self.assertRaisesRegex(ValueError, "G2"):
+            fetch_target_annotations(self._query(drop="G2"), ["G1", "G2"])
+        two = {
+            "G1": {
+                "id": "G1",
+                "targetClass": [
+                    {"label": "Enzyme", "level": "l1"},
+                    {"label": "Transporter", "level": "l1"},
+                ],
+                "subcellularLocations": [],
+            }
+        }
+        with self.assertRaisesRegex(ValueError, "G1"):
+            fetch_target_annotations(self._query(two), ["G1"])
 
 
 class MainTests(unittest.TestCase):
@@ -614,7 +689,7 @@ class MainTests(unittest.TestCase):
         ):
             main()
 
-    def test_fetches_union_of_targets_and_genes_and_saves_schema3(self) -> None:
+    def test_fetches_union_of_targets_and_genes_and_saves_schema4(self) -> None:
         fetch, save = MagicMock(side_effect=_fetch), MagicMock()
         with TemporaryDirectory() as directory:
             self._run([VERSION, VERSION], fetch, save, directory)
@@ -624,7 +699,14 @@ class MainTests(unittest.TestCase):
         )
         save.assert_called_once()
         payload = cast(dict[str, object], save.call_args.args[1])
-        self.assertEqual(payload["schema"], 3)
+        self.assertEqual(payload["schema"], 4)
+        self.assertEqual(
+            payload["targets"],
+            {
+                target_id: {"target_class": None, "locations": []}
+                for target_id in ("G1", "G2", "G3")
+            },
+        )
         self.assertEqual(payload["data_version"], VERSION)
         self.assertEqual(payload["datasources"], ["eva", "gwas_credible_sets"])
         self.assertEqual(payload["cells"], {"C1": CELL})

@@ -20,6 +20,7 @@ from autoimmune_atlas.ui.components import (
     disease_checklist_sections,
     heatmap_row_controls,
     info_tip,
+    target_filter_note,
 )
 from autoimmune_atlas.ui.config import (
     DEFAULT_SCORE_THRESHOLD,
@@ -52,6 +53,8 @@ GeneticsParameters = TypedDict(
     {
         "genetics-measure": Measure,
         "genetics-score": NumberInput,
+        "genetics-target-class": str,
+        "genetics-target-location": str,
         "genetics-method": str,
         "genetics-threshold": NumberInput,
         "genetics-specificity": NumberInput,
@@ -63,6 +66,8 @@ GeneticsParameters = TypedDict(
 class GeneticsSourceContext(TypedDict):
     disease_id: str
     score: float
+    target_class: str
+    location: str
     threshold: float
     method: str
     specificity: float
@@ -107,6 +112,8 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
         cell_ids: tuple[str, ...],
         method: str,
         specificity: float,
+        target_class: str,
+        location: str,
     ) -> list[SummaryRow]:
         # ponytail: retain one filter combination per app; enlarge only for concurrent users.
         return gene_data.summarize_genes(
@@ -120,6 +127,8 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
             disease_ids=list(disease_ids),
             metadata=metadata,
             catalog=heatmap_catalog,
+            target_class=target_class,
+            location=location,
         )
 
     toggle_cell_group = make_toggle(heatmap_groups)
@@ -144,6 +153,8 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
     def expression_base(
         disease: str,
         score: float,
+        target_class: str,
+        location: str,
         threshold: float,
         method: str,
         specificity: float,
@@ -151,7 +162,9 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
         # ponytail: retain one selected disease; enlarge only for concurrent users.
         records: list[TargetRecord] = [
             {"target_id": gene["target_id"], "target": gene["target"]}
-            for gene in gene_data.genes_for_disease(snapshot, disease, score)
+            for gene in gene_data.genes_for_disease(
+                snapshot, disease, score, target_class, location
+            )
         ]
         return expression_figure(
             snapshot,
@@ -184,6 +197,8 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
         base = expression_base(
             context["disease_id"],
             context["score"],
+            context["target_class"],
+            context["location"],
             context["threshold"],
             context["method"],
             context["specificity"],
@@ -332,6 +347,8 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
     ]:
         measure = applied["genetics-measure"]
         method = applied["genetics-method"]
+        target_class = applied["genetics-target-class"]
+        location = applied["genetics-target-location"]
         score, score_error = effective_score(applied["genetics-score"])
         minimum, specificity_value, errors = effective_filters(
             applied["genetics-threshold"], applied["genetics-specificity"]
@@ -355,6 +372,8 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
             tuple(scale_cell_ids),
             method,
             specificity_value,
+            target_class,
+            location,
         )
         rows = [row for row in scale_rows if row["cell_id"] in cell_ids]
         names = {row["id"]: row["name"] for row in snapshot["diseases"]}
@@ -417,7 +436,7 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
             if chart_type == "dot"
             else f"Heatmap measure: {measure.capitalize()}, missing entries shown as zero (genes {gene_missing})"
         )
-        note = f"Applied · Score threshold: ≥ {score:g} · Expression rule: {METHOD_LABELS[method]} ({condition}) · Cells: all groups and expanded cell types · {display} · {len(rows)} disease–cell combinations"
+        note = f"Applied · Score threshold: ≥ {score:g} · {target_filter_note(target_class, location)} · Expression rule: {METHOD_LABELS[method]} ({condition}) · Cells: all groups and expanded cell types · {display} · {len(rows)} disease–cell combinations"
         status = html.Span(f"{len(rows)} disease–cell combinations")
         error_note = (
             html.Span(" ".join(errors), className="filter-errors", role="alert")
@@ -494,6 +513,8 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
         detail_disease: str | None, applied: GeneticsParameters
     ) -> html.Div:
         method = applied["genetics-method"]
+        target_class = applied["genetics-target-class"]
+        location = applied["genetics-target-location"]
         score, _ = effective_score(applied["genetics-score"])
         minimum, specificity_value, _ = effective_filters(
             applied["genetics-threshold"], applied["genetics-specificity"]
@@ -511,6 +532,8 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
             disease_ids=[selected] if selected else [],
             metadata=metadata,
             catalog=all_catalog,
+            target_class=target_class,
+            location=location,
         )
         return genetics_detail_panel(
             rows,
@@ -520,4 +543,6 @@ def register_genetics_callbacks(application: Dash, snapshot: Snapshot) -> None:
             threshold=minimum,
             method=method,
             specificity=specificity_value,
+            target_class=target_class,
+            location=location,
         )

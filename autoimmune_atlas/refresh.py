@@ -31,6 +31,8 @@ from autoimmune_atlas.models import (
     Reference,
     Snapshot,
     SnapshotRoot,
+    TargetAnnotation,
+    TargetLocation,
 )
 
 
@@ -90,6 +92,21 @@ class ExpressionApiRow(TypedDict):
 class _Target(TypedDict):
     id: str
     approvedSymbol: str
+
+
+class _TargetClass(TypedDict):
+    label: str
+    level: str
+
+
+class _AnnotatedTarget(TypedDict):
+    id: str
+    targetClass: list[_TargetClass] | None
+    subcellularLocations: list[TargetLocation] | None
+
+
+class _TargetsResponse(TypedDict):
+    targets: list[_AnnotatedTarget]
 
 
 class _ApiReference(TypedDict):
@@ -227,7 +244,7 @@ class _EvidenceResponse(TypedDict):
 
 
 class _StoredRow(TypedDict):
-    """再利用のために読む発現の行。schema 2 と genetics.json は cell などを持ち、schema 3 は持たない。"""
+    """再利用のために読む発現の行。schema 2 と genetics.json は cell などを持ち、schema 3 と 4 は持たない。"""
 
     cell_id: str
     median: float | None
@@ -276,6 +293,11 @@ EVIDENCE_QUERY = """query($id:String!,$gene:String!,$datasource:String!){
 }"""
 
 VERSION_QUERY = "query{meta{dataVersion{year month iteration}}}"
+
+TARGET_ANNOTATION_QUERY = """query($ids: [String!]!) {
+  targets(ensemblIds: $ids) { id targetClass { label level } subcellularLocations { location source } }
+}"""
+TARGET_BATCH_SIZE = 150
 
 
 def query_api(
@@ -625,16 +647,54 @@ def restrict_datasources(
     }
 
 
+def fetch_target_annotations(
+    query: _Query, target_ids: Sequence[str]
+) -> dict[str, TargetAnnotation]:
+    """標的の分類（targetClass の l1）と局在を 150 件ずつ取る。
+
+    返らなかった ID があるとき、l1 の分類が 2 つ以上あるときは失敗にする。
+    l1 が 2 つ以上の標的は、測ったところ全 7,299 標的で 0 件だった。
+    """
+    output: dict[str, TargetAnnotation] = {}
+    for start in range(0, len(target_ids), TARGET_BATCH_SIZE):
+        chunk = list(target_ids[start : start + TARGET_BATCH_SIZE])
+        result = msgspec.convert(
+            query(TARGET_ANNOTATION_QUERY, {"ids": chunk}), _TargetsResponse
+        )["targets"]
+        missing = set(chunk) - {target["id"] for target in result}
+        if missing:
+            raise ValueError(f"返らなかった ID があります: {sorted(missing)[:5]}")
+        for target in result:
+            classes = [
+                item["label"]
+                for item in target["targetClass"] or []
+                if item["level"] == "l1"
+            ]
+            if len(classes) > 1:
+                raise ValueError(
+                    f"l1 の標的分類が複数あります: {target['id']} {classes}"
+                )
+            output[target["id"]] = {
+                "target_class": classes[0] if classes else None,
+                "locations": [
+                    {"location": row["location"], "source": row["source"]}
+                    for row in target["subcellularLocations"] or []
+                ],
+            }
+    return output
+
+
 def reusable_expression(
     paths: Sequence[Path], version: DataVersion
 ) -> tuple[dict[str, list[ExpressionRow]], dict[str, CellDefinition]]:
     """同じ版の保存データから、発現の行と細胞の定数を取り出す。
 
-    schema 2 の snapshot.json、schema 1 の genetics.json、schema 3 の snapshot.json を読む。
+    schema 2 の snapshot.json、schema 1 の genetics.json、schema 3 と 4 の snapshot.json を読む。
+    発現の形は schema 3 と 4 で同じで、再利用するかは data_version で決める。
     発現の値は先に読んだファイルの遺伝子を優先する。
     細胞の定数は、後のファイルにある遺伝子の行でも全部確かめ、食い違えば失敗にする。
     無い、読めない、版が違うファイルは飛ばす。
-    load_snapshot() は schema 3 しか受け付けないので、ここでは緩い型で読む。
+    load_snapshot() は schema 4 しか受け付けないので、ここでは緩い型で読む。
     """
     expression: dict[str, list[ExpressionRow]] = {}
     cells: dict[str, CellDefinition] = {}
@@ -694,7 +754,7 @@ def save_snapshot(path: Path, snapshot: object) -> None:
 
 
 def main() -> None:
-    """疾患、薬剤の標的、関連遺伝子、発現量を順番に取得し、schema 3 で保存する。"""
+    """疾患、薬剤の標的、関連遺伝子、標的の分類、発現量を順番に取得し、schema 4 で保存する。"""
     version = msgspec.convert(query_api(VERSION_QUERY), _VersionResponse)["meta"][
         "dataVersion"
     ]
@@ -788,6 +848,11 @@ def main() -> None:
     }
     gene_targets = {g["target_id"] for genes in associations.values() for g in genes}
     target_ids = sorted(drug_targets | gene_targets)
+    targets = fetch_target_annotations(query_api, target_ids)
+    print(
+        f"標的の分類: {sum(a['target_class'] is not None for a in targets.values())}/{len(targets)} に分類あり",
+        flush=True,
+    )
     reused, cells = reusable_expression([DATA_PATH, LEGACY_GENETICS_PATH], version)
     expression: dict[str, list[ExpressionRow]] = {
         target_id: reused[target_id] for target_id in target_ids if target_id in reused
@@ -821,7 +886,7 @@ def main() -> None:
     if final_version != version:
         raise ValueError("取得中にデータの版が変わりました。再取得してください")
     snapshot: Snapshot = {
-        "schema": 3,
+        "schema": 4,
         "root": ROOT_ID,
         "roots": roots,
         "data_version": version,
@@ -833,6 +898,7 @@ def main() -> None:
         "datasources": datasources,
         "cells": cells,
         "expression": expression,
+        "targets": targets,
     }
     cell_catalog(snapshot)
     save_snapshot(DATA_PATH, snapshot)

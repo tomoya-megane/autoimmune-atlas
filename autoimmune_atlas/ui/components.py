@@ -15,8 +15,61 @@ from autoimmune_atlas.models import (
     DiseaseFamily,
     FilteredRecord,
     Snapshot,
+    TargetAnnotation,
 )
-from autoimmune_atlas.ui.config import SOURCE_PAGE_SIZE
+from autoimmune_atlas.ui.config import NOT_ANNOTATED_LABEL, SOURCE_PAGE_SIZE
+
+TARGET_CLASS_HELP = "The target class is the ChEMBL protein classification (level 1) that Open Targets records for each target. Not annotated means Open Targets has no class for the target; many genetic-association genes have none."
+TARGET_LOCATION_HELP = "The target location is a coarse grouping of the UniProt and Human Protein Atlas subcellular locations that Open Targets records. A target can belong to several groups; Unknown means no location is recorded or none could be grouped."
+
+
+def target_class_label(value: str) -> str:
+    """標的分類の表示名。分類の無い unknown だけを言い換える。"""
+    return NOT_ANNOTATED_LABEL if value == "unknown" else value
+
+
+def location_labels(values: Iterable[str]) -> str:
+    """局在の分類のキーを表示名にして、", " でつなぐ。"""
+    names = dict(atlas.LOCATION_CLASSES)
+    return ", ".join(names[value] for value in values)
+
+
+def target_class_dropdown_options(snapshot: Snapshot) -> list[dict[str, str]]:
+    """All、snapshot にある分類、Not annotated の順の選択肢。"""
+    return [
+        {"label": "All", "value": "all"},
+        *[
+            {"label": value, "value": value}
+            for value in atlas.target_class_options(snapshot)
+        ],
+        {"label": NOT_ANNOTATED_LABEL, "value": "unknown"},
+    ]
+
+
+def target_location_dropdown_options() -> list[dict[str, str]]:
+    """All と局在の分類の選択肢。"""
+    return [{"label": "All", "value": "all"}] + [
+        {"label": label, "value": value} for value, label in atlas.LOCATION_CLASSES
+    ]
+
+
+def target_filter_note(target_class: str, location: str) -> str:
+    """Applied の注記に足す、標的の分類と局在の条件。"""
+    class_label = (
+        "All classes" if target_class == "all" else target_class_label(target_class)
+    )
+    location_label = (
+        "All locations" if location == "all" else location_labels([location])
+    )
+    return f"Target class: {class_label} · Target location: {location_label}"
+
+
+def target_cells(annotation: TargetAnnotation | None) -> dict[str, str]:
+    """遺伝子の表の、標的の分類と局在の 2 列。"""
+    return {
+        "target_class": target_class_label(atlas.target_class_of(annotation)),
+        "target_location": location_labels(atlas.location_classes(annotation)),
+    }
 
 
 def choose_defaults(
@@ -484,6 +537,8 @@ EVIDENCE_COLUMNS: tuple[tuple[str, str, str | None], ...] = (
         "The highest stage across the original drug forms of the same canonical drug in this disease, used for filtering.",
     ),
     ("target", "Target", None),
+    ("target_class", "Target class", TARGET_CLASS_HELP),
+    ("target_location", "Target location", TARGET_LOCATION_HELP),
     ("action_mechanism", "Action / mechanism", None),
     ("links", "Open Targets links", None),
 )
@@ -510,6 +565,12 @@ def evidence_rows(records: Sequence[FilteredRecord]) -> list[dict[str, str]]:
                 "modality": _joined(member.get("drug_type") for member in members),
                 "stage": first.get("canonical_stage") or "—",
                 "target": f"{first.get('target') or '—'} ({first.get('target_id') or '—'})",
+                "target_class": target_class_label(
+                    first.get("target_class", "unknown")
+                ),
+                "target_location": location_labels(
+                    first.get("location_classes", ["unknown"])
+                ),
                 "action_mechanism": _joined(
                     f"{', '.join(member.get('action_types') or []) or '—'} / {member.get('mechanism') or '—'}"
                     for member in members

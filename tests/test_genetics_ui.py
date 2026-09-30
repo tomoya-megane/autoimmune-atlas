@@ -103,9 +103,9 @@ class GeneFigureTests(unittest.TestCase):
     def test_zero_genes_above_threshold_has_its_own_message(self) -> None:
         row = gene_row(count=0, percent=None, denominator=0)
         text = figures.hover_text(row, "count", "gene")
-        self.assertIn("No genes at or above the score threshold", text)
+        self.assertIn("No genes match the applied filters", text)
         text = figures.hover_text(row, "percent", "gene")
-        self.assertIn("No genes at or above the score threshold", text)
+        self.assertIn("No genes match the applied filters", text)
 
     def test_gene_figure_title(self) -> None:
         figure = figures.build_figure(
@@ -181,6 +181,8 @@ class GeneticsLayoutTests(unittest.TestCase):
             "genetics-page",
             "genetics-diseases",
             "genetics-score",
+            "genetics-target-class",
+            "genetics-target-location",
             "genetics-method",
             "genetics-threshold",
             "genetics-specificity",
@@ -217,8 +219,20 @@ class GeneticsLayoutTests(unittest.TestCase):
     def test_gene_rows_have_scores_datasource_columns_and_evidence_link(self) -> None:
         data = core_ui_snapshot()
         genes = genetics.genes_for_disease(data, "D1", 0.5)
-        rows = genetics_layout.gene_rows(genes, "D1", data["datasources"])
+        rows = genetics_layout.gene_rows(
+            genes, "D1", data["datasources"], data["targets"]
+        )
         self.assertEqual(rows[0]["gene"], "Gene 1 (G1)")
+        self.assertEqual(rows[0]["target_class"], "Enzyme")
+        self.assertEqual(rows[0]["target_location"], "Intracellular")
+        self.assertEqual(
+            rows[1]["target_location"], "Secreted / extracellular, Cell surface"
+        )
+        # G9 は targets に無い。
+        self.assertEqual(
+            (rows[2]["target_class"], rows[2]["target_location"]),
+            ("Not annotated", "Unknown"),
+        )
         self.assertEqual(rows[0]["score"], "0.900")
         self.assertEqual(rows[0]["gwas_credible_sets"], "0.900")
         self.assertEqual(rows[0]["eva"], "—")
@@ -230,7 +244,16 @@ class GeneticsLayoutTests(unittest.TestCase):
         )
         fields = [c["field"] for c in grid.columnDefs]
         self.assertEqual(
-            fields, ["gene", "score", "gwas_credible_sets", "eva", "links"]
+            fields,
+            [
+                "gene",
+                "target_class",
+                "target_location",
+                "score",
+                "gwas_credible_sets",
+                "eva",
+                "links",
+            ],
         )
 
     def test_detail_panel_without_selection_and_unavailable_page(self) -> None:
@@ -385,6 +408,8 @@ class GeneticsCallbackTests(unittest.TestCase):
         applied = {
             "genetics-measure": "count",
             "genetics-score": 0.5,
+            "genetics-target-class": "all",
+            "genetics-target-location": "all",
             "genetics-method": "fixed",
             "genetics-threshold": 0.5,
             "genetics-specificity": 0.5,
@@ -420,7 +445,27 @@ class GeneticsCallbackTests(unittest.TestCase):
                 "genetics-applied-parameters.data": applied,
             },
         )
-        self.assertIn("No genes at or above the score threshold", json.dumps(empty))
+        self.assertIn("No genes match the applied filters", json.dumps(empty))
+        narrowed = {**applied, "genetics-target-class": "Membrane receptor"}
+        response = self._post(
+            "genetics-heatmap.figure",
+            {
+                "genetics-applied-parameters.data": narrowed,
+                "genetics-expanded-cell-groups.data": [],
+                "genetics-chart-type.value": "heatmap",
+            },
+        )
+        note = cast(dict[str, object], response["genetics-matrix-note"])["children"]
+        self.assertIn("Target class: Membrane receptor", json.dumps(note))
+        details = self._post(
+            "genetics-details.children",
+            {
+                "genetics-detail-disease.value": "D1",
+                "genetics-applied-parameters.data": narrowed,
+            },
+        )
+        self.assertIn("Gene 2 (G2)", json.dumps(details))
+        self.assertNotIn("Gene 1 (G1)", json.dumps(details))
 
 
 class RouterTests(unittest.TestCase):

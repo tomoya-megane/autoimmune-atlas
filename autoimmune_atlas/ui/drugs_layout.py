@@ -10,6 +10,8 @@ from autoimmune_atlas import aggregation as atlas
 from autoimmune_atlas.disease_catalog import ordered_disease_ids
 from autoimmune_atlas.models import Snapshot, SummaryRow
 from autoimmune_atlas.ui.components import (
+    TARGET_CLASS_HELP,
+    TARGET_LOCATION_HELP,
     choose_defaults,
     disease_selector,
     evidence_grid,
@@ -17,6 +19,8 @@ from autoimmune_atlas.ui.components import (
     format_data_version,
     info_tip,
     page_nav,
+    target_class_dropdown_options,
+    target_location_dropdown_options,
 )
 from autoimmune_atlas.ui.config import (
     DEFAULT_DISEASE_TERMS,
@@ -33,6 +37,8 @@ def detail_panel(
     snapshot: Snapshot | None = None,
     *,
     modality: str = "all",
+    target_class: str = "all",
+    location: str = "all",
     stage: str = "phase3",
     threshold: float = DEFAULT_EXPRESSION_THRESHOLD,
     method: str = "fixed",
@@ -61,13 +67,17 @@ def detail_panel(
         )
     filtered = [
         record
-        for record in atlas.filtered_records(snapshot, modality, stage)
+        for record in atlas.filtered_records(
+            snapshot, modality, stage, target_class, location
+        )
         if record["disease_id"] == row["disease_id"]
     ]
     pairs = evidence_rows(filtered)
     source_context: dict[str, str | float] = {
         "disease_id": row["disease_id"],
         "modality": modality,
+        "target_class": target_class,
+        "location": location,
         "stage": stage,
         "threshold": threshold,
         "method": method,
@@ -240,6 +250,8 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
             PARAMETER_IDS,
             (
                 "percent",
+                "all",
+                "all",
                 "all",
                 "phase3",
                 "specificity",
@@ -414,6 +426,30 @@ def dashboard_layout(snapshot: Snapshot) -> html.Main:
                                             clearable=False,
                                         ),
                                         "The drug modality filter uses the modality that Open Targets records for each original drug form. All includes every modality; Unknown means no mapped modality.",
+                                    ),
+                                    control(
+                                        "Target class",
+                                        "target-class",
+                                        dcc.Dropdown(
+                                            id="target-class",
+                                            options=target_class_dropdown_options(
+                                                snapshot
+                                            ),
+                                            value="all",
+                                            clearable=False,
+                                        ),
+                                        TARGET_CLASS_HELP,
+                                    ),
+                                    control(
+                                        "Target location",
+                                        "target-location",
+                                        dcc.Dropdown(
+                                            id="target-location",
+                                            options=target_location_dropdown_options(),
+                                            value="all",
+                                            clearable=False,
+                                        ),
+                                        TARGET_LOCATION_HELP,
                                     ),
                                 ],
                                 className="filter-group",

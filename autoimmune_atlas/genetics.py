@@ -13,13 +13,19 @@ from autoimmune_atlas.models import (
 
 
 def genes_for_disease(
-    snapshot: atlas.SnapshotInput, disease_id: str, score_threshold: float
+    snapshot: atlas.SnapshotInput,
+    disease_id: str,
+    score_threshold: float,
+    target_class: str = "all",
+    location: str = "all",
 ) -> list[GeneAssociation]:
-    """閾値以上（等号を含む）の関連遺伝子をスコアの降順で返す。"""
+    """閾値以上（等号を含む）で、標的の分類と局在の条件に合う関連遺伝子をスコアの降順で返す。"""
+    targets = snapshot.get("targets", {})
     genes = [
         gene
         for gene in snapshot.get("associations", {}).get(disease_id, [])
         if gene["score"] >= score_threshold
+        and atlas.target_matches(targets.get(gene["target_id"]), target_class, location)
     ]
     return sorted(genes, key=lambda gene: (-gene["score"], gene["target_id"]))
 
@@ -36,6 +42,8 @@ def summarize_genes(
     disease_ids: list[str] | None = None,
     metadata: Mapping[tuple[str, str], ExpressionMetadata] | None = None,
     catalog: list[CellCatalogEntry] | None = None,
+    target_class: str = "all",
+    location: str = "all",
 ) -> list[SummaryRow]:
     """疾患・細胞ごとに、閾値以上の遺伝子のうち発現判定が陽性の数と割合を返す。
 
@@ -68,6 +76,7 @@ def summarize_genes(
         or not 0 <= score_threshold <= 1
     ):
         raise ValueError("スコアの閾値は 0 以上 1 以下の有限の数値にしてください")
+    atlas.validate_target_filters(snapshot, target_class, location)
     if metadata is None:
         metadata = atlas.expression_metadata(snapshot)
     if catalog is None:
@@ -93,7 +102,9 @@ def summarize_genes(
     for disease in snapshot.get("diseases", []):
         if selected_diseases is not None and disease["id"] not in selected_diseases:
             continue
-        genes = genes_for_disease(snapshot, disease["id"], score_threshold)
+        genes = genes_for_disease(
+            snapshot, disease["id"], score_threshold, target_class, location
+        )
         targets = [gene["target_id"] for gene in genes]
         loaded = disease["id"] in associations
         for cell in catalog:

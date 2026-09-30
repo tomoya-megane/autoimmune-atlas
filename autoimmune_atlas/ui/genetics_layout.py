@@ -1,6 +1,6 @@
 """遺伝子ページの画面構成。"""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 
 import dash_ag_grid as dag  # pyright: ignore[reportMissingTypeStubs] - dash-ag-grid に型スタブがない。
@@ -13,13 +13,19 @@ from autoimmune_atlas.models import (
     GeneAssociation,
     Snapshot,
     SummaryRow,
+    TargetAnnotation,
 )
 from autoimmune_atlas.ui.components import (
+    TARGET_CLASS_HELP,
+    TARGET_LOCATION_HELP,
     choose_defaults,
     disease_selector,
     format_data_version,
     info_tip,
     page_nav,
+    target_cells,
+    target_class_dropdown_options,
+    target_location_dropdown_options,
 )
 from autoimmune_atlas.ui.config import (
     DEFAULT_DISEASE_TERMS,
@@ -35,6 +41,8 @@ OPEN_TARGETS = "https://platform.opentargets.org/"
 
 GENE_COLUMNS: tuple[tuple[str, str, str | None], ...] = (
     ("gene", "Gene", None),
+    ("target_class", "Target class", TARGET_CLASS_HELP),
+    ("target_location", "Target location", TARGET_LOCATION_HELP),
     (
         "score",
         "Genetic association score",
@@ -45,13 +53,17 @@ GENE_COLUMNS: tuple[tuple[str, str, str | None], ...] = (
 
 
 def gene_rows(
-    genes: Sequence[GeneAssociation], disease_id: str, datasources: Sequence[str]
+    genes: Sequence[GeneAssociation],
+    disease_id: str,
+    datasources: Sequence[str],
+    targets: Mapping[str, TargetAnnotation],
 ) -> list[dict[str, str]]:
-    """閾値以上の遺伝子 1 件を 1 行にし、datasource ごとのスコアを列にする。"""
+    """閾値以上の遺伝子 1 件を 1 行にし、標的の分類と局在、datasource ごとのスコアを列にする。"""
     rows: list[dict[str, str]] = []
     for gene in genes:
         row = {
             "gene": f"{gene['target']} ({gene['target_id']})",
+            **target_cells(targets.get(gene["target_id"])),
             "score": f"{gene['score']:.3f}",
             "links": f"[Evidence](https://platform.opentargets.org/evidence/{gene['target_id']}/{disease_id})",
         }
@@ -65,7 +77,8 @@ def gene_rows(
 def gene_grid(rows: Sequence[dict[str, str]], datasources: Sequence[str]) -> dag.AgGrid:
     """列ごとにソートと絞り込みができる、関連遺伝子の表。"""
     column_defs: list[dict[str, object]] = []
-    for field, header, help_text in GENE_COLUMNS[:2]:
+    # links は datasource の列の後ろに置くので、ここでは最後の 1 列を除く。
+    for field, header, help_text in GENE_COLUMNS[:-1]:
         column: dict[str, object] = {"field": field, "headerName": header}
         if help_text:
             column["headerTooltip"] = help_text
@@ -127,6 +140,8 @@ def genetics_detail_panel(
     threshold: float,
     method: str,
     specificity: float,
+    target_class: str = "all",
+    location: str = "all",
 ) -> html.Div:
     """選択した疾患の関連遺伝子の表と連続発現を表示する。"""
     if selection is None:
@@ -140,10 +155,14 @@ def genetics_detail_panel(
             "The previous disease is outside the current filters. Select a visible disease.",
             className="empty-note",
         )
-    genes = gene_data.genes_for_disease(snapshot, row["disease_id"], score_threshold)
+    genes = gene_data.genes_for_disease(
+        snapshot, row["disease_id"], score_threshold, target_class, location
+    )
     source_context: dict[str, str | float] = {
         "disease_id": row["disease_id"],
         "score": score_threshold,
+        "target_class": target_class,
+        "location": location,
         "threshold": threshold,
         "method": method,
         "specificity": specificity,
@@ -151,12 +170,14 @@ def genetics_detail_panel(
     # 遺伝子が無くても発現欄は残し、発現の callback が空の旨を表示する。
     table: Component = (
         gene_grid(
-            gene_rows(genes, row["disease_id"], snapshot["datasources"]),
+            gene_rows(
+                genes, row["disease_id"], snapshot["datasources"], snapshot["targets"]
+            ),
             snapshot["datasources"],
         )
         if genes
         else html.P(
-            "No genes at or above the score threshold for this disease.",
+            "No genes match the applied filters for this disease.",
             className="empty-note",
         )
     )
@@ -326,6 +347,8 @@ def genetics_page(snapshot: Snapshot) -> html.Main:
             (
                 "percent",
                 DEFAULT_SCORE_THRESHOLD,
+                "all",
+                "all",
                 "specificity",
                 DEFAULT_EXPRESSION_THRESHOLD,
                 DEFAULT_SPECIFICITY_THRESHOLD,
@@ -452,6 +475,30 @@ def genetics_page(snapshot: Snapshot) -> html.Main:
                                             value=DEFAULT_SCORE_THRESHOLD,
                                         ),
                                         "The score threshold keeps genes whose Open Targets genetic association score for the disease is at or above this value. Empty or out-of-range values use 0.5.",
+                                    ),
+                                    _labelled(
+                                        "Target class",
+                                        "genetics-target-class",
+                                        dcc.Dropdown(
+                                            id="genetics-target-class",
+                                            options=target_class_dropdown_options(
+                                                snapshot
+                                            ),
+                                            value="all",
+                                            clearable=False,
+                                        ),
+                                        TARGET_CLASS_HELP,
+                                    ),
+                                    _labelled(
+                                        "Target location",
+                                        "genetics-target-location",
+                                        dcc.Dropdown(
+                                            id="genetics-target-location",
+                                            options=target_location_dropdown_options(),
+                                            value="all",
+                                            clearable=False,
+                                        ),
+                                        TARGET_LOCATION_HELP,
                                     ),
                                 ],
                                 className="filter-group",

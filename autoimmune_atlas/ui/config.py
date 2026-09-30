@@ -6,6 +6,8 @@ SOURCE_PAGE_SIZE = 10
 PARAMETER_IDS = (
     "measure",
     "modality",
+    "target-class",
+    "target-location",
     "stage",
     "method",
     "threshold",
@@ -24,10 +26,14 @@ METHOD_LABELS = {
     "relative": "Fixed CPM + Target-relative median",
     "specificity": "Fixed CPM + CELLEX specificity",
 }
+# 分類の無い標的の表示名。ChEMBL の実ラベル Unclassified protein と取り違えないよう別の語にする。
+NOT_ANNOTATED_LABEL = "Not annotated"
 DEFAULT_SCORE_THRESHOLD = 0.5
 GENETICS_PARAMETER_IDS = (
     "genetics-measure",
     "genetics-score",
+    "genetics-target-class",
+    "genetics-target-location",
     "genetics-method",
     "genetics-threshold",
     "genetics-specificity",

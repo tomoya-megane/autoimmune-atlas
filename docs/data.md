@@ -1,18 +1,18 @@
 # 保存データの形と取得の手順
 
-アプリが読むデータは、`data/snapshot.json`（schema 3）の 1 ファイルである。
+アプリが読むデータは、`data/snapshot.json`（schema 4）の 1 ファイルである。
 このファイルは git で追跡せず、環境ごとに `pixi run refresh` で Open Targets の公開 API から取得する。
 アプリは起動時に `load_snapshot()` でこのファイルを読み、実行中は取り直さない。
 この文書は、ファイルが持つキーの全部と、`pixi run refresh` がそれを作る手順を述べる。
 集計の規則は[現行の設計](design.md)に、遺伝子ページの規則は[遺伝学的関連遺伝子のページの設計](genetics-design.md)に、疾患の起点は[対象疾患の起点](disease-roots.md)にある。
 
-## ファイルは 12 のキーを持つ
+## ファイルは 13 のキーを持つ
 
-最上位のキーは次の 12 個で、型は `autoimmune_atlas/models.py` の `Snapshot` が定める。
+最上位のキーは次の 13 個で、型は `autoimmune_atlas/models.py` の `Snapshot` が定める。
 
 | キー | 型 | 中身 |
 | --- | --- | --- |
-| `schema` | `int` | 保存の形の版。`refresh` は `3` を書く |
+| `schema` | `int` | 保存の形の版。`refresh` は `4` を書く |
 | `root` | `str` か `RootIdentity` | 最初の起点の疾患 ID。`refresh` は `SCOPE_ROOTS` の先頭（`MONDO_0007179`）を文字列で書く。型は `{id, name}` の形も受け付ける |
 | `roots` | `list[SnapshotRoot]` | 起点ごとの `id`、`name`、`include_descendants`、`count`。`count` は、その起点から数えた疾患の数（下位語を含めるなら下位語と起点の合計）である |
 | `data_version` | `DataVersion` | Open Targets のデータの版。`year` と `month` は文字列、`iteration` は文字列か整数か `null` |
@@ -24,9 +24,10 @@
 | `datasources` | `list[str]` | genetic association に属する datasource の ID |
 | `cells` | `dict[str, CellDefinition]` | 細胞 ID ごとの名前、親分類、祖先 |
 | `expression` | `dict[str, list[ExpressionRow]]` | 遺伝子 ID ごとの、細胞型別の発現の行 |
+| `targets` | `dict[str, TargetAnnotation]` | 遺伝子 ID ごとの、標的の分類と細胞内局在 |
 
 `roots` と `data_version` は、型の上では `NotRequired` である。
-`refresh` は、この 2 つを含む 12 個を必ず書く。
+`refresh` は、この 2 つを含む 13 個を必ず書く。
 
 ## 疾患と薬剤の記録は Open Targets の値をそのまま持つ
 
@@ -172,12 +173,29 @@ Target-relative median の基準になる標的内中央値は、その遺伝子
 配列にすればファイルはさらに小さくなるが、読むときにキーの順序を覚えておく必要がある。
 dict のままでも 96 MB に収まったので、読みやすさを優先する。
 
+## 標的の分類と局在は Open Targets の値をそのまま持つ
+
+`targets` の値の `TargetAnnotation` は 2 つのキーを持つ。
+キーは `expression` と同じく、薬剤の標的と関連遺伝子の和集合の全部である。
+
+| キー | 中身 |
+| --- | --- |
+| `target_class` | Open Targets の `targetClass` のうち、`level` が `l1` のものの `label`（ChEMBL の蛋白質分類の level 1）。無ければ `null` |
+| `locations` | Open Targets の `subcellularLocations` の行。1 行は `location` と `source` の 2 キーで、取得したまま並べる。無ければ空の配列 |
+
+`l1` の分類が 2 つ以上ある標的は、取得を失敗にする。
+測ったところ、全 7,299 標的で 0 件だった。
+
+絞り込みに使う局在の粗い分類（Secreted / extracellular、Cell surface、Intracellular、Unknown）は保存しない。
+`modality` を `drug_type` から作るのと同じく、集計が読み込み時に `locations` から作る。
+規則は `aggregation.location_classes()` にある。
+
 ## 読み込みは msgspec で型ごと検証する
 
 ### 検証の結果
 
 `autoimmune_atlas/snapshot.py` の `load_snapshot()` は、`msgspec.json.decode()` で `Snapshot` の型を指定してファイルを読む。
-入れ子の `Disease`、`DrugRecord`、`GeneAssociation`、`CellDefinition`、`ExpressionRow` まで、キーと値の型をこの時点で確かめる。
+入れ子の `Disease`、`DrugRecord`、`GeneAssociation`、`CellDefinition`、`ExpressionRow`、`TargetAnnotation` まで、キーと値の型をこの時点で確かめる。
 結果は次の 4 通りである。
 
 | ファイルの状態 | 結果 |
@@ -185,9 +203,9 @@ dict のままでも 96 MB に収まったので、読みやすさを優先す�
 | 無い | `None` を返す |
 | JSON として読めない | `ValueError("snapshot.json is not valid JSON: ...")` |
 | 型に合わない | `ValueError("Unsupported snapshot format (...). Refresh it with: pixi run refresh")` |
-| 型に合うが `schema` が 3 でない | `ValueError("Unsupported snapshot schema N. Refresh it with: pixi run refresh")` |
+| 型に合うが `schema` が 4 でない | `ValueError("Unsupported snapshot schema N. Refresh it with: pixi run refresh")` |
 
-schema 1 と 2 のファイルは `cells` などのキーを持たないので、型に合わない場合にあたる。
+schema 1 と 2 のファイルは `cells` などのキーを、schema 3 のファイルは `targets` を持たないので、型に合わない場合にあたる。
 古い形を読み替える処理は、アプリに置かない。
 `data/` は環境ごとに取り直す規約なので、`pixi run refresh` を 1 回打てば済む。
 
@@ -212,12 +230,13 @@ schema 1 と 2 のファイルは `cells` などのキーを持たないので�
 5. 疾患ごとに `associatedTargets(enableIndirect: false, orderByScore: "genetic_association")` を 500 件（`PAGE_SIZE`）ずつ取る。datatype `genetic_association` のスコアを持たない遺伝子に当たった時点で、その疾患のページングを止める。総件数に達する前に空のページが返れば、失敗にする
 6. 関連遺伝子の `datasourceScores` に現れた datasource ごとに、それを持つ疾患と遺伝子の組を 1 つ選び、`evidences(size: 1)` で根拠を 1 件取る。その `datatypeId` が `genetic_association` の datasource だけを `datasources` に残し、`datasource_scores` もそれに絞る。根拠が 1 件も取れない datasource があれば失敗にする
 7. 薬剤の標的（空文字列を除く）と関連遺伝子の和集合を、発現を取る遺伝子にする
-8. 同じ版の既存ファイルから、発現の行と細胞の定数を再利用する。規則は[次の節](#同じ版の発現は既存のファイルから再利用する)にある
-9. 残りの遺伝子の発現を、2 スレッド（`max_workers=2`）で取る。1 遺伝子につき `baselineExpression` を 3,000 行ずつ全ページ取り、件数が `count` と一致しなければ失敗にする
-10. 発現に現れた細胞 ID が全部 `cells` にあることを確かめ、`cells` をその細胞だけに絞る
-11. 版をもう一度取り、手順 1 と違えば「取得中にデータの版が変わりました。再取得してください」で失敗にする
-12. `cell_catalog()` を 1 回呼び、同じ親分類 ID に別の名前が付いていないかを確かめる
-13. 一時ファイルに書いてから `data/snapshot.json` を置き換える
+8. その遺伝子を 150 件ずつ `targets(ensemblIds:)` で照会し、`targetClass` と `subcellularLocations` を取って `targets` を作る。返った ID の集合が照会した 150 件と一致しないとき、`l1` の分類が 2 つ以上あるときは失敗にする
+9. 同じ版の既存ファイルから、発現の行と細胞の定数を再利用する。規則は[次の節](#同じ版の発現は既存のファイルから再利用する)にある
+10. 残りの遺伝子の発現を、2 スレッド（`max_workers=2`）で取る。1 遺伝子につき `baselineExpression` を 3,000 行ずつ全ページ取り、件数が `count` と一致しなければ失敗にする
+11. 発現に現れた細胞 ID が全部 `cells` にあることを確かめ、`cells` をその細胞だけに絞る
+12. 版をもう一度取り、手順 1 と違えば「取得中にデータの版が変わりました。再取得してください」で失敗にする
+13. `cell_catalog()` を 1 回呼び、同じ親分類 ID に別の名前が付いていないかを確かめる
+14. 一時ファイルに書いてから `data/snapshot.json` を置き換える
 
 ### 関連遺伝子のページングの前提
 
@@ -278,12 +297,12 @@ HTTP の状態が 200 でないとき、応答に `errors` があるとき、`da
 版が違えば、そのファイルは使わない。
 
 - ファイルが無い、JSON として読めない、緩い型（`_StoredFile`）に合わない、版が違う、のどれかに当たれば、そのファイルを飛ばす
-- schema 3 の `snapshot.json` は、`cells` と 3 キーの行をそのまま読む
+- schema 3 と 4 の `snapshot.json` は、`cells` と 3 キーの行をそのまま読む。発現の形は 2 つの版で変わらない
 - schema 2 の `snapshot.json` と schema 1 の `genetics.json` の行は、`cell`、`parent_id`、`parent`、`ancestor_ids` を持つ。そこから細胞の定数を `cells` へ移し、行は `cell_id`、`median`、`specificity_score` の 3 キーにする
 - 同じ遺伝子が両方のファイルにあれば、先に読んだファイルの行を使う
 - 細胞の定数は、後のファイルにしか無い遺伝子の行も含めて、全部の行から集めて比べる。食い違えば取得を失敗にする
 
-`load_snapshot()` は schema 3 しか受け付けないので、再利用では別の緩い型で読む。
+`load_snapshot()` は schema 4 しか受け付けないので、再利用では別の緩い型で読む。
 再利用した遺伝子のうち、今回の和集合に無いものは保存しない。
 
 ### `genetics.json` を読む理由
